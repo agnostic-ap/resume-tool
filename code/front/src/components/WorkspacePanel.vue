@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
 import type { ActivityEvent, ApplicationStage, JobApplication, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
 
@@ -22,6 +23,8 @@ const renameId = ref('')
 const renameDraft = ref('')
 const applicationFormOpen = ref(false)
 const editingApplicationId = ref('')
+const applicationError = ref('')
+const pendingDeleteResume = ref<{ id: string; title: string } | null>(null)
 const applicationDraft = reactive({
   company: '',
   location: '',
@@ -196,13 +199,16 @@ function openApplicationForm(app?: JobApplication) {
 function closeApplicationForm() {
   applicationFormOpen.value = false
   editingApplicationId.value = ''
+  applicationError.value = ''
 }
 
 function saveApplication() {
   if (!applicationDraft.company.trim() || !applicationDraft.role.trim()) {
+    applicationError.value = label('请先填写公司和岗位。', 'Add company and role before saving.')
     showToast(label('公司和岗位必填', 'Company and role are required'), 'error')
     return
   }
+  applicationError.value = ''
   const payload = {
     company: applicationDraft.company.trim(),
     location: applicationDraft.location.trim(),
@@ -250,6 +256,11 @@ function startRename(id: string, title: string) {
   renameDraft.value = title
 }
 
+function cancelRename() {
+  renameId.value = ''
+  renameDraft.value = ''
+}
+
 function finishRename() {
   if (!renameId.value) return
   store.renameResume(renameId.value, renameDraft.value)
@@ -263,7 +274,20 @@ function duplicateDocument(id: string) {
 }
 
 function deleteDocument(id: string) {
-  store.deleteResume(id)
+  const doc = store.documents.find((item) => item.id === id)
+  if (!doc) return
+  if (store.documents.length <= 1) {
+    store.deleteResume(id)
+    return
+  }
+  pendingDeleteResume.value = { id, title: doc.title }
+}
+
+function confirmDeleteDocument() {
+  if (!pendingDeleteResume.value) return
+  store.deleteResume(pendingDeleteResume.value.id)
+  showToast(label('简历已删除', 'Resume deleted'), 'success')
+  pendingDeleteResume.value = null
 }
 
 function recordCareerUpdate() {
@@ -338,7 +362,7 @@ function matchClass(score: number) {
 </script>
 
 <template>
-  <main class="workspace-main" :class="`workspace-main--${props.mode}`">
+  <main id="main-content" class="workspace-main" :class="`workspace-main--${props.mode}`">
     <div class="workspace-inner">
       <section v-if="props.mode === 'workspace' || props.mode === 'editor'" class="section">
         <div class="section__head">
@@ -479,7 +503,7 @@ function matchClass(score: number) {
               <span class="menu">{{ doc.id === store.activeResumeId ? 'LIVE' : '···' }}</span>
             </div>
             <div>
-              <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @blur="finishRename" />
+              <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @keydown.esc="cancelRename" @blur="finishRename" />
               <div v-else class="doc__title">{{ doc.title }}</div>
               <div class="doc__role">{{ t(doc.config.templateId) }} · {{ doc.data.personal.title || doc.data.personal.name || label('未命名', 'Untitled') }}</div>
             </div>
@@ -494,7 +518,7 @@ function matchClass(score: number) {
             <div class="doc-actions" @click.stop>
               <button @click="startRename(doc.id, doc.title)">{{ locale === 'zh-CN' ? '重命名' : 'Rename' }}</button>
               <button @click="duplicateDocument(doc.id)">{{ locale === 'zh-CN' ? '复制' : 'Copy' }}</button>
-              <button @click="deleteDocument(doc.id)">{{ locale === 'zh-CN' ? '删除' : 'Delete' }}</button>
+              <button class="danger-link" @click="deleteDocument(doc.id)">{{ locale === 'zh-CN' ? '删除' : 'Delete' }}</button>
             </div>
           </article>
           <article class="doc doc--new" @click="createBlank">
@@ -533,6 +557,7 @@ function matchClass(score: number) {
               <strong>{{ editingApplicationId ? label('编辑投递记录', 'Edit application') : label('新增投递记录', 'New application') }}</strong>
               <button type="button" @click="closeApplicationForm">×</button>
             </div>
+            <p v-if="applicationError" class="form-error">{{ applicationError }}</p>
             <div class="application-form__grid">
               <label>
                 <span>{{ t('company') }}</span>
@@ -814,5 +839,11 @@ function matchClass(score: number) {
         </div>
       </section>
     </div>
+    <ConfirmDialog v-if="pendingDeleteResume"
+      :title="label('删除这份简历？', 'Delete this resume?')"
+      :message="label(`“${pendingDeleteResume.title}”会从列表移除，关联投递会自动改到另一份简历。`, `“${pendingDeleteResume.title}” will be removed, and linked applications will move to another resume.`)"
+      danger
+      @confirm="confirmDeleteDocument"
+      @cancel="pendingDeleteResume = null" />
   </main>
 </template>

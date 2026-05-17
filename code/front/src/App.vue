@@ -121,11 +121,13 @@ function syncHash() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null
+  const isEditingText = target?.matches('input, textarea, select, [contenteditable="true"]')
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     commandOpen.value = !commandOpen.value
   }
-  if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && currentView.value === 'workspace') {
+  if (!isEditingText && e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && currentView.value === 'workspace') {
     navigate('editor')
   }
 }
@@ -145,19 +147,24 @@ onUnmounted(() => {
 
 <template>
   <div :class="shellClasses">
+    <a class="skip-link" href="#main-content">{{ l('跳到主要内容', 'Skip to main content') }}</a>
     <aside class="studio-rail" aria-label="主导航">
       <div class="rail-mark">R</div>
       <button v-for="item in railItems" :key="item.id"
         class="rail-action"
         :class="{ 'is-active': currentView === item.id }"
         :title="tr(item.label)"
+        :aria-label="tr(item.label)"
+        :aria-current="currentView === item.id ? 'page' : undefined"
         @click="navigate(item.id)">
         <span>{{ item.icon }}</span>
+        <b class="rail-label">{{ tr(item.label) }}</b>
         <small v-if="item.count">{{ item.count }}</small>
       </button>
       <div class="rail-spacer" />
-      <button class="rail-action" :class="{ 'is-active': currentView === 'settings' }" :title="t('settings')" @click="navigate('settings')">
+      <button class="rail-action" :class="{ 'is-active': currentView === 'settings' }" :title="t('settings')" :aria-label="t('settings')" :aria-current="currentView === 'settings' ? 'page' : undefined" @click="navigate('settings')">
         <span>⌘</span>
+        <b class="rail-label">{{ t('settings') }}</b>
       </button>
     </aside>
 
@@ -171,7 +178,7 @@ onUnmounted(() => {
       @navigate="navigate"
       @command="runCommand" />
 
-    <main v-else-if="currentView === 'editor'" :class="editorClasses" :style="editorGridStyle">
+    <main v-else-if="currentView === 'editor'" id="main-content" :class="editorClasses" :style="editorGridStyle">
       <EditorPanel :show-tree="store.config.tweaks.showTree" />
       <PreviewPanel />
       <aside v-if="store.config.tweaks.showAI" class="inspector-panel">

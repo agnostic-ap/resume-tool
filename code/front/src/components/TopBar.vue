@@ -79,8 +79,8 @@ const confirmAction = ref<ConfirmAction>('clearAll')
 const confirmMeta = computed(() => ({
   clearAll: {
     title: l('新建空白简历', 'Create blank resume'),
-    message: l('当前内容将被清空，无法撤销。确认继续？', 'The current content will be cleared and cannot be undone. Continue?'),
-    danger: true,
+    message: l('会创建一份新的空白简历，当前简历会保留在列表里。', 'This creates a new blank resume and keeps the current one in your document list.'),
+    danger: false,
   },
   resetDemo: {
     title: l('重置为示例数据', 'Reset to demo data'),
