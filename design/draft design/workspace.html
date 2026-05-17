@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>工作台 · Resume Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+
+/* === data.jsx === */
+/* Mock data for workspace */
+
+const DOCUMENTS = [
+  {
+    id: 'r-001',
+    title: 'Senior Frontend Engineer',
+    titleEm: 'Engineer',
+    role: 'Resume · v2.4 · zh-CN',
+    lang: 'ZH',
+    updated: '4 min ago',
+    versions: 23,
+    views: 142,
+    pinned: true,
+    sig: 'L',
+    live: true,
+  },
+  {
+    id: 'r-002',
+    title: 'Full-Stack · Stripe',
+    titleEm: 'Stripe',
+    role: 'Tailored · Stripe Inc.',
+    lang: 'EN',
+    updated: 'yesterday',
+    versions: 8,
+    views: 31,
+    sig: 'S',
+  },
+  {
+    id: 'r-003',
+    title: 'Indie Hacker Portfolio',
+    titleEm: 'Indie',
+    role: 'Long-form · solo projects',
+    lang: 'EN',
+    updated: '3 days ago',
+    versions: 12,
+    views: 88,
+    sig: 'I',
+  },
+  {
+    id: 'r-004',
+    title: '独立开发者 · 中文版',
+    titleEm: '独立',
+    role: 'Long-form · 个人作品集',
+    lang: 'ZH',
+    updated: '1 week ago',
+    versions: 5,
+    views: 19,
+    sig: '独',
+  },
+  {
+    id: 'r-005',
+    title: 'Staff Engineer · Linear',
+    titleEm: 'Linear',
+    role: 'Tailored · 上次未投递',
+    lang: 'EN',
+    updated: '2 weeks ago',
+    versions: 3,
+    views: 12,
+    sig: 'L',
+  },
+];
+
+const APPLICATIONS = [
+  { co: 'Vercel',     mono: 'V', loc: 'Remote · NA',         role: 'Senior Frontend',         dept: 'Web Platform',     resume: 'Senior Frontend v2.4', stage: 'onsite',  stageLabel: 'On-site',  match: 92, when: 'Mar 12',  ago: '2d ago' },
+  { co: 'Stripe',     mono: 'S', loc: 'Dublin · Hybrid',     role: 'Full-Stack Engineer',     dept: 'Payments API',     resume: 'Full-Stack · Stripe',  stage: 'screen',  stageLabel: 'Recruiter', match: 84, when: 'Mar 10',  ago: '4d ago' },
+  { co: 'Linear',     mono: 'L', loc: 'Remote · Global',     role: 'Staff Engineer',          dept: 'Sync Engine',      resume: 'Staff · Linear',       stage: 'offer',   stageLabel: 'Offer',     match: 96, when: 'Mar 04',  ago: '10d ago' },
+  { co: 'Anthropic',  mono: 'A', loc: 'SF · On-site',        role: 'Member of Technical Staff', dept: 'Applied',        resume: 'Senior Frontend v2.4', stage: 'applied', stageLabel: 'Applied',   match: 71, when: 'Mar 02',  ago: '12d ago' },
+  { co: 'Figma',      mono: 'F', loc: 'NYC · Hybrid',        role: 'Software Engineer · UI',  dept: 'Editor',           resume: 'Senior Frontend v2.4', stage: 'onsite',  stageLabel: 'On-site',  match: 88, when: 'Feb 28',  ago: '14d ago' },
+  { co: 'Notion',     mono: 'N', loc: 'SF · Remote-friendly',role: 'Software Engineer',       dept: 'Databases',        resume: 'Indie Hacker',         stage: 'rejected',stageLabel: 'Closed',    match: 64, when: 'Feb 22',  ago: '20d ago' },
+];
+
+const COMMITS = [
+  {
+    type: 'ai',
+    msg: <><span className="tag tag--ai">AI</span><b>refactor</b>(experience): tighten Stripe bullets, quantify impact</>,
+    meta: 'Claude · auto-edit · 7 lines changed · accepted by you',
+    hash: 'c4f2b1e',
+    when: '4m',
+  },
+  {
+    type: 'normal',
+    msg: <><span className="tag">edit</span>add side-project · <em className="serif-italic">Wavelet</em></>,
+    meta: '@lin · projects.mdx · +14 / −0',
+    hash: 'd9012a3',
+    when: '1h',
+  },
+  {
+    type: 'branch',
+    msg: <><span className="tag tag--branch">branch</span>created <b>stripe-tailor</b> from main</>,
+    meta: '@lin · forked Senior Frontend v2.4',
+    hash: '0f8d4cc',
+    when: '6h',
+  },
+  {
+    type: 'ai',
+    msg: <><span className="tag tag--ai">AI</span><b>translate</b>(resume): zh-CN ⇄ en-US sections synced</>,
+    meta: 'Claude · tool: translate_section · 4 blocks',
+    hash: 'a1bb732',
+    when: '1d',
+  },
+  {
+    type: 'normal',
+    msg: <><span className="tag">export</span>PDF · A4 · serif · 1 page</>,
+    meta: 'downloaded by @lin · 312 KB',
+    hash: '7e3aa9f',
+    when: '1d',
+  },
+  {
+    type: 'normal',
+    msg: <><span className="tag">edit</span>update headline · skill ordering</>,
+    meta: '@lin · header.mdx · ±5 lines',
+    hash: '2c1f9d8',
+    when: '2d',
+  },
+];
+
+
+/* === icons.jsx === */
+/* Inline SVG icons — stroke-based, no emoji */
+
+const I = ({ children, size = 18, stroke = 1.5 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round">
+    {children}
+  </svg>
+);
+
+const Icons = {
+  Home:    (p) => <I {...p}><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></I>,
+  Docs:    (p) => <I {...p}><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></I>,
+  Wand:    (p) => <I {...p}><path d="M4 20l8-8"/><path d="M14 6l2 2"/><path d="M18 4l2 2"/><path d="M16 10l2 2"/><path d="M12 4l1 1"/></I>,
+  Pipe:    (p) => <I {...p}><rect x="3" y="5" width="6" height="14"/><rect x="9" y="9" width="6" height="10"/><rect x="15" y="13" width="6" height="6"/></I>,
+  Clock:   (p) => <I {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></I>,
+  Tpl:     (p) => <I {...p}><rect x="3" y="4" width="18" height="6"/><rect x="3" y="12" width="8" height="8"/><rect x="13" y="12" width="8" height="8"/></I>,
+  Cog:     (p) => <I {...p}><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></I>,
+  Help:    (p) => <I {...p}><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></I>,
+  Search:  (p) => <I {...p}><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></I>,
+  Plus:    (p) => <I {...p}><path d="M12 5v14M5 12h14"/></I>,
+  Export:  (p) => <I {...p}><path d="M4 14v5h16v-5"/><path d="M12 4v11"/><path d="M8 8l4-4 4 4"/></I>,
+  Open:    (p) => <I {...p}><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M14 14v6H4V10h6"/></I>,
+  Diff:    (p) => <I {...p}><path d="M12 4v16"/><path d="M5 8h4M5 16h4"/><path d="M15 8h4M15 16h4"/></I>,
+  Github:  (p) => <I {...p} stroke={1.4}><path d="M9 19c-4 1-4-2-6-2"/><path d="M15 22v-3.5a3 3 0 0 0-.9-2.3c3-.4 5.9-1.5 5.9-6.5a5 5 0 0 0-1.4-3.5c.1-.3.6-1.8-.1-3.7 0 0-1.1-.4-3.5 1.3a12 12 0 0 0-6 0C6.6 2.1 5.5 2.5 5.5 2.5c-.7 1.9-.2 3.4-.1 3.7A5 5 0 0 0 4 9.7c0 5 2.9 6.1 5.7 6.5a3 3 0 0 0-.9 2.3V22"/></I>,
+  Lang:    (p) => <I {...p}><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></I>,
+  Branch:  (p) => <I {...p}><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 8v8"/><path d="M18 10c0 4-6 4-6 8"/></I>,
+  Sparkle: (p) => <I {...p}><path d="M12 4v4M12 16v4M4 12h4M16 12h4M7 7l2.5 2.5M14.5 14.5L17 17M7 17l2.5-2.5M14.5 9.5L17 7"/></I>,
+  Pin:     (p) => <I {...p}><path d="M12 17v5"/><path d="M9 11l-3 3h12l-3-3V4H9z"/></I>,
+  Eye:     (p) => <I {...p}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></I>,
+  ArrowR:  (p) => <I {...p}><path d="M5 12h14M13 6l6 6-6 6"/></I>,
+};
+
+
+/* === chrome.jsx === */
+/* Top bar + left rail */
+
+function Topbar({ onOpenCmdk }) {
+  return (
+    <header className="topbar">
+      <div className="topbar__brand">
+        <div className="logo">R</div>
+        <div className="wordmark">
+          Résumé<small>STUDIO</small>
+        </div>
+      </div>
+
+      <nav className="topbar__crumbs">
+        <span>workspace</span>
+        <span className="sep">/</span>
+        <span>@lin</span>
+        <span className="sep">/</span>
+        <span className="cur">Overview</span>
+        <span className="badge">main</span>
+      </nav>
+
+      <div className="topbar__actions">
+        <button className="topbar__btn" onClick={onOpenCmdk}>
+          <Icons.Search size={14} />
+          <span>Search & commands</span>
+          <kbd>⌘K</kbd>
+        </button>
+        <a className="topbar__btn" href="#github" title="Open on GitHub">
+          <Icons.Github size={14} />
+          <span>GitHub</span>
+          <span className="star">★ 12.4k</span>
+        </a>
+        <button className="topbar__btn" title="Settings">
+          <Icons.Cog size={14} />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function Rail() {
+  const [active, setActive] = React.useState('home');
+  const items = [
+    { id: 'home',    icon: Icons.Home,  label: 'Overview' },
+    { id: 'docs',    icon: Icons.Docs,  label: 'Documents', num: 5 },
+    { id: 'wand',    icon: Icons.Wand,  label: 'AI Studio' },
+    { id: 'tpl',     icon: Icons.Tpl,   label: 'Templates' },
+    { id: 'pipe',    icon: Icons.Pipe,  label: 'Pipeline', num: 12 },
+    { id: 'clock',   icon: Icons.Clock, label: 'History' },
+  ];
+  const bottom = [
+    { id: 'help', icon: Icons.Help, label: 'Help' },
+    { id: 'set',  icon: Icons.Cog,  label: 'Settings' },
+  ];
+
+  return (
+    <aside className="rail">
+      <div className="rail__group">
+        {items.map((it) => (
+          <button
+            key={it.id}
+            className={'rail__btn' + (active === it.id ? ' is-active' : '')}
+            onClick={() => setActive(it.id)}
+            aria-label={it.label}
+          >
+            <it.icon />
+            {it.num && <span className="num">{it.num}</span>}
+            <span className="rail__tooltip">{it.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="rail__group rail__group--bottom">
+        {bottom.map((it) => (
+          <button key={it.id} className="rail__btn" aria-label={it.label}>
+            <it.icon />
+            <span className="rail__tooltip">{it.label}</span>
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+
+/* === hero.jsx === */
+/* Hero — current/pinned document with mini-preview */
+
+function Hero() {
+  return (
+    <div className="hero">
+      <div className="hero__left">
+        <div className="hero__eyebrow">
+          <span className="dot"></span>
+          <span>Pinned · currently editing</span>
+          <span style={{ marginLeft: 'auto', color: 'var(--ink-4)' }}>main · v2.4</span>
+        </div>
+
+        <h1 className="hero__title">
+          Senior Frontend <em>Engineer</em>
+        </h1>
+        <div className="hero__sub">
+          <span className="pill">zh-CN</span>
+          <span>simplified · serif template</span>
+          <span style={{ color: 'var(--ink-5)' }}>·</span>
+          <span>last saved 4 min ago</span>
+        </div>
+
+        <div className="hero__stats">
+          <div className="hero__stat">
+            <div className="k">Versions</div>
+            <div className="v">23<small>commits</small></div>
+          </div>
+          <div className="hero__stat">
+            <div className="k">Tailored</div>
+            <div className="v">4<small>branches</small></div>
+          </div>
+          <div className="hero__stat">
+            <div className="k">Views</div>
+            <div className="v">142<small>shares</small></div>
+          </div>
+          <div className="hero__stat">
+            <div className="k">Match · avg</div>
+            <div className="v">87<small>/100</small></div>
+          </div>
+        </div>
+
+        <div className="hero__actions">
+          <a href="editor.html" className="btn btn--primary" style={{ textDecoration: 'none' }}>
+            <Icons.Open size={14} />
+            Open editor
+            <kbd>E</kbd>
+          </a>
+          <button className="btn">
+            <Icons.Wand size={14} />
+            Tailor with AI
+          </button>
+          <button className="btn btn--ghost">
+            <Icons.Export size={14} />
+            Export PDF
+          </button>
+          <button className="btn btn--ghost">
+            <Icons.Diff size={14} />
+            View diff
+          </button>
+        </div>
+      </div>
+
+      <div className="hero__right">
+        <div className="preview__bar">
+          <div className="tabs">
+            <span className="on">preview.pdf</span>
+            <span>header.mdx</span>
+            <span>experience.mdx</span>
+          </div>
+          <span>A4 · 1 / 1</span>
+        </div>
+        <div className="preview">
+          <div className="preview__paper">
+            <h1>林 默 · Lin Mo</h1>
+            <div className="role">Senior Frontend Engineer · Shanghai</div>
+            <div className="rule"></div>
+
+            <h3>Summary</h3>
+            <p>
+              Full-stack engineer with 7 years building developer tools, design
+              systems and editor-class web apps. Shipped at Stripe, Linear and a
+              YC-backed dev-infra startup. Open-source maintainer (12k★).
+            </p>
+
+            <h3>Experience</h3>
+            <div className="row"><strong>Linear · Staff Engineer</strong><span>2023 — Now</span></div>
+            <p style={{ fontSize: 8.5, color: 'var(--ink-3)' }}>
+              Owned the collaborative document engine. Reduced sync latency by 38%,
+              led the migration to OT-CRDT hybrid. Mentored 4 ICs.
+            </p>
+            <div className="row"><strong>Stripe · Senior Engineer</strong><span>2021 — 2023</span></div>
+            <p style={{ fontSize: 8.5, color: 'var(--ink-3)' }}>
+              Built Payments Dashboard's plugin runtime. Migrated 11M LOC from
+              React 16 → 18 with zero regressions. Shipped Codeblocks SDK.
+            </p>
+
+            <h3>Open Source</h3>
+            <div className="row"><strong>résumé-studio</strong><span>12.4k ★</span></div>
+            <div className="row"><strong>plex-md</strong><span>3.1k ★</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* === documents.jsx === */
+/* Documents grid */
+
+function Documents() {
+  return (
+    <section className="section">
+      <div className="section__head">
+        <div>
+          <div className="num">02 · Documents</div>
+          <h2>Your <em>résumés</em></h2>
+        </div>
+        <div className="meta">
+          <a href="#all">View all 5 →</a>
+          <a href="#import">Import .pdf · .docx</a>
+        </div>
+      </div>
+
+      <div className="docs">
+        {DOCUMENTS.slice(0, 5).map((d) => (
+          <article key={d.id} className="doc" data-screen-label={d.title} onClick={() => window.location.href = 'editor.html'}>
+            <div className="doc__head">
+              <span className="lang">{d.lang}</span>
+              <span className="menu">···</span>
+            </div>
+            <div>
+              <div className="doc__title">{d.title}</div>
+              <div className="doc__role">{d.role}</div>
+            </div>
+            <div className="doc__sig">{d.sig}</div>
+            <div className="doc__meta">
+              {d.live && <span className="dot live"></span>}
+              {!d.live && <span className="dot"></span>}
+              <span>{d.versions} commits</span>
+              <span style={{ color: 'var(--ink-5)' }}>·</span>
+              <span>{d.views} views</span>
+              <span style={{ marginLeft: 'auto' }}>{d.updated}</span>
+            </div>
+          </article>
+        ))}
+
+        <article className="doc doc--new">
+          <div className="plus"><Icons.Plus size={16} stroke={1.4} /></div>
+          <strong>New résumé</strong>
+          <span>blank · import · ask AI</span>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+
+/* === applications.jsx === */
+/* Applications table — typeset row style */
+
+function Applications() {
+  const [filter, setFilter] = React.useState('all');
+  const filters = [
+    { id: 'all',      label: 'All',       count: 12 },
+    { id: 'applied',  label: 'Applied',   count: 4 },
+    { id: 'screen',   label: 'Screening', count: 2 },
+    { id: 'onsite',   label: 'On-site',   count: 3 },
+    { id: 'offer',    label: 'Offer',     count: 1 },
+    { id: 'rejected', label: 'Closed',    count: 2 },
+  ];
+
+  const matchClass = (m) => m >= 85 ? 'bar--match-hi' : m >= 70 ? 'bar--match-md' : 'bar--match-lo';
+
+  return (
+    <section className="section">
+      <div className="section__head section__head--double">
+        <div>
+          <div className="num">03 · Pipeline</div>
+          <h2>Where you've <em>applied</em></h2>
+        </div>
+        <div className="meta">
+          <span>1 offer · 5 active · 6 closed</span>
+          <a href="#new">+ Log application</a>
+        </div>
+      </div>
+
+      <div className="apps">
+        <div className="apps__toolbar">
+          <div className="apps__filters">
+            {filters.map((f) => (
+              <button
+                key={f.id}
+                className={filter === f.id ? 'on' : ''}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}<span className="count">{f.count}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--ink-4)' }}>
+            <span>sorted by · most recent</span>
+            <Icons.ArrowR size={12} />
+          </div>
+        </div>
+
+        <table className="apps__table">
+          <thead>
+            <tr>
+              <th style={{ width: '26%' }}>Company</th>
+              <th style={{ width: '24%' }}>Role</th>
+              <th style={{ width: '18%' }}>Résumé used</th>
+              <th style={{ width: '12%' }}>Stage</th>
+              <th style={{ width: '12%' }}>Match</th>
+              <th style={{ width: '8%' }}>Applied</th>
+            </tr>
+          </thead>
+          <tbody>
+            {APPLICATIONS.map((a, i) => (
+              <tr key={i}>
+                <td>
+                  <div className="co">
+                    <div className="co__logo">{a.mono}</div>
+                    <div>
+                      <div className="co__name">{a.co}</div>
+                      <div className="co__loc">{a.loc}</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div className="role-cell">
+                    {a.role}
+                    <small>{a.dept}</small>
+                  </div>
+                </td>
+                <td>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                    {a.resume}
+                  </span>
+                </td>
+                <td>
+                  <span className={'stage stage--' + a.stage}>{a.stageLabel}</span>
+                </td>
+                <td>
+                  <div className="match-cell">
+                    <div className={'bar ' + matchClass(a.match)}>
+                      <i style={{ width: a.match + '%' }}></i>
+                    </div>
+                    <span>{a.match}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="applied-when">
+                    {a.when}
+                    <small>{a.ago}</small>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+
+/* === activity.jsx === */
+/* Lower row: Git-log timeline + AI co-pilot panel with tool calls */
+
+function VersionTimeline() {
+  return (
+    <div className="panel">
+      <div className="panel__head">
+        <div className="ttl">04 · <em>Commits</em> &nbsp;<span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>· main</span></div>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <span>23 total</span>
+          <a href="#log" style={{ color: 'var(--ink-3)' }}>full log →</a>
+        </div>
+      </div>
+      <div className="timeline">
+        {COMMITS.map((c, i) => (
+          <div key={i} className={'commit commit--' + c.type}>
+            <div className="commit__graph">
+              <span className="commit__dot"></span>
+            </div>
+            <div className="commit__body">
+              <div className="commit__msg">{c.msg}</div>
+              <div className="commit__meta">{c.meta}</div>
+            </div>
+            <div className="commit__sha">
+              <div className="hash">{c.hash}</div>
+              <div>{c.when}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AIPanel() {
+  return (
+    <div className="panel">
+      <div className="panel__head">
+        <div className="ttl">05 · <em>Co-editor</em></div>
+        <div className="live">SESSION · LIVE</div>
+      </div>
+      <div className="ai">
+        <div className="ai__convo">
+          <div className="ai__msg ai__msg--user">
+            <div className="gut">›</div>
+            <div className="body">
+              tailor my résumé for <strong>this Stripe role</strong> — focus on
+              payments infra & TS expertise. keep it 1-page.
+            </div>
+          </div>
+
+          <div className="ai__msg ai__msg--ai">
+            <div className="gut">∗</div>
+            <div className="body">
+              Reading JD. Pulling current résumé v2.4. I'll branch off main as
+              <strong> stripe-tailor</strong>, rewrite three sections, and
+              compress to one page. You can review the diff before merging.
+
+              <div className="ai__tool">
+                <div className="ai__tool__head">
+                  <span className="name">read_resume</span>
+                  <span className="status">DONE · 84ms</span>
+                </div>
+                <div className="ai__tool__body">
+                  <div className="row"><span className="k">id</span><span className="v"><b>r-001</b> · Senior Frontend v2.4</span></div>
+                  <div className="row"><span className="k">returns</span><span className="v">12 blocks · 487 lines</span></div>
+                </div>
+              </div>
+
+              <div className="ai__tool">
+                <div className="ai__tool__head">
+                  <span className="name">match_job</span>
+                  <span className="status">DONE · 1.2s</span>
+                </div>
+                <div className="ai__tool__body">
+                  <div className="row"><span className="k">jd</span><span className="v">stripe.com/jobs/5837 · Payments API</span></div>
+                  <div className="row"><span className="k">score</span><span className="v"><b>84</b> / 100 &nbsp; <span style={{ color: 'var(--ink-4)' }}>gaps: Rust, gRPC</span></span></div>
+                </div>
+              </div>
+
+              <div className="ai__tool">
+                <div className="ai__tool__head">
+                  <span className="name">create_branch</span>
+                  <span className="status status--running">RUNNING</span>
+                </div>
+                <div className="ai__tool__body">
+                  <div className="row"><span className="k">name</span><span className="v"><b>stripe-tailor</b></span></div>
+                  <div className="row"><span className="k">from</span><span className="v">main @ c4f2b1e</span></div>
+                </div>
+              </div>
+
+              Rewriting Summary + Experience · Stripe relevance now <b>91</b>.
+              Want me to drop the Wavelet side-project to fit one page?
+            </div>
+          </div>
+        </div>
+
+        <div className="ai__compose">
+          <div className="prompt">
+            <span>yes, and translate to en-US</span>
+            <span className="cursor"></span>
+          </div>
+          <div className="actions">
+            <button className="chip">@résumé</button>
+            <button className="chip">@jd</button>
+            <button className="chip">tools</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Activity() {
+  return (
+    <section className="section">
+      <div className="lower">
+        <VersionTimeline />
+        <AIPanel />
+      </div>
+    </section>
+  );
+}
+
+
+/* === cmdk.jsx === */
+/* Cmd+K command palette */
+
+const CMDK_GROUPS = [
+  {
+    label: 'Quick actions',
+    items: [
+      { icon: Icons.Plus,    label: 'New résumé',                  hint: 'N' },
+      { icon: Icons.Wand,    label: 'Tailor current résumé to job…', hint: 'T' },
+      { icon: Icons.Branch,  label: 'Branch from main',            hint: '⌘B' },
+      { icon: Icons.Export,  label: 'Export current as PDF',       hint: '⌘E' },
+    ],
+  },
+  {
+    label: 'AI · ask Claude',
+    items: [
+      { icon: Icons.Sparkle, label: 'Quantify all my bullet points',  hint: '↵' },
+      { icon: Icons.Sparkle, label: 'Rewrite headline for SaaS roles', hint: '↵' },
+      { icon: Icons.Lang,    label: 'Translate to en-US',             hint: '↵' },
+    ],
+  },
+  {
+    label: 'Jump to',
+    items: [
+      { icon: Icons.Docs, label: 'Senior Frontend Engineer · v2.4', hint: '↵' },
+      { icon: Icons.Docs, label: 'Full-Stack · Stripe',             hint: '↵' },
+      { icon: Icons.Pipe, label: 'Pipeline · 12 applications',      hint: '↵' },
+      { icon: Icons.Clock,label: 'Commit log',                      hint: '↵' },
+    ],
+  },
+];
+
+function Cmdk({ open, onClose }) {
+  const [q, setQ] = React.useState('');
+  const [sel, setSel] = React.useState(1);
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (open) setTimeout(() => inputRef.current && inputRef.current.focus(), 30);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const flat = CMDK_GROUPS.flatMap(g => g.items);
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => (s + 1) % flat.length); }
+      else if (e.key === 'ArrowUp')   { e.preventDefault(); setSel((s) => (s - 1 + flat.length) % flat.length); }
+      else if (e.key === 'Enter')     { onClose(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  let cursor = 0;
+  return (
+    <div className="cmdk-backdrop" onClick={onClose}>
+      <div className="cmdk" onClick={(e) => e.stopPropagation()}>
+        <div className="cmdk__head">
+          <span className="prompt">›</span>
+          <input
+            ref={inputRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search résumés, run a command, or ask Claude…"
+          />
+          <span className="esc">ESC</span>
+        </div>
+
+        <div className="cmdk__body">
+          {CMDK_GROUPS.map((g, gi) => (
+            <div key={gi} className="cmdk__group">
+              <div className="label">{g.label}</div>
+              {g.items.map((it, i) => {
+                const idx = cursor++;
+                return (
+                  <div key={i} className={'cmdk__item' + (idx === sel ? ' on' : '')} onMouseEnter={() => setSel(idx)} onClick={onClose}>
+                    <span className="icon"><it.icon size={14} /></span>
+                    <span>{it.label}</span>
+                    <span className="hint">{it.hint}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="cmdk__foot">
+          <div className="hints">
+            <span><kbd>↑↓</kbd>navigate</span>
+            <span><kbd>↵</kbd>select</span>
+            <span><kbd>⌘↵</kbd>ask Claude</span>
+          </div>
+          <span>résumé-studio · v0.4.2</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* === app.jsx === */
+/* App root */
+
+function App() {
+  const [cmdkOpen, setCmdkOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdkOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <div className="app">
+      <Topbar onOpenCmdk={() => setCmdkOpen(true)} />
+      <Rail />
+      <main className="main" data-screen-label="Workspace · Overview">
+        <div className="main__inner">
+          <section className="section">
+            <div className="section__head">
+              <div>
+                <div className="num">01 · Now editing</div>
+                <h2>Pick up where you <em>left off</em></h2>
+              </div>
+              <div className="meta">
+                <span>Last session · 4 minutes ago</span>
+                <a href="#open">Open all tabs →</a>
+              </div>
+            </div>
+            <Hero />
+          </section>
+
+          <Documents />
+          <Applications />
+          <Activity />
+        </div>
+      </main>
+
+      <Cmdk open={cmdkOpen} onClose={() => setCmdkOpen(false)} />
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+
+</script>
+</body>
+</html>

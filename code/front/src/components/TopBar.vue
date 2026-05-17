@@ -94,92 +94,85 @@ function handleFileChange(e: Event) {
 </script>
 
 <template>
-  <header class="h-14 bg-white border-b border-gray-200 flex items-center px-5 gap-4 shrink-0 overflow-x-auto">
-    <!-- Logo -->
-    <div class="flex items-center gap-2 shrink-0">
-      <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white font-black text-sm"
-        style="background:#2563eb;">简</div>
-      <span class="text-sm font-bold text-gray-800 whitespace-nowrap">简历工具</span>
+  <header class="studio-topbar">
+    <div class="topbar-brand">
+      <div class="brand-logo">R</div>
+      <div class="brand-copy">
+        <strong>Resume</strong>
+        <span>STUDIO</span>
+      </div>
     </div>
 
-    <div class="h-6 w-px bg-gray-200 shrink-0" />
+    <nav class="topbar-crumbs" aria-label="当前位置">
+      <span>workspace</span>
+      <span class="sep">/</span>
+      <strong>{{ store.data.personal.name || '未命名简历' }}</strong>
+      <span class="status-badge">{{ templates.find(t => t.id === store.config.templateId)?.label }}</span>
+      <span class="status-badge">v1.0</span>
+    </nav>
 
-    <!-- New blank resume -->
     <button @click="askConfirm('clearAll')"
-      class="px-3 py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all whitespace-nowrap shrink-0">
-      + 新建简历
+      class="topbar-button">
+      <span>＋</span>
+      新建
     </button>
 
-    <div class="h-6 w-px bg-gray-200 shrink-0" />
-
-    <!-- Template picker -->
-    <div ref="templatePickerRef" class="relative shrink-0">
+    <div ref="templatePickerRef" class="template-menu">
       <button @click="showTemplatePicker = !showTemplatePicker"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-700 border border-gray-200 rounded-lg hover:border-gray-400 transition-all whitespace-nowrap">
-        <span>模板</span>
+        class="topbar-button">
+        <span>▦</span>
         <span class="font-semibold">{{ templates.find(t => t.id === store.config.templateId)?.label }}</span>
-        <span class="text-gray-400 text-xs">▾</span>
+        <span class="caret">▾</span>
       </button>
 
-      <!-- Popover -->
       <Transition name="fade">
         <div v-if="showTemplatePicker"
-          class="absolute top-full left-0 mt-2 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 flex gap-3 z-40">
+          class="template-popover">
           <button v-for="t in templates" :key="t.id"
             @click="store.setTemplate(t.id); showTemplatePicker = false"
-            class="flex flex-col items-center gap-2 p-2.5 rounded-xl transition-all hover:bg-gray-50"
-            :class="store.config.templateId === t.id
-              ? 'bg-blue-50 ring-2 ring-blue-400 ring-offset-1'
-              : 'border border-gray-100'">
+            class="template-option"
+            :class="{ active: store.config.templateId === t.id }">
             <TemplateThumbnail :type="t.id" :color="store.config.themeColor" />
-            <div class="text-center">
-              <div class="text-xs font-semibold text-gray-800">{{ t.label }}</div>
-              <div class="text-xs text-gray-400">{{ t.desc }}</div>
+            <div>
+              <strong>{{ t.label }}</strong>
+              <small>{{ t.desc }}</small>
             </div>
           </button>
         </div>
       </Transition>
     </div>
 
-    <div class="h-6 w-px bg-gray-200 shrink-0" />
-
-    <!-- Color Picker -->
-    <div class="flex items-center gap-2 shrink-0">
-      <span class="text-xs text-gray-500">主题色</span>
-      <div class="flex gap-1.5">
+    <div class="theme-picker">
+      <span>主题色</span>
+      <div class="swatches">
         <button v-for="color in presetColors" :key="color" @click="store.setThemeColor(color)"
-          class="w-5 h-5 rounded-full border-2 transition-all hover:scale-110"
-          :style="`background:${color}`"
-          :class="store.config.themeColor === color ? 'border-gray-800 scale-110' : 'border-transparent'" />
+          class="swatch"
+          :style="{ background: color }"
+          :class="{ active: store.config.themeColor === color }" />
       </div>
       <input type="color" :value="store.config.themeColor"
         @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)"
-        class="w-6 h-6 rounded border border-gray-200 cursor-pointer" title="自定义颜色" />
+        class="color-input" title="自定义颜色" />
     </div>
 
-    <div class="flex-1" />
-
-    <!-- Auto-save indicator -->
-    <div class="flex items-center gap-1.5 shrink-0">
-      <div class="w-1.5 h-1.5 rounded-full transition-colors duration-300"
-        :class="saved ? 'bg-green-400' : 'bg-amber-400'" />
-      <span class="text-xs text-gray-400 whitespace-nowrap">{{ saved ? '已保存' : '保存中…' }}</span>
+    <div class="save-state" :class="{ pending: !saved }">
+      <i />
+      <span>{{ saved ? 'Saved' : 'Saving' }}</span>
     </div>
 
-    <div class="h-6 w-px bg-gray-200 shrink-0" />
-
-    <!-- Data Actions -->
-    <div class="flex items-center gap-2 shrink-0">
+    <div class="topbar-actions">
       <button @click="handleImportClick"
-        class="px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all whitespace-nowrap">
-        导入数据
+        class="topbar-button">
+        <span>↥</span>
+        导入
       </button>
       <button @click="handleExportJSON"
-        class="px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all whitespace-nowrap">
-        备份 JSON
+        class="topbar-button">
+        <span>↧</span>
+        备份
       </button>
       <button @click="askConfirm('resetDemo')"
-        class="text-xs text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap px-2">
+        class="topbar-link">
         重置示例
       </button>
     </div>

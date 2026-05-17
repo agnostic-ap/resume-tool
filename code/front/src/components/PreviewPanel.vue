@@ -84,68 +84,59 @@ function resetZoom() { userScale.value = null }
 </script>
 
 <template>
-  <div ref="panelRef" class="flex-1 h-full overflow-y-auto bg-slate-100 flex flex-col items-center py-6 px-8 gap-4">
+  <section ref="panelRef" class="preview-panel">
 
-    <!-- Toolbar -->
-    <div class="flex items-center gap-4 self-stretch justify-center flex-wrap">
+    <div class="preview-toolbar">
       <button @click="handleExport" :disabled="exporting"
-        class="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-lg shadow transition-all"
-        style="background:#2563eb;min-width:120px;justify-content:center;"
-        :style="exporting ? 'opacity:0.65;cursor:not-allowed' : ''">
+        class="export-button"
+        :class="{ disabled: exporting }">
+        <span>↧</span>
         {{ exporting ? '生成中…' : '下载 PDF' }}
       </button>
 
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-gray-400 whitespace-nowrap">缩放</span>
+      <div class="zoom-control">
+        <span>缩放</span>
         <input type="range" min="40" max="100" step="2"
           :value="Math.round(scale * 100)"
-          @input="onZoomInput"
-          class="w-24 accent-blue-500" />
-        <span class="text-xs text-gray-500 w-10 text-right">{{ Math.round(scale * 100) }}%</span>
+          @input="onZoomInput" />
+        <strong>{{ Math.round(scale * 100) }}%</strong>
         <button v-if="userScale !== null" @click="resetZoom"
-          class="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+          class="ghost-action">
           重置
         </button>
       </div>
 
-      <!-- Page count -->
-      <div class="flex items-center gap-1.5 text-xs"
-        :class="pageCount > 1 ? 'text-amber-500 font-medium' : 'text-gray-400'">
+      <div class="page-count" :class="{ warn: pageCount > 1 }">
         <span>{{ pageCount }} 页</span>
-        <span v-if="pageCount > 1" title="建议简历控制在1页以内">⚠️ 建议精简至1页</span>
+        <span v-if="pageCount > 1" title="建议简历控制在1页以内">建议精简</span>
       </div>
     </div>
 
-    <!-- Paper wrapper (relative so page-break lines can be absolutely positioned) -->
-    <div :style="`width:${794 * scale}px; position:relative; flex-shrink:0;
-                  height:${Math.max(1123, resumeHeight) * scale}px`">
+    <div class="paper-stage">
+      <div :style="`width:${794 * scale}px; position:relative; flex-shrink:0;
+                    height:${Math.max(1123, resumeHeight) * scale}px`">
 
-      <!-- Actual resume (scaled) -->
-      <div id="resume-preview"
-        :style="`transform:scale(${scale}); transform-origin:top left;
-                 position:absolute; top:0; left:0;
-                 box-shadow:0 4px 40px rgba(0,0,0,0.18);`"
-        @vue:mounted="attachObserver">
-        <component :is="currentTemplate" :data="store.data" :config="store.config" />
-      </div>
+        <div id="resume-preview"
+          class="resume-preview-paper"
+          :style="`transform:scale(${scale}); transform-origin:top left;
+                   position:absolute; top:0; left:0;`"
+          @vue:mounted="attachObserver">
+          <component :is="currentTemplate" :data="store.data" :config="store.config" />
+        </div>
 
-      <!-- A4 page break indicators -->
-      <div v-for="(y, i) in pageBreaks" :key="i"
-        class="absolute left-0 right-0 z-20 pointer-events-none flex items-center gap-2"
-        :style="`top:${y}px`">
-        <div class="flex-1 border-t-2 border-dashed border-red-300 opacity-70" />
-        <span class="text-xs font-medium px-2 py-0.5 rounded whitespace-nowrap"
-          style="background:#fef2f2;color:#f87171;">
-          ↑ 第{{ i + 1 }}页 / 第{{ i + 2 }}页 ↓
-        </span>
-        <div class="flex-1 border-t-2 border-dashed border-red-300 opacity-70" />
+        <div v-for="(y, i) in pageBreaks" :key="i"
+          class="page-break"
+          :style="`top:${y}px`">
+          <div />
+          <span>第{{ i + 1 }}页 / 第{{ i + 2 }}页</span>
+          <div />
+        </div>
       </div>
     </div>
 
-    <p class="text-xs text-gray-400 pb-4">A4 预览 · 红色虚线为分页位置</p>
-  </div>
+    <p class="preview-note">A4 预览 · 分页线用于导出前检查</p>
+  </section>
 
-  <!-- Hidden print target (rendered at full A4 size, only visible when printing) -->
   <div id="print-resume" style="display:none;">
     <component :is="currentTemplate" :data="store.data" :config="store.config" />
   </div>
