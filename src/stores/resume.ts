@@ -272,19 +272,22 @@ export const useResumeStore = defineStore('resume', () => {
     try {
       const parsed = JSON.parse(json)
       if (!parsed || typeof parsed !== 'object') throw new Error('invalid')
+      let imported = false
       if (parsed.data && typeof parsed.data === 'object') {
         data.value = {
           ...JSON.parse(JSON.stringify(defaultResume)),
           ...parsed.data,
-          // ensure arrays exist even if missing in backup
           languages: Array.isArray(parsed.data.languages) ? parsed.data.languages : [],
           certifications: Array.isArray(parsed.data.certifications) ? parsed.data.certifications : [],
         }
+        imported = true
       }
       if (parsed.config && typeof parsed.config === 'object') {
         config.value = mergeConfig(parsed.config)
+        imported = true
       }
-      showToast('数据导入成功', 'success')
+      if (imported) showToast('数据导入成功', 'success')
+      else showToast('导入失败：未识别的文件格式', 'error')
     } catch {
       showToast('导入失败：请确认 JSON 格式正确', 'error')
     }

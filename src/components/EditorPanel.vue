@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useResumeStore } from '../stores/resume'
 import type { SectionId } from '../types/resume'
 import PersonalEditor from './editor/PersonalEditor.vue'
+import SummaryEditor from './editor/SummaryEditor.vue'
 import ExperienceEditor from './editor/ExperienceEditor.vue'
 import EducationEditor from './editor/EducationEditor.vue'
 import SkillsEditor from './editor/SkillsEditor.vue'
@@ -14,7 +15,7 @@ import CertificationsEditor from './editor/CertificationsEditor.vue'
 const store = useResumeStore()
 
 const sectionMeta: Record<SectionId, { label: string; icon: string; component: any }> = {
-  summary: { label: '个人简介', icon: '📝', component: null },
+  summary: { label: '个人简介', icon: '📝', component: SummaryEditor },
   experience: { label: '工作经历', icon: '💼', component: ExperienceEditor },
   education: { label: '教育经历', icon: '🎓', component: EducationEditor },
   skills: { label: '专业技能', icon: '⚡', component: SkillsEditor },
@@ -147,17 +148,9 @@ const completenessLabel = computed(() => {
         </div>
 
         <Transition name="fade">
-          <div v-if="expanded.has(sectionId) && sectionMeta[sectionId].component"
+          <div v-if="expanded.has(sectionId)"
             class="p-4 border-t border-gray-100">
             <component :is="sectionMeta[sectionId].component" />
-          </div>
-          <div v-else-if="expanded.has(sectionId) && sectionId === 'summary'"
-            class="p-4 border-t border-gray-100">
-            <label class="block text-xs font-medium text-gray-600 mb-1">个人简介</label>
-            <textarea v-model="store.data.personal.summary" rows="4"
-              class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
-              style="resize:vertical"
-              placeholder="简短介绍自己的核心优势、技术方向和职业目标..." />
           </div>
         </Transition>
       </div>

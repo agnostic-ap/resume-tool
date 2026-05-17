@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useResumeStore } from '../../stores/resume'
+import { useDeleteConfirm } from '../../composables/useDeleteConfirm'
 
 const store = useResumeStore()
+const { pending: deletePending, askDelete, cancelDelete } = useDeleteConfirm()
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400'
 
 // Hint toggle per item (keyed by id)
@@ -96,10 +98,19 @@ function autoBullet(exp: { description: string }) {
           placeholder="• 负责核心模块的设计与开发&#10;• 优化性能，将加载时间从Xs降至Ys&#10;• 主导推进XX项目，按时交付并获得好评" />
       </div>
 
-      <button @click="store.removeExperience(exp.id)"
-        class="text-xs text-red-400 hover:text-red-600 transition-colors">
-        删除此条
-      </button>
+      <div class="flex items-center gap-2">
+        <template v-if="deletePending === exp.id">
+          <span class="text-xs text-red-500">确认删除？</span>
+          <button @click="store.removeExperience(exp.id)"
+            class="text-xs font-medium text-red-600 hover:text-red-700 transition-colors">删除</button>
+          <button @click="cancelDelete()"
+            class="text-xs text-gray-400 hover:text-gray-600 transition-colors">取消</button>
+        </template>
+        <button v-else @click="askDelete(exp.id)"
+          class="text-xs text-red-400 hover:text-red-600 transition-colors">
+          删除此条
+        </button>
+      </div>
     </div>
 
     <button @click="store.addExperience()"

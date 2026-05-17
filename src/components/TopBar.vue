@@ -54,8 +54,12 @@ function askConfirm(action: ConfirmAction) {
 
 function onConfirm() {
   confirmVisible.value = false
-  if (confirmAction.value === 'clearAll') store.clearAll()
-  else store.resetToDefault()
+  if (confirmAction.value === 'clearAll') {
+    store.clearAll()
+    showToast('已新建空白简历，请从个人信息开始填写', 'info', 3500)
+  } else {
+    store.resetToDefault()
+  }
 }
 
 // ── Data import/export ────────────────────────────────────────
