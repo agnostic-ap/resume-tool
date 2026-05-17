@@ -6,6 +6,12 @@ import { showToast } from '../composables/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 
+defineProps<{ currentView: string }>()
+const emit = defineEmits<{
+  navigate: ['workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings']
+  openCommand: []
+}>()
+
 const store = useResumeStore()
 const fileInput = ref<HTMLInputElement>()
 
@@ -57,6 +63,7 @@ function onConfirm() {
   if (confirmAction.value === 'clearAll') {
     store.clearAll()
     showToast('已新建空白简历，请从个人信息开始填写', 'info', 3500)
+    emit('navigate', 'editor')
   } else {
     store.resetToDefault()
   }
@@ -104,12 +111,19 @@ function handleFileChange(e: Event) {
     </div>
 
     <nav class="topbar-crumbs" aria-label="当前位置">
-      <span>workspace</span>
+      <button class="crumb-link" @click="emit('navigate', 'workspace')">workspace</button>
       <span class="sep">/</span>
       <strong>{{ store.data.personal.name || '未命名简历' }}</strong>
       <span class="status-badge">{{ templates.find(t => t.id === store.config.templateId)?.label }}</span>
+      <span class="status-badge">{{ currentView }}</span>
       <span class="status-badge">v1.0</span>
     </nav>
+
+    <button class="topbar-button command-trigger" @click="emit('openCommand')">
+      <span>⌕</span>
+      命令
+      <kbd>⌘K</kbd>
+    </button>
 
     <button @click="askConfirm('clearAll')"
       class="topbar-button">
