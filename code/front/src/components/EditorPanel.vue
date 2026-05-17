@@ -13,6 +13,7 @@ import LanguagesEditor from './editor/LanguagesEditor.vue'
 import CertificationsEditor from './editor/CertificationsEditor.vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
+import { showToast } from '../composables/toast'
 
 const store = useResumeStore()
 defineProps<{ showTree?: boolean }>()
@@ -82,14 +83,20 @@ const diffRows = computed(() =>
   store.config.sectionOrder.map((id, index) => ({
     id,
     label: sectionLabel(id),
-    status: store.config.sectionVisible[id] ? 'visible' : 'hidden',
+    status: store.config.sectionVisible[id] ? l('显示', 'visible') : l('隐藏', 'hidden'),
+    hidden: !store.config.sectionVisible[id],
     count: sectionCount.value[id],
     order: index + 1,
   })),
 )
 
 async function copySource() {
-  await navigator.clipboard?.writeText(sourceText.value)
+  try {
+    await navigator.clipboard?.writeText(sourceText.value)
+    showToast(l('源码已复制', 'Source copied'), 'success')
+  } catch {
+    showToast(l('复制失败，请手动选择源码', 'Copy failed. Select the source manually.'), 'error')
+  }
 }
 </script>
 
@@ -163,7 +170,7 @@ async function copySource() {
           <span>{{ t('items') }}</span>
           <span>{{ t('state') }}</span>
         </div>
-        <div v-for="row in diffRows" :key="row.id" class="diff-row" :class="{ muted: row.status === 'hidden' }">
+        <div v-for="row in diffRows" :key="row.id" class="diff-row" :class="{ muted: row.hidden }">
           <span>{{ row.label }}</span>
           <span>#{{ row.order }}</span>
           <span>{{ row.count }}</span>
@@ -202,7 +209,7 @@ async function copySource() {
               <span v-else-if="store.config.sectionVisible[sectionId]" class="count-badge warn">{{ t('todo') }}</span>
               <button @click="store.toggleSectionVisible(sectionId)"
                 :title="store.config.sectionVisible[sectionId] ? l('在简历中隐藏', 'Hide from resume') : l('在简历中显示', 'Show in resume')">
-                {{ store.config.sectionVisible[sectionId] ? l('显示', 'show') : l('隐藏', 'hide') }}
+                {{ store.config.sectionVisible[sectionId] ? l('隐藏', 'hide') : l('显示', 'show') }}
               </button>
               <button @click="store.moveSection(sectionId, 'up')" :disabled="idx === 0">↑</button>
               <button @click="store.moveSection(sectionId, 'down')"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
+import { useLocaleText } from '../composables/useLocaleText'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
@@ -12,10 +13,12 @@ const query = ref('')
 const selected = ref(0)
 const inputRef = ref<HTMLInputElement>()
 const { t } = useI18n()
+const { l } = useLocaleText()
 
 const groups = [
   {
-    label: 'Quick actions',
+    labelZh: '快捷动作',
+    labelEn: 'Quick actions',
     items: [
       { icon: '＋', label: 'newResumeFull', hint: 'N', command: 'new' },
       { icon: '§', label: 'openEditor', hint: 'E', command: 'editor' },
@@ -23,7 +26,8 @@ const groups = [
     ],
   },
   {
-    label: 'Jump to',
+    labelZh: '跳转',
+    labelEn: 'Jump to',
     items: [
       { icon: '⌂', label: 'workspace', hint: '↵', command: 'workspace' },
       { icon: '▦', label: 'templates', hint: '↵', command: 'templates' },
@@ -92,8 +96,8 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <div class="cmdk__body">
-          <div v-for="group in filteredGroups" :key="group.label" class="cmdk__group">
-            <div class="label">{{ group.label }}</div>
+          <div v-for="group in filteredGroups" :key="group.labelEn" class="cmdk__group">
+            <div class="label">{{ l(group.labelZh, group.labelEn) }}</div>
             <button v-for="item in group.items" :key="item.command"
               class="cmdk__item"
               :class="{ on: flatItems[selected]?.command === item.command }"
@@ -104,14 +108,14 @@ function onKeydown(e: KeyboardEvent) {
               <span class="hint">{{ item.hint }}</span>
             </button>
           </div>
-          <div v-if="!flatItems.length" class="cmdk-empty">{{ t('todo') }}</div>
+          <div v-if="!flatItems.length" class="cmdk-empty">{{ l('没有匹配的命令', 'No matching commands') }}</div>
         </div>
 
         <div class="cmdk__foot">
           <div class="hints">
-            <span><kbd>↑↓</kbd>navigate</span>
-            <span><kbd>↵</kbd>select</span>
-            <span><kbd>ESC</kbd>close</span>
+            <span><kbd>↑↓</kbd>{{ l('导航', 'navigate') }}</span>
+            <span><kbd>↵</kbd>{{ l('选择', 'select') }}</span>
+            <span><kbd>ESC</kbd>{{ l('关闭', 'close') }}</span>
           </div>
           <span>resume-studio</span>
         </div>
