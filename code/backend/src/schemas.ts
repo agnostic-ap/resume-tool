@@ -1,12 +1,5 @@
 import { z } from 'zod'
 
-export const stateSchema = z.object({
-  activeResumeId: z.string().optional(),
-  documents: z.array(z.unknown()).optional(),
-  applications: z.array(z.unknown()).optional(),
-  activityLog: z.array(z.unknown()).optional(),
-}).passthrough()
-
 export const createResumeSchema = z.object({
   title: z.string().trim().min(1).optional(),
   blank: z.boolean().optional(),

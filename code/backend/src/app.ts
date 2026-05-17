@@ -5,7 +5,6 @@ import {
   assistantSuggestionSchema,
   createApplicationSchema,
   createResumeSchema,
-  stateSchema,
   updateApplicationSchema,
   updateResumeSchema,
 } from './schemas.js'
@@ -20,7 +19,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
   })
 
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN ?? true,
+    origin: allowedOrigins(),
   })
 
   app.setErrorHandler((error, _request, reply) => {
@@ -49,7 +48,6 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
   }))
 
   app.get('/api/state', async () => store.readState())
-  app.put('/api/state', async (request) => store.replaceState(parseBody(stateSchema, request.body)))
 
   app.get('/api/resumes', async () => store.listDocuments())
   app.post('/api/resumes', async (request, reply) => {
@@ -106,4 +104,11 @@ function getParam(params: unknown, key: string): string {
   const value = (params as Record<string, unknown>)[key]
   if (typeof value !== 'string' || !value) throw new Error(`Missing route param: ${key}`)
   return value
+}
+
+function allowedOrigins() {
+  if (process.env.CORS_ORIGIN) {
+    return process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+  }
+  return [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/]
 }

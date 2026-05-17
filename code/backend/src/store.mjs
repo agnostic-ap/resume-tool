@@ -7,6 +7,7 @@ const DB_FILE = 'resume-state.json'
 export function createStore(options = {}) {
   const dataDir = options.dataDir ?? process.env.RESUME_BACKEND_DATA_DIR ?? join(process.cwd(), '.data')
   const dbPath = options.dbPath ?? join(dataDir, DB_FILE)
+  let mutationQueue = Promise.resolve()
 
   async function readState() {
     try {
@@ -29,11 +30,26 @@ export function createStore(options = {}) {
     return normalized
   }
 
+  function enqueueMutation(task) {
+    const next = mutationQueue.then(task, task)
+    mutationQueue = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
+
   async function mutate(mutator) {
-    const state = await readState()
-    const result = await mutator(state)
-    await writeState(state)
-    return result ?? state
+    return enqueueMutation(async () => {
+      const state = await readState()
+      const result = await mutator(state)
+      await writeState(state)
+      return result ?? state
+    })
+  }
+
+  async function replaceState(nextState) {
+    return enqueueMutation(() => writeState(nextState))
   }
 
   function log(state, event) {
@@ -53,9 +69,7 @@ export function createStore(options = {}) {
     readState,
     writeState,
 
-    async replaceState(nextState) {
-      return writeState(nextState)
-    },
+    replaceState,
 
     async listDocuments() {
       const state = await readState()

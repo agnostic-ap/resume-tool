@@ -24,14 +24,13 @@ Environment variables:
 - `PORT`: server port, defaults to `8787`
 - `HOST`: bind host, defaults to `127.0.0.1`
 - `RESUME_BACKEND_DATA_DIR`: JSON data directory, defaults to `code/backend/.data`
-- `CORS_ORIGIN`: allowed CORS origin, defaults to `*`
+- `CORS_ORIGIN`: comma-separated allowed origins. Defaults to local dev origins only.
 
 ## API
 
 ```text
 GET    /health
 GET    /api/state
-PUT    /api/state
 
 GET    /api/resumes
 POST   /api/resumes
@@ -67,4 +66,5 @@ curl -s -X POST http://127.0.0.1:8787/api/applications \
 cd code/backend
 npm test
 npm run typecheck
+npm run build
 ```

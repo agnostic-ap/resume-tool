@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import { exportToPDF } from '../utils/pdf'
 import { showToast } from '../composables/toast'
 import TemplateClassic from './templates/TemplateClassic.vue'
 import TemplateModern from './templates/TemplateModern.vue'
@@ -73,6 +72,7 @@ async function handleExport() {
   exporting.value = true
   showToast(l('正在生成 PDF，请稍候…', 'Generating PDF, please wait...'), 'info', 10000)
   try {
+    const { exportToPDF } = await import('../utils/pdf')
     await exportToPDF('resume-preview', `${store.data.personal.name || l('我的简历', 'My resume')}-${l('简历', 'resume')}.pdf`)
     store.logActivity({
       type: 'export',

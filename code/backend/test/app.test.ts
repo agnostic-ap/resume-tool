@@ -30,6 +30,13 @@ test('fastify app exposes health and validates applications', async () => {
     })
     assert.equal(created.statusCode, 201)
     assert.equal(created.json().companyMono, 'L')
+
+    const stateOverwrite = await app.inject({
+      method: 'PUT',
+      url: '/api/state',
+      payload: { documents: [] },
+    })
+    assert.equal(stateOverwrite.statusCode, 404)
   } finally {
     await app.close()
     await rm(dir, { recursive: true, force: true })
