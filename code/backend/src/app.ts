@@ -5,9 +5,12 @@ import {
   assistantSuggestionSchema,
   createApplicationSchema,
   createResumeSchema,
+  platformGenerateResumeSchema,
   updateApplicationSchema,
   updateResumeSchema,
 } from './schemas.js'
+import { generatePlatformResume } from './platform-generator.js'
+import { httpError } from './store.mjs'
 
 type Store = ReturnType<typeof import('./store.mjs').createStore>
 
@@ -91,6 +94,32 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     const suggestion = await store.createAssistantSuggestion(parseBody(assistantSuggestionSchema, request.body))
     return reply.status(201).send(suggestion)
   })
+  app.post('/api/platform/resume-drafts', async (request, reply) => {
+    assertPlatformAccess(request.headers)
+    const input = parseBody(platformGenerateResumeSchema, request.body)
+    const draft = generatePlatformResume(input)
+
+    if (!input.persist) {
+      return reply.send(draft)
+    }
+
+    const created = await store.createDocument({ blank: true, title: draft.title })
+    const documentId = getObjectId(created)
+    await store.updateDocument(documentId, {
+      title: draft.title,
+      data: draft.data,
+      config: draft.config,
+    })
+
+    return reply.status(201).send({
+      ...draft,
+      generation: {
+        ...draft.generation,
+        persisted: true,
+        documentId,
+      },
+    })
+  })
 
   return app
 }
@@ -104,6 +133,30 @@ function getParam(params: unknown, key: string): string {
   const value = (params as Record<string, unknown>)[key]
   if (typeof value !== 'string' || !value) throw new Error(`Missing route param: ${key}`)
   return value
+}
+
+function getObjectId(value: unknown): string {
+  if (!value || typeof value !== 'object') throw httpError(500, 'Created resume is missing an id')
+  const id = (value as Record<string, unknown>).id
+  if (typeof id !== 'string' || !id) throw httpError(500, 'Created resume is missing an id')
+  return id
+}
+
+function assertPlatformAccess(headers: Record<string, unknown>) {
+  const expected = process.env.RESUME_PLATFORM_API_KEY?.trim()
+  if (!expected) return
+
+  const apiKey = headerValue(headers['x-resume-api-key'])
+  const authorization = headerValue(headers.authorization)
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+
+  if (apiKey === expected || bearer === expected) return
+  throw httpError(401, 'Platform API key is required')
+}
+
+function headerValue(value: unknown): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return typeof value === 'string' ? value : undefined
 }
 
 function allowedOrigins() {
