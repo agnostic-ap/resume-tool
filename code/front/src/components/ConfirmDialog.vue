@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLocaleText } from '../composables/useLocaleText'
+
 defineProps<{ title: string; message: string; danger?: boolean }>()
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
+const { l } = useLocaleText()
 </script>
 
 <template>
@@ -15,13 +18,13 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>()
         <div class="flex border-t border-gray-100">
           <button @click="emit('cancel')"
             class="flex-1 py-3 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            取消
+            {{ l('取消', 'Cancel') }}
           </button>
           <div class="w-px bg-gray-100" />
           <button @click="emit('confirm')"
             class="flex-1 py-3 text-sm font-semibold transition-colors"
             :class="danger ? 'text-red-500 hover:bg-red-50' : 'text-blue-500 hover:bg-blue-50'">
-            确认
+            {{ l('确认', 'Confirm') }}
           </button>
         </div>
       </div>

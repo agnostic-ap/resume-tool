@@ -231,7 +231,7 @@ function matchClass(score: number) {
               <span class="pill">zh-CN</span>
               <span>{{ store.config.templateId }} template</span>
               <span>·</span>
-              <span>完整度 {{ store.completeness }}%</span>
+                <span>{{ label('完整度', 'Complete') }} {{ store.completeness }}%</span>
             </div>
 
             <div class="hero__stats">
@@ -277,14 +277,14 @@ function matchClass(score: number) {
             </div>
             <div class="preview">
               <div class="preview__paper">
-                <h1>{{ store.data.personal.name || '你的姓名' }}</h1>
-                <div class="role">{{ store.data.personal.title || '目标岗位' }} · {{ store.data.personal.location || '城市' }}</div>
+                <h1>{{ store.data.personal.name || label('你的姓名', 'Your Name') }}</h1>
+                <div class="role">{{ store.data.personal.title || label('目标岗位', 'Target Role') }} · {{ store.data.personal.location || label('城市', 'Location') }}</div>
                 <div class="rule"></div>
                 <h3>Summary</h3>
-                <p>{{ store.data.personal.summary || '这里会显示你的个人简介。' }}</p>
+                <p>{{ store.data.personal.summary || label('这里会显示你的个人简介。', 'Your summary will appear here.') }}</p>
                 <h3>Experience</h3>
                 <div v-for="item in store.data.experience.slice(0, 2)" :key="item.id">
-                  <div class="row"><strong>{{ item.company || '公司名称' }} · {{ item.position || '岗位' }}</strong><span>{{ item.startDate }} — {{ item.current ? 'Now' : item.endDate }}</span></div>
+                  <div class="row"><strong>{{ item.company || label('公司名称', 'Company') }} · {{ item.position || label('岗位', 'Role') }}</strong><span>{{ item.startDate }} — {{ item.current ? label('至今', 'Now') : item.endDate }}</span></div>
                   <p>{{ item.description.split('\n')[0] }}</p>
                 </div>
                 <h3>Skills</h3>
@@ -365,7 +365,7 @@ function matchClass(score: number) {
           <article class="doc doc--new" @click="createBlank">
             <div class="plus">＋</div>
             <strong>{{ t('newResumeFull') }}</strong>
-            <span>blank · import · edit</span>
+              <span>{{ label('空白 · 导入 · 编辑', 'blank · import · edit') }}</span>
           </article>
         </div>
       </section>
@@ -458,12 +458,12 @@ function matchClass(score: number) {
               <div class="ai__convo">
                 <div class="ai__msg ai__msg--user">
                   <div class="gut">›</div>
-                  <div class="body">针对目标岗位优化这份简历，保持一页，优先强化最近经历。</div>
+                  <div class="body">{{ label('针对目标岗位优化这份简历，保持一页，优先强化最近经历。', 'Tailor this resume for the target role, keep it to one page, and prioritize recent experience.') }}</div>
                 </div>
                 <div class="ai__msg ai__msg--ai">
                   <div class="gut">∗</div>
                   <div class="body">
-                    我会检查摘要、经历和项目三块。当前完整度 <strong>{{ store.completeness }}</strong>，建议先补量化结果，再压缩弱相关内容。
+                    {{ label('我会检查摘要、经历和项目三块。当前完整度', 'I will review the summary, experience, and projects. Current completeness') }} <strong>{{ store.completeness }}</strong>{{ label('，建议先补量化结果，再压缩弱相关内容。', '. Add measurable outcomes first, then trim weaker details.') }}
                     <div class="ai__tool">
                       <div class="ai__tool__head"><span class="name">read_resume</span><span class="status">DONE</span></div>
                       <div class="ai__tool__body">

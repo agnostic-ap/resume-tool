@@ -7,9 +7,11 @@ import TemplateClassic from './templates/TemplateClassic.vue'
 import TemplateModern from './templates/TemplateModern.vue'
 import TemplateSidebar from './templates/TemplateSidebar.vue'
 import { useI18n } from '../i18n'
+import { useLocaleText } from '../composables/useLocaleText'
 
 const store = useResumeStore()
 const { t, locale } = useI18n()
+const { l } = useLocaleText()
 const panelRef  = ref<HTMLElement>()
 const autoScale = ref(0.88)
 const userScale = ref<number | null>(null)
@@ -69,12 +71,12 @@ onUnmounted(() => {
 async function handleExport() {
   if (exporting.value) return
   exporting.value = true
-  showToast('正在生成 PDF，请稍候…', 'info', 10000)
+  showToast(l('正在生成 PDF，请稍候…', 'Generating PDF, please wait...'), 'info', 10000)
   try {
-    await exportToPDF('resume-preview', `${store.data.personal.name || '我的简历'}-简历.pdf`)
-    showToast('PDF 导出成功', 'success')
+    await exportToPDF('resume-preview', `${store.data.personal.name || l('我的简历', 'My resume')}-${l('简历', 'resume')}.pdf`)
+    showToast(l('PDF 导出成功', 'PDF exported'), 'success')
   } catch {
-    showToast('PDF 导出失败，请重试', 'error')
+    showToast(l('PDF 导出失败，请重试', 'PDF export failed. Please try again.'), 'error')
   } finally {
     exporting.value = false
   }

@@ -11,11 +11,13 @@ import TweaksPanel from './components/TweaksPanel.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 import { useI18n } from './i18n'
+import { useLocaleText } from './composables/useLocaleText'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
 
 const store = useResumeStore()
 const { t } = useI18n()
+const { l } = useLocaleText()
 const tr = (key: string) => t(key as never)
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
@@ -27,11 +29,11 @@ const activeSections = computed(() =>
 )
 
 const primaryAdvice = computed(() => {
-  if (!store.data.personal.summary.trim()) return '先补一段 2-3 句的个人简介，预览页会立刻更完整。'
-  if (!store.data.experience.length) return '加入最近一段工作经历，让简历主体更可信。'
-  if (!store.data.projects.length) return '补充一个能体现结果的项目，建议写清技术栈和量化成果。'
-  if (store.completeness < 90) return '继续补齐隐藏或空白章节，导出前建议把完整度推到 90 以上。'
-  return '内容结构已经很稳，导出前只需要检查分页线和主题色。'
+  if (!store.data.personal.summary.trim()) return l('先补一段 2-3 句的个人简介，预览页会立刻更完整。', 'Start with a 2-3 sentence summary so the preview feels complete.')
+  if (!store.data.experience.length) return l('加入最近一段工作经历，让简历主体更可信。', 'Add your most recent role to make the resume feel credible.')
+  if (!store.data.projects.length) return l('补充一个能体现结果的项目，建议写清技术栈和量化成果。', 'Add one outcome-driven project with stack and measurable impact.')
+  if (store.completeness < 90) return l('继续补齐隐藏或空白章节，导出前建议把完整度推到 90 以上。', 'Fill the remaining visible sections before export; aim for 90+ completeness.')
+  return l('内容结构已经很稳，导出前只需要检查分页线和主题色。', 'The structure is solid. Check page breaks and theme color before export.')
 })
 
 const viewTitle: Record<AppView, string> = {
@@ -90,7 +92,7 @@ function runCommand(command: string) {
   if (command === 'new') {
     store.createResume(true)
     navigate('editor')
-    showToast('已新建空白简历，请从个人信息开始填写', 'info', 3500)
+    showToast(l('已新建空白简历，请从个人信息开始填写', 'Created a blank resume. Start with personal info.'), 'info', 3500)
   } else if (command === 'editor') {
     navigate('editor')
   } else if (command === 'workspace') {

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useResumeStore } from '../stores/resume'
 import type { TemplateId } from '../types/resume'
 import { showToast } from '../composables/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import { useI18n } from '../i18n'
+import { useLocaleText } from '../composables/useLocaleText'
 
 defineProps<{ currentView: string }>()
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 
 const store = useResumeStore()
 const { t } = useI18n()
+const { l } = useLocaleText()
 const fileInput = ref<HTMLInputElement>()
 
 // ── Auto-save indicator ──────────────────────────────────────
@@ -58,10 +60,18 @@ const presetColors = [
 type ConfirmAction = 'clearAll' | 'resetDemo'
 const confirmVisible = ref(false)
 const confirmAction = ref<ConfirmAction>('clearAll')
-const confirmMeta = {
-  clearAll:  { title: '新建空白简历', message: '当前内容将被清空，无法撤销。确认继续？', danger: true },
-  resetDemo: { title: '重置为示例数据', message: '当前内容将被示例数据覆盖，无法撤销。确认继续？', danger: true },
-}
+const confirmMeta = computed(() => ({
+  clearAll: {
+    title: l('新建空白简历', 'Create blank resume'),
+    message: l('当前内容将被清空，无法撤销。确认继续？', 'The current content will be cleared and cannot be undone. Continue?'),
+    danger: true,
+  },
+  resetDemo: {
+    title: l('重置为示例数据', 'Reset to demo data'),
+    message: l('当前内容将被示例数据覆盖，无法撤销。确认继续？', 'The current content will be overwritten with demo data and cannot be undone. Continue?'),
+    danger: true,
+  },
+}))
 
 function askConfirm(action: ConfirmAction) {
   confirmAction.value = action
@@ -72,7 +82,7 @@ function onConfirm() {
   confirmVisible.value = false
   if (confirmAction.value === 'clearAll') {
     store.createResume(true)
-    showToast('已新建空白简历，请从个人信息开始填写', 'info', 3500)
+    showToast(l('已新建空白简历，请从个人信息开始填写', 'Created a blank resume. Start with personal info.'), 'info', 3500)
     emit('navigate', 'editor')
   } else {
     store.resetToDefault()
@@ -86,10 +96,10 @@ function handleExportJSON() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${store.data.personal.name || '我的简历'}-backup.json`
+  a.download = `${store.data.personal.name || l('我的简历', 'my-resume')}-backup.json`
   a.click()
   URL.revokeObjectURL(url)
-  showToast('数据已备份到本地', 'success')
+  showToast(l('数据已备份到本地', 'Backup saved locally'), 'success')
 }
 
 function handleImportClick() {
@@ -100,7 +110,7 @@ function handleFileChange(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   if (!file.name.endsWith('.json')) {
-    showToast('请选择 .json 格式的备份文件', 'error')
+    showToast(l('请选择 .json 格式的备份文件', 'Choose a .json backup file'), 'error')
     return
   }
   const reader = new FileReader()
@@ -125,10 +135,10 @@ function handleFileChange(e: Event) {
       <button :class="{ on: store.config.locale === 'en-US' }" @click="store.setLocale('en-US')">EN</button>
     </div>
 
-    <nav class="topbar-crumbs" aria-label="当前位置">
+    <nav class="topbar-crumbs" :aria-label="l('当前位置', 'Current location')">
       <button class="crumb-link" @click="emit('navigate', 'workspace')">{{ t('workspace') }}</button>
       <span class="sep">/</span>
-      <strong>{{ store.data.personal.name || '未命名简历' }}</strong>
+      <strong>{{ store.data.personal.name || l('未命名简历', 'Untitled resume') }}</strong>
       <span class="status-badge">{{ templateLabel(store.config.templateId) }}</span>
       <span class="status-badge">{{ currentView }}</span>
       <span class="status-badge">v1.0</span>
@@ -181,7 +191,7 @@ function handleFileChange(e: Event) {
       </div>
       <input type="color" :value="store.config.themeColor"
         @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)"
-        class="color-input" title="自定义颜色" />
+        class="color-input" :title="l('自定义颜色', 'Custom color')" />
     </div>
 
     <div class="save-state" :class="{ pending: !saved }">

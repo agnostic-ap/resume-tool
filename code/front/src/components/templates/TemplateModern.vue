@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ResumeData, ResumeConfig, SectionId } from '../../types/resume'
+import { useLocaleText } from '../../composables/useLocaleText'
 
 const props = defineProps<{ data: ResumeData; config: ResumeConfig }>()
+const { l } = useLocaleText()
 
 const mainSections: SectionId[] = ['experience', 'projects', 'awards', 'certifications']
 const sidebarSections: SectionId[] = ['summary', 'skills', 'education', 'languages']
@@ -26,7 +28,7 @@ function fmtDate(d: string) {
 
 function dateRange(start: string, end: string, current: boolean) {
   const s = fmtDate(start)
-  const e = current ? '至今' : fmtDate(end)
+  const e = current ? l('至今', 'Present') : fmtDate(end)
   return s && e ? `${s} — ${e}` : s || e
 }
 
@@ -42,11 +44,11 @@ function lines(text: string) {
     <div :style="`background:${config.themeColor}`" class="px-12 py-7">
       <h1 class="font-bold mb-1" style="font-size:24px;letter-spacing:2px;"
         :style="data.personal.name ? 'color:white' : 'color:rgba(255,255,255,0.35)'">
-        {{ data.personal.name || '您的姓名' }}
+        {{ data.personal.name || l('您的姓名', 'Your Name') }}
       </h1>
       <p class="mb-3" style="font-size:13px;letter-spacing:0.5px;"
         :style="data.personal.title ? 'color:rgba(255,255,255,0.85)' : 'color:rgba(255,255,255,0.35)'">
-        {{ data.personal.title || '期望职位' }}
+        {{ data.personal.title || l('期望职位', 'Target Role') }}
       </p>
       <div class="flex flex-wrap gap-x-6 gap-y-0.5" style="font-size:11.5px;">
         <template v-if="data.personal.phone || data.personal.email || data.personal.location || data.personal.website">
@@ -55,7 +57,7 @@ function lines(text: string) {
           <span v-if="data.personal.location" style="color:rgba(255,255,255,0.8)">{{ data.personal.location }}</span>
           <span v-if="data.personal.website" style="color:rgba(255,255,255,0.8)">{{ data.personal.website }}</span>
         </template>
-        <span v-else style="color:rgba(255,255,255,0.3)">手机 · 邮箱 · 城市</span>
+        <span v-else style="color:rgba(255,255,255,0.3)">{{ l('手机 · 邮箱 · 城市', 'Phone · Email · Location') }}</span>
       </div>
     </div>
 
@@ -66,7 +68,7 @@ function lines(text: string) {
           <!-- Summary -->
           <div v-if="sectionId === 'summary' && data.personal.summary" class="mb-5">
             <h3 class="font-bold mb-2" :style="`font-size:10.5px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor}`">
-              个人简介
+              {{ l('个人简介', 'Summary') }}
             </h3>
             <p class="text-gray-600 leading-relaxed" style="font-size:11px;">{{ data.personal.summary }}</p>
           </div>
@@ -74,7 +76,7 @@ function lines(text: string) {
           <!-- Skills -->
           <div v-else-if="sectionId === 'skills' && data.skills.length" class="mb-5">
             <h3 class="font-bold mb-2" :style="`font-size:10.5px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor}`">
-              专业技能
+              {{ l('专业技能', 'Skills') }}
             </h3>
             <div v-for="skill in data.skills" :key="skill.id" class="mb-2">
               <p class="font-semibold text-gray-700 mb-0.5" style="font-size:11px;">{{ skill.category }}</p>
@@ -85,7 +87,7 @@ function lines(text: string) {
           <!-- Education -->
           <div v-else-if="sectionId === 'education' && data.education.length" class="mb-5">
             <h3 class="font-bold mb-2" :style="`font-size:10.5px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor}`">
-              教育经历
+              {{ l('教育经历', 'Education') }}
             </h3>
             <div v-for="edu in data.education" :key="edu.id" class="mb-3">
               <p class="font-semibold text-gray-700" style="font-size:11px;">{{ edu.school }}</p>
@@ -98,7 +100,7 @@ function lines(text: string) {
           <!-- Languages -->
           <div v-else-if="sectionId === 'languages' && data.languages.length" class="mb-5">
             <h3 class="font-bold mb-2" :style="`font-size:10.5px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor}`">
-              语言能力
+              {{ l('语言能力', 'Languages') }}
             </h3>
             <div v-for="lang in data.languages" :key="lang.id" class="mb-1">
               <span class="font-medium text-gray-700" style="font-size:11px;">{{ lang.language }}：</span>
@@ -114,7 +116,7 @@ function lines(text: string) {
           <!-- Experience -->
           <section v-if="sectionId === 'experience' && data.experience.length" class="mb-5">
             <h2 class="font-bold mb-2.5" :style="`font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor};border-bottom:2px solid ${config.themeColor};padding-bottom:5px`">
-              工作经历
+              {{ l('工作经历', 'Experience') }}
             </h2>
             <div v-for="exp in data.experience" :key="exp.id" class="mb-3.5 pl-3" :style="`border-left:3px solid ${config.themeColor}25`">
               <div class="flex justify-between items-baseline mb-0.5">
@@ -135,7 +137,7 @@ function lines(text: string) {
           <!-- Projects -->
           <section v-else-if="sectionId === 'projects' && data.projects.length" class="mb-5">
             <h2 class="font-bold mb-2.5" :style="`font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor};border-bottom:2px solid ${config.themeColor};padding-bottom:5px`">
-              项目经历
+              {{ l('项目经历', 'Projects') }}
             </h2>
             <div v-for="proj in data.projects" :key="proj.id" class="mb-3.5 pl-3" :style="`border-left:3px solid ${config.themeColor}25`">
               <div class="flex justify-between items-baseline mb-0.5">
@@ -155,7 +157,7 @@ function lines(text: string) {
           <!-- Awards -->
           <section v-else-if="sectionId === 'awards' && data.awards.length" class="mb-5">
             <h2 class="font-bold mb-2.5" :style="`font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor};border-bottom:2px solid ${config.themeColor};padding-bottom:5px`">
-              荣誉奖项
+              {{ l('荣誉奖项', 'Awards') }}
             </h2>
             <div v-for="award in data.awards" :key="award.id" class="mb-2">
               <div class="flex justify-between">
@@ -169,7 +171,7 @@ function lines(text: string) {
           <!-- Certifications -->
           <section v-else-if="sectionId === 'certifications' && data.certifications.length" class="mb-5">
             <h2 class="font-bold mb-2.5" :style="`font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:${config.themeColor};border-bottom:2px solid ${config.themeColor};padding-bottom:5px`">
-              证书资质
+              {{ l('证书资质', 'Certifications') }}
             </h2>
             <div v-for="cert in data.certifications" :key="cert.id" class="mb-2">
               <div class="flex justify-between">

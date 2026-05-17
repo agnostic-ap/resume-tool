@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ResumeData, ResumeConfig, SectionId } from '../../types/resume'
+import { useLocaleText } from '../../composables/useLocaleText'
 
 const props = defineProps<{ data: ResumeData; config: ResumeConfig }>()
+const { l } = useLocaleText()
 
 const sidebarSet: SectionId[] = ['skills', 'education', 'languages', 'certifications', 'awards']
 const mainSet: SectionId[] = ['summary', 'experience', 'projects']
@@ -26,7 +28,7 @@ function fmtDate(d: string) {
 
 function dateRange(start: string, end: string, current: boolean) {
   const s = fmtDate(start)
-  const e = current ? '至今' : fmtDate(end)
+  const e = current ? l('至今', 'Present') : fmtDate(end)
   return s && e ? `${s} — ${e}` : s || e
 }
 
@@ -55,18 +57,18 @@ function darken(hex: string, amt = 35): string {
         </div>
         <h1 class="font-bold mb-1" style="font-size:17px;letter-spacing:1px;"
           :style="data.personal.name ? 'color:white' : 'color:rgba(255,255,255,0.35)'">
-          {{ data.personal.name || '您的姓名' }}
+          {{ data.personal.name || l('您的姓名', 'Your Name') }}
         </h1>
         <p style="font-size:11.5px;line-height:1.4;"
           :style="data.personal.title ? 'opacity:0.85' : 'opacity:0.35'">
-          {{ data.personal.title || '期望职位' }}
+          {{ data.personal.title || l('期望职位', 'Target Role') }}
         </p>
       </div>
 
       <!-- Contact -->
       <div class="mb-5">
         <h3 class="font-bold mb-2 pb-1" style="font-size:10.5px;letter-spacing:1.5px;border-bottom:1px solid rgba(255,255,255,0.3);">
-          联系方式
+          {{ l('联系方式', 'Contact') }}
         </h3>
         <div style="font-size:11px;opacity:0.9;line-height:2;">
           <div v-if="data.personal.phone">{{ data.personal.phone }}</div>
@@ -81,7 +83,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Skills -->
         <div v-if="sectionId === 'skills' && data.skills.length" class="mb-5">
           <h3 class="font-bold mb-2 pb-1" style="font-size:10.5px;letter-spacing:1.5px;border-bottom:1px solid rgba(255,255,255,0.3);">
-            专业技能
+            {{ l('专业技能', 'Skills') }}
           </h3>
           <div v-for="skill in data.skills" :key="skill.id" class="mb-2">
             <p class="font-semibold" style="font-size:11px;margin-bottom:2px;">{{ skill.category }}</p>
@@ -92,7 +94,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Education -->
         <div v-else-if="sectionId === 'education' && data.education.length" class="mb-5">
           <h3 class="font-bold mb-2 pb-1" style="font-size:10.5px;letter-spacing:1.5px;border-bottom:1px solid rgba(255,255,255,0.3);">
-            教育经历
+            {{ l('教育经历', 'Education') }}
           </h3>
           <div v-for="edu in data.education" :key="edu.id" class="mb-3">
             <p class="font-semibold" style="font-size:12px;">{{ edu.school }}</p>
@@ -105,10 +107,10 @@ function darken(hex: string, amt = 35): string {
         <!-- Languages -->
         <div v-else-if="sectionId === 'languages' && data.languages.length" class="mb-5">
           <h3 class="font-bold mb-2 pb-1" style="font-size:10.5px;letter-spacing:1.5px;border-bottom:1px solid rgba(255,255,255,0.3);">
-            语言能力
+            {{ l('语言能力', 'Languages') }}
           </h3>
           <div v-for="lang in data.languages" :key="lang.id" class="mb-1">
-            <span style="font-size:11px;font-weight:600;">{{ lang.language }}：</span>
+            <span style="font-size:11px;font-weight:600;">{{ lang.language }}{{ l('：', ': ') }}</span>
             <span style="font-size:11px;opacity:0.85;">{{ lang.level }}</span>
           </div>
         </div>
@@ -116,7 +118,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Certifications -->
         <div v-else-if="sectionId === 'certifications' && data.certifications.length" class="mb-5">
           <h3 class="font-bold mb-2 pb-1" style="font-size:10.5px;letter-spacing:1.5px;border-bottom:1px solid rgba(255,255,255,0.3);">
-            证书资质
+            {{ l('证书资质', 'Certifications') }}
           </h3>
           <div v-for="cert in data.certifications" :key="cert.id" class="mb-2">
             <p style="font-size:11px;font-weight:600;">{{ cert.name }}</p>
@@ -127,7 +129,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Awards -->
         <div v-else-if="sectionId === 'awards' && data.awards.length" class="mb-5">
           <h3 class="font-bold mb-2 pb-1" style="font-size:10.5px;letter-spacing:1.5px;border-bottom:1px solid rgba(255,255,255,0.3);">
-            荣誉奖项
+            {{ l('荣誉奖项', 'Awards') }}
           </h3>
           <div v-for="award in data.awards" :key="award.id" class="mb-2">
             <p style="font-size:11px;font-weight:600;">{{ award.title }}</p>
@@ -143,7 +145,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Summary -->
         <section v-if="sectionId === 'summary' && data.personal.summary" class="mb-5">
           <h2 class="font-bold mb-2" :style="`font-size:12.5px;color:${config.themeColor};padding-bottom:4px;border-bottom:2px solid ${config.themeColor}`">
-            个人简介
+            {{ l('个人简介', 'Summary') }}
           </h2>
           <p class="text-gray-600 leading-relaxed" style="font-size:12px;">{{ data.personal.summary }}</p>
         </section>
@@ -151,7 +153,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Experience -->
         <section v-else-if="sectionId === 'experience' && data.experience.length" class="mb-5">
           <h2 class="font-bold mb-3" :style="`font-size:12.5px;color:${config.themeColor};padding-bottom:4px;border-bottom:2px solid ${config.themeColor}`">
-            工作经历
+            {{ l('工作经历', 'Experience') }}
           </h2>
           <div v-for="exp in data.experience" :key="exp.id" class="mb-4">
             <div class="flex justify-between items-baseline mb-0.5">
@@ -172,7 +174,7 @@ function darken(hex: string, amt = 35): string {
         <!-- Projects -->
         <section v-else-if="sectionId === 'projects' && data.projects.length" class="mb-5">
           <h2 class="font-bold mb-3" :style="`font-size:12.5px;color:${config.themeColor};padding-bottom:4px;border-bottom:2px solid ${config.themeColor}`">
-            项目经历
+            {{ l('项目经历', 'Projects') }}
           </h2>
           <div v-for="proj in data.projects" :key="proj.id" class="mb-4">
             <div class="flex justify-between items-baseline mb-0.5">

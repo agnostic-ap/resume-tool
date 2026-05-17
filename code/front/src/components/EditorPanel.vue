@@ -12,20 +12,26 @@ import AwardsEditor from './editor/AwardsEditor.vue'
 import LanguagesEditor from './editor/LanguagesEditor.vue'
 import CertificationsEditor from './editor/CertificationsEditor.vue'
 import { useI18n } from '../i18n'
+import { useLocaleText } from '../composables/useLocaleText'
 
 const store = useResumeStore()
 defineProps<{ showTree?: boolean }>()
 const { t } = useI18n()
+const { l } = useLocaleText()
 
-const sectionMeta: Record<SectionId, { label: string; icon: string; component: any }> = {
-  summary: { label: '个人简介', icon: '¶', component: SummaryEditor },
-  experience: { label: '工作经历', icon: '¶', component: ExperienceEditor },
-  education: { label: '教育经历', icon: '§', component: EducationEditor },
-  skills: { label: '专业技能', icon: '◇', component: SkillsEditor },
-  projects: { label: '项目经历', icon: '◆', component: ProjectsEditor },
-  awards: { label: '荣誉奖项', icon: '☆', component: AwardsEditor },
-  languages: { label: '语言能力', icon: '⌁', component: LanguagesEditor },
-  certifications: { label: '证书资质', icon: '□', component: CertificationsEditor },
+const sectionMeta: Record<SectionId, { zh: string; en: string; icon: string; component: any }> = {
+  summary: { zh: '个人简介', en: 'Summary', icon: '¶', component: SummaryEditor },
+  experience: { zh: '工作经历', en: 'Experience', icon: '¶', component: ExperienceEditor },
+  education: { zh: '教育经历', en: 'Education', icon: '§', component: EducationEditor },
+  skills: { zh: '专业技能', en: 'Skills', icon: '◇', component: SkillsEditor },
+  projects: { zh: '项目经历', en: 'Projects', icon: '◆', component: ProjectsEditor },
+  awards: { zh: '荣誉奖项', en: 'Awards', icon: '☆', component: AwardsEditor },
+  languages: { zh: '语言能力', en: 'Languages', icon: '⌁', component: LanguagesEditor },
+  certifications: { zh: '证书资质', en: 'Certifications', icon: '□', component: CertificationsEditor },
+}
+
+function sectionLabel(id: SectionId) {
+  return l(sectionMeta[id].zh, sectionMeta[id].en)
 }
 
 const sectionCount = computed<Record<SectionId, number>>(() => ({
@@ -56,10 +62,10 @@ const completenessColor = computed(() => {
 
 const completenessLabel = computed(() => {
   const s = store.completeness
-  if (s < 40) return '待完善'
-  if (s < 70) return '基本完整'
-  if (s < 100) return '接近完成'
-  return '可以导出'
+  if (s < 40) return l('待完善', 'Needs work')
+  if (s < 70) return l('基本完整', 'Mostly filled')
+  if (s < 100) return l('接近完成', 'Almost ready')
+  return l('可以导出', 'Ready to export')
 })
 
 const sourceText = computed(() => JSON.stringify({
@@ -75,7 +81,7 @@ const sourceText = computed(() => JSON.stringify({
 const diffRows = computed(() =>
   store.config.sectionOrder.map((id, index) => ({
     id,
-    label: sectionMeta[id].label,
+    label: sectionLabel(id),
     status: store.config.sectionVisible[id] ? 'visible' : 'hidden',
     count: sectionCount.value[id],
     order: index + 1,
@@ -186,17 +192,17 @@ async function copySource() {
           <div class="section-toggle">
             <button @click="toggle(sectionId)" class="section-title">
               <i>{{ sectionMeta[sectionId].icon }}</i>
-              <strong>{{ sectionMeta[sectionId].label }}</strong>
+              <strong>{{ sectionLabel(sectionId) }}</strong>
               <small>{{ sectionId }}.mdx</small>
             </button>
             <div class="section-actions">
               <span v-if="sectionCount[sectionId] > 0" class="count-badge">
-                {{ sectionId === 'summary' ? '已填' : sectionCount[sectionId] }}
+                {{ sectionId === 'summary' ? t('filled') : sectionCount[sectionId] }}
               </span>
               <span v-else-if="store.config.sectionVisible[sectionId]" class="count-badge warn">{{ t('todo') }}</span>
               <button @click="store.toggleSectionVisible(sectionId)"
-                :title="store.config.sectionVisible[sectionId] ? '在简历中隐藏' : '在简历中显示'">
-                {{ store.config.sectionVisible[sectionId] ? 'show' : 'hide' }}
+                :title="store.config.sectionVisible[sectionId] ? l('在简历中隐藏', 'Hide from resume') : l('在简历中显示', 'Show in resume')">
+                {{ store.config.sectionVisible[sectionId] ? l('显示', 'show') : l('隐藏', 'hide') }}
               </button>
               <button @click="store.moveSection(sectionId, 'up')" :disabled="idx === 0">↑</button>
               <button @click="store.moveSection(sectionId, 'down')"

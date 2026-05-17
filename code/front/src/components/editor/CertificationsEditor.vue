@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { useResumeStore } from '../../stores/resume'
 import { useDeleteConfirm } from '../../composables/useDeleteConfirm'
+import { useLocaleText } from '../../composables/useLocaleText'
 
 const store = useResumeStore()
 const { pending: deletePending, askDelete, cancelDelete } = useDeleteConfirm()
+const { l } = useLocaleText()
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400'
 </script>
 
@@ -12,37 +14,37 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
     <div v-for="cert in store.data.certifications" :key="cert.id"
       class="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">证书 / 资质名称</label>
-        <input v-model="cert.name" :class="inputCls" placeholder="PMP项目管理认证" />
+        <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('证书 / 资质名称', 'Certification') }}</label>
+        <input v-model="cert.name" :class="inputCls" :placeholder="l('PMP项目管理认证', 'PMP Certification')" />
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">颁发机构</label>
+          <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('颁发机构', 'Issuer') }}</label>
           <input v-model="cert.issuer" :class="inputCls" placeholder="PMI" />
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">获取时间</label>
+          <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('获取时间', 'Date') }}</label>
           <input v-model="cert.date" type="month" :class="inputCls" />
         </div>
       </div>
       <div class="flex items-center gap-2">
         <template v-if="deletePending === cert.id">
-          <span class="text-xs text-red-500">确认删除？</span>
+          <span class="text-xs text-red-500">{{ l('确认删除？', 'Delete this item?') }}</span>
           <button @click="store.removeCertification(cert.id)"
-            class="text-xs font-medium text-red-600 hover:text-red-700 transition-colors">删除</button>
+            class="text-xs font-medium text-red-600 hover:text-red-700 transition-colors">{{ l('删除', 'Delete') }}</button>
           <button @click="cancelDelete()"
-            class="text-xs text-gray-400 hover:text-gray-600 transition-colors">取消</button>
+            class="text-xs text-gray-400 hover:text-gray-600 transition-colors">{{ l('取消', 'Cancel') }}</button>
         </template>
         <button v-else @click="askDelete(cert.id)"
           class="text-xs text-red-400 hover:text-red-600 transition-colors">
-          删除此条
+          {{ l('删除此条', 'Delete item') }}
         </button>
       </div>
     </div>
 
     <button @click="store.addCertification()"
       class="w-full py-2 text-sm text-blue-500 border-2 border-dashed border-blue-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors">
-      + 添加证书资质
+      {{ l('+ 添加证书资质', '+ Add certification') }}
     </button>
   </div>
 </template>
