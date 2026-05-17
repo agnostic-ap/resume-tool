@@ -6,8 +6,10 @@ import { showToast } from '../composables/toast'
 import TemplateClassic from './templates/TemplateClassic.vue'
 import TemplateModern from './templates/TemplateModern.vue'
 import TemplateSidebar from './templates/TemplateSidebar.vue'
+import { useI18n } from '../i18n'
 
 const store = useResumeStore()
+const { t, locale } = useI18n()
 const panelRef  = ref<HTMLElement>()
 const autoScale = ref(0.88)
 const userScale = ref<number | null>(null)
@@ -93,24 +95,24 @@ function resetZoom() { userScale.value = null }
         class="export-button"
         :class="{ disabled: exporting }">
         <span>↧</span>
-        {{ exporting ? '生成中…' : '下载 PDF' }}
+        {{ exporting ? (locale === 'zh-CN' ? '生成中…' : 'Generating…') : t('exportPdf') }}
       </button>
 
       <div class="zoom-control">
-        <span>缩放</span>
+        <span>{{ locale === 'zh-CN' ? '缩放' : 'Zoom' }}</span>
         <input type="range" min="40" max="100" step="2"
           :value="Math.round(scale * 100)"
           @input="onZoomInput" />
         <strong>{{ Math.round(scale * 100) }}%</strong>
         <button v-if="userScale !== null" @click="resetZoom"
           class="ghost-action">
-          重置
+          {{ locale === 'zh-CN' ? '重置' : 'Reset' }}
         </button>
       </div>
 
       <div class="page-count" :class="{ warn: pageCount > 1 }">
-        <span>{{ pageCount }} 页</span>
-        <span v-if="pageCount > 1" title="建议简历控制在1页以内">建议精简</span>
+        <span>{{ pageCount }} {{ locale === 'zh-CN' ? '页' : pageCount === 1 ? 'page' : 'pages' }}</span>
+        <span v-if="pageCount > 1" :title="locale === 'zh-CN' ? '建议简历控制在1页以内' : 'Keep the resume within one page'">{{ locale === 'zh-CN' ? '建议精简' : 'Trim' }}</span>
       </div>
     </div>
 
@@ -130,13 +132,13 @@ function resetZoom() { userScale.value = null }
           class="page-break"
           :style="`top:${y}px`">
           <div />
-          <span>第{{ i + 1 }}页 / 第{{ i + 2 }}页</span>
+          <span>{{ locale === 'zh-CN' ? `第${i + 1}页 / 第${i + 2}页` : `Page ${i + 1} / ${i + 2}` }}</span>
           <div />
         </div>
       </div>
     </div>
 
-    <p class="preview-note">A4 预览 · 分页线用于导出前检查</p>
+    <p class="preview-note">{{ locale === 'zh-CN' ? 'A4 预览 · 分页线用于导出前检查' : 'A4 preview · page breaks are shown before export' }}</p>
   </section>
 
   <div id="print-resume" style="display:none;">

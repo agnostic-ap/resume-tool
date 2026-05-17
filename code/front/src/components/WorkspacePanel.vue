@@ -4,6 +4,7 @@ import { useResumeStore } from '../stores/resume'
 import type { TemplateId } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import { showToast } from '../composables/toast'
+import { useI18n } from '../i18n'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
 
@@ -14,6 +15,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useResumeStore()
+const { t, locale } = useI18n()
 const pipelineFilter = ref('all')
 const assistantPrompt = ref('')
 const assistantSuggestions = ref<string[]>([
@@ -85,16 +87,18 @@ function createBlank() {
 
 function setTemplate(id: TemplateId) {
   store.setTemplate(id)
-  showToast(`已切换到${templates.find((t) => t.id === id)?.label}模板`, 'success')
+  showToast(locale.value === 'zh-CN' ? `已切换到${t(id)}模板` : `Switched to ${t(id)} template`, 'success')
 }
 
 function runAssistant() {
   if (!assistantPrompt.value.trim()) {
-    showToast('先输入想优化的方向，例如“针对前端负责人岗位强化管理经验”', 'info', 3500)
+    showToast(locale.value === 'zh-CN' ? '先输入想优化的方向' : 'Enter an optimization goal first', 'info', 3500)
     return
   }
-  assistantSuggestions.value.unshift(`根据“${assistantPrompt.value.trim()}”重写 Summary，并保留一页版式。`)
-  showToast('已生成优化建议，可直接采纳到个人简介', 'success', 3500)
+  assistantSuggestions.value.unshift(locale.value === 'zh-CN'
+    ? `根据“${assistantPrompt.value.trim()}”重写 Summary，并保留一页版式。`
+    : `Rewrite the summary for "${assistantPrompt.value.trim()}" and keep the resume to one page.`)
+  showToast(locale.value === 'zh-CN' ? '已生成优化建议，可直接采纳到个人简介' : 'Advice generated. You can apply it to the summary.', 'success', 3500)
   assistantPrompt.value = ''
 }
 
@@ -103,7 +107,7 @@ function applySuggestion(text: string) {
   const prefix = current || '前端开发工程师，熟悉 Vue3、TypeScript 与工程化体系。'
   store.data.personal.summary = `${prefix} ${text.replace(/^把|^根据.+重写 Summary，并/, '').replace(/。$/, '')}。`
   emit('navigate', 'editor')
-  showToast('建议已写入个人简介', 'success')
+  showToast(locale.value === 'zh-CN' ? '建议已写入个人简介' : 'Advice applied to the summary', 'success')
 }
 
 function logApplication() {
@@ -122,7 +126,7 @@ function logApplication() {
     ago: 'just now',
   })
   pipelineFilter.value = 'all'
-  showToast('投递记录已添加到列表顶部', 'success')
+  showToast(locale.value === 'zh-CN' ? '投递记录已添加到列表顶部' : 'Application added to the top of the list', 'success')
 }
 
 function matchClass(score: number) {
@@ -138,12 +142,12 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'workspace' || props.mode === 'editor'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">01 · Now editing</div>
-            <h2>Pick up where you <em>left off</em></h2>
+            <div class="num">01 · {{ t('nowEditing') }}</div>
+            <h2>{{ t('pickUp') }}</h2>
           </div>
           <div class="meta">
-            <span>Last session · just now</span>
-            <button @click="openEditor">Open editor →</button>
+            <span>{{ t('lastSession') }}</span>
+            <button @click="openEditor">{{ t('openEditor') }} →</button>
           </div>
         </div>
 
@@ -151,7 +155,7 @@ function matchClass(score: number) {
           <div class="hero__left">
             <div class="hero__eyebrow">
               <span class="dot"></span>
-              <span>Pinned · currently editing</span>
+              <span>{{ t('nowEditing') }}</span>
               <span class="version">main · v1.0</span>
             </div>
             <h1 class="hero__title">
@@ -184,10 +188,10 @@ function matchClass(score: number) {
             </div>
 
             <div class="hero__actions">
-              <button class="btn btn--primary" @click="openEditor">Open editor <kbd>E</kbd></button>
-              <button class="btn" @click="emit('navigate', 'assistant')">Tailor with AI</button>
-              <button class="btn btn--ghost" @click="emit('command', 'export')">Export PDF</button>
-              <button class="btn btn--ghost" @click="emit('navigate', 'history')">View history</button>
+              <button class="btn btn--primary" @click="openEditor">{{ t('openEditor') }} <kbd>E</kbd></button>
+              <button class="btn" @click="emit('navigate', 'assistant')">{{ t('tailorWithAI') }}</button>
+              <button class="btn btn--ghost" @click="emit('command', 'export')">{{ t('exportPdf') }}</button>
+              <button class="btn btn--ghost" @click="emit('navigate', 'history')">{{ t('viewHistory') }}</button>
             </div>
           </div>
 
@@ -223,12 +227,12 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'workspace' || props.mode === 'templates'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">{{ props.mode === 'templates' ? '01' : '02' }} · Templates</div>
-            <h2>Choose a <em>layout</em></h2>
+            <div class="num">{{ props.mode === 'templates' ? '01' : '02' }} · {{ t('templates') }}</div>
+            <h2>{{ t('chooseLayout') }}</h2>
           </div>
           <div class="meta">
             <span>Current · {{ store.config.templateId }}</span>
-            <button @click="emit('navigate', 'editor')">Preview in editor →</button>
+            <button @click="emit('navigate', 'editor')">{{ t('previewInEditor') }} →</button>
           </div>
         </div>
         <div class="template-grid">
@@ -237,8 +241,8 @@ function matchClass(score: number) {
             :class="{ active: store.config.templateId === template.id }"
             @click="setTemplate(template.id)">
             <TemplateThumbnail :type="template.id" :color="store.config.themeColor" />
-            <strong>{{ template.label }}</strong>
-            <span>{{ template.desc }}</span>
+            <strong>{{ t(template.id) }}</strong>
+            <span>{{ t(`${template.id}Desc` as 'classicDesc' | 'modernDesc' | 'sidebarDesc') }}</span>
           </button>
         </div>
       </section>
@@ -246,12 +250,12 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'workspace'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">03 · Documents</div>
-            <h2>Your <em>résumés</em></h2>
+            <div class="num">03 · {{ t('documents') }}</div>
+            <h2>{{ t('documents') }}</h2>
           </div>
           <div class="meta">
-            <button @click="openEditor">Open current →</button>
-            <button @click="createBlank">New résumé</button>
+            <button @click="openEditor">{{ t('openCurrent') }} →</button>
+            <button @click="createBlank">{{ t('newResumeFull') }}</button>
           </div>
         </div>
         <div class="docs">
@@ -275,7 +279,7 @@ function matchClass(score: number) {
           </article>
           <article class="doc doc--new" @click="createBlank">
             <div class="plus">＋</div>
-            <strong>New résumé</strong>
+            <strong>{{ t('newResumeFull') }}</strong>
             <span>blank · import · edit</span>
           </article>
         </div>
@@ -284,12 +288,12 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'workspace' || props.mode === 'pipeline'" class="section">
         <div class="section__head section__head--double">
           <div>
-            <div class="num">{{ props.mode === 'pipeline' ? '01' : '04' }} · Pipeline</div>
-            <h2>Where you've <em>applied</em></h2>
+            <div class="num">{{ props.mode === 'pipeline' ? '01' : '04' }} · {{ t('pipeline') }}</div>
+            <h2>{{ t('pipelineTitle') }}</h2>
           </div>
           <div class="meta">
             <span>1 offer · 4 active · 1 closed</span>
-            <button @click="logApplication">+ Log application</button>
+            <button @click="logApplication">+ {{ t('logApplication') }}</button>
           </div>
         </div>
         <div class="apps">
@@ -306,12 +310,12 @@ function matchClass(score: number) {
           <table class="apps__table">
             <thead>
               <tr>
-                <th>Company</th>
-                <th>Role</th>
-                <th>Résumé used</th>
-                <th>Stage</th>
-                <th>Match</th>
-                <th>Applied</th>
+                <th>{{ t('company') }}</th>
+                <th>{{ t('role') }}</th>
+                <th>{{ t('resumeUsed') }}</th>
+                <th>{{ t('stage') }}</th>
+                <th>{{ t('match') }}</th>
+                <th>{{ t('applied') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -345,8 +349,8 @@ function matchClass(score: number) {
         <div class="lower">
           <div v-if="props.mode !== 'assistant'" class="panel">
             <div class="panel__head">
-              <div class="ttl">Commits · <em>main</em></div>
-              <button @click="emit('navigate', 'history')">full log →</button>
+              <div class="ttl">{{ t('commits') }} · <em>main</em></div>
+              <button @click="emit('navigate', 'history')">{{ t('fullLog') }} →</button>
             </div>
             <div class="timeline">
               <div v-for="commit in commits" :key="commit.hash" class="commit" :class="`commit--${commit.type}`">
@@ -362,8 +366,8 @@ function matchClass(score: number) {
 
           <div class="panel ai-panel">
             <div class="panel__head">
-              <div class="ttl">AI · <em>Co-editor</em></div>
-              <div class="live">SESSION · READY</div>
+              <div class="ttl">AI · <em>{{ t('coEditor') }}</em></div>
+              <div class="live">SESSION · {{ t('ready') }}</div>
             </div>
             <div class="ai">
               <div class="ai__convo">
@@ -385,15 +389,15 @@ function matchClass(score: number) {
                     <div class="ai-suggestions">
                       <button v-for="suggestion in assistantSuggestions" :key="suggestion" @click="applySuggestion(suggestion)">
                         <span>{{ suggestion }}</span>
-                        <b>apply</b>
+                        <b>{{ t('apply') }}</b>
                       </button>
                     </div>
                   </div>
                 </div>
               </div>
               <div class="ai__compose">
-                <input v-model="assistantPrompt" placeholder="例如：针对支付平台岗位强化 API 和性能优化经历" @keydown.enter="runAssistant" />
-                <button class="btn btn--primary" @click="runAssistant">生成建议</button>
+                <input v-model="assistantPrompt" :placeholder="t('aiPlaceholder')" @keydown.enter="runAssistant" />
+                <button class="btn btn--primary" @click="runAssistant">{{ t('generateAdvice') }}</button>
               </div>
             </div>
           </div>
@@ -403,22 +407,22 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'settings'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">01 · Settings</div>
-            <h2>Studio <em>preferences</em></h2>
+            <div class="num">01 · {{ t('settings') }}</div>
+            <h2>{{ t('studioPrefs') }}</h2>
           </div>
         </div>
         <div class="settings-grid">
           <label>
-            <span>主题色</span>
+            <span>{{ t('themeColor') }}</span>
             <input type="color" :value="store.config.themeColor" @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)" />
           </label>
           <label>
-            <span>字号</span>
+            <span>{{ t('fontSize') }}</span>
             <input type="range" min="12" max="18" :value="store.config.fontSize"
               @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
             <small>{{ store.config.fontSize }}px</small>
           </label>
-          <button class="btn btn--ghost" @click="store.resetToDefault()">恢复示例数据</button>
+          <button class="btn btn--ghost" @click="store.resetToDefault()">{{ t('restoreDemo') }}</button>
         </div>
       </section>
     </div>

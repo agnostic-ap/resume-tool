@@ -80,6 +80,7 @@ export interface ResumeData {
 }
 
 export type TemplateId = 'classic' | 'modern' | 'sidebar'
+export type Locale = 'zh-CN' | 'en-US'
 
 export type SectionId =
   | 'summary'
@@ -92,6 +93,7 @@ export type SectionId =
   | 'certifications'
 
 export interface ResumeConfig {
+  locale: Locale
   templateId: TemplateId
   themeColor: string
   fontSize: number

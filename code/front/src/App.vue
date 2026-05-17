@@ -10,10 +10,13 @@ import CommandPalette from './components/CommandPalette.vue'
 import TweaksPanel from './components/TweaksPanel.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
+import { useI18n } from './i18n'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
 
 const store = useResumeStore()
+const { t } = useI18n()
+const tr = (key: string) => t(key as never)
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
@@ -32,22 +35,22 @@ const primaryAdvice = computed(() => {
 })
 
 const viewTitle: Record<AppView, string> = {
-  workspace: 'Overview',
-  editor: 'Editor',
-  templates: 'Templates',
-  assistant: 'AI Studio',
-  pipeline: 'Pipeline',
-  history: 'History',
-  settings: 'Settings',
+  workspace: 'workspace',
+  editor: 'editor',
+  templates: 'templates',
+  assistant: 'assistant',
+  pipeline: 'pipeline',
+  history: 'history',
+  settings: 'settings',
 }
 
 const railItems: { id: AppView; icon: string; label: string; count?: number }[] = [
-  { id: 'workspace', icon: '⌂', label: 'Overview' },
-  { id: 'editor', icon: '§', label: 'Editor' },
-  { id: 'templates', icon: '▦', label: 'Templates' },
-  { id: 'assistant', icon: '✦', label: 'AI Studio' },
-  { id: 'pipeline', icon: '▤', label: 'Pipeline', count: 6 },
-  { id: 'history', icon: '↺', label: 'History' },
+  { id: 'workspace', icon: '⌂', label: 'workspace' },
+  { id: 'editor', icon: '§', label: 'editor' },
+  { id: 'templates', icon: '▦', label: 'templates' },
+  { id: 'assistant', icon: '✦', label: 'assistant' },
+  { id: 'pipeline', icon: '▤', label: 'pipeline', count: 6 },
+  { id: 'history', icon: '↺', label: 'history' },
 ]
 
 const editorClasses = computed(() => [
@@ -135,19 +138,19 @@ onUnmounted(() => {
       <button v-for="item in railItems" :key="item.id"
         class="rail-action"
         :class="{ 'is-active': currentView === item.id }"
-        :title="item.label"
+        :title="tr(item.label)"
         @click="navigate(item.id)">
         <span>{{ item.icon }}</span>
         <small v-if="item.count">{{ item.count }}</small>
       </button>
       <div class="rail-spacer" />
-      <button class="rail-action" :class="{ 'is-active': currentView === 'settings' }" title="设置" @click="navigate('settings')">
+      <button class="rail-action" :class="{ 'is-active': currentView === 'settings' }" :title="t('settings')" @click="navigate('settings')">
         <span>⌘</span>
       </button>
     </aside>
 
     <TopBar
-      :current-view="viewTitle[currentView]"
+      :current-view="tr(viewTitle[currentView])"
       @navigate="navigate"
       @open-command="commandOpen = true"
       @open-tweaks="tweaksOpen = true" />
@@ -162,7 +165,7 @@ onUnmounted(() => {
       <PreviewPanel />
       <aside v-if="store.config.tweaks.showAI" class="inspector-panel">
         <div class="inspector-card score-card">
-          <span class="inspector-eyebrow">Match score</span>
+          <span class="inspector-eyebrow">{{ t('matchScore') }}</span>
           <strong>{{ store.completeness }}<small>/100</small></strong>
           <div class="score-track">
             <i :style="{ width: `${store.completeness}%` }" />
@@ -171,18 +174,18 @@ onUnmounted(() => {
         </div>
 
         <div class="inspector-card">
-          <span class="inspector-eyebrow">Workspace</span>
+          <span class="inspector-eyebrow">{{ t('workspace') }}</span>
           <dl class="compact-list">
             <div>
-              <dt>模板</dt>
+              <dt>{{ t('templates') }}</dt>
               <dd>{{ store.config.templateId }}</dd>
             </div>
             <div>
-              <dt>可见章节</dt>
+              <dt>{{ t('visibleSections') }}</dt>
               <dd>{{ activeSections }}</dd>
             </div>
             <div>
-              <dt>主题色</dt>
+              <dt>{{ t('themeColor') }}</dt>
               <dd>
                 <span class="color-dot" :style="{ background: store.config.themeColor }" />
                 {{ store.config.themeColor }}
@@ -192,11 +195,11 @@ onUnmounted(() => {
         </div>
 
         <div class="inspector-card note-card">
-          <span class="inspector-eyebrow">Before export</span>
+          <span class="inspector-eyebrow">{{ t('beforeExport') }}</span>
           <ul>
-            <li>每条经历使用动词开头</li>
-            <li>优先保留有数字结果的项目</li>
-            <li>控制在 1 页时投递转化更稳定</li>
+            <li>{{ t('noteVerb') }}</li>
+            <li>{{ t('noteNumbers') }}</li>
+            <li>{{ t('noteOnePage') }}</li>
           </ul>
         </div>
       </aside>

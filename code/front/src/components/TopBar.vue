@@ -5,6 +5,7 @@ import type { TemplateId } from '../types/resume'
 import { showToast } from '../composables/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 import TemplateThumbnail from './TemplateThumbnail.vue'
+import { useI18n } from '../i18n'
 
 defineProps<{ currentView: string }>()
 const emit = defineEmits<{
@@ -14,6 +15,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useResumeStore()
+const { t } = useI18n()
 const fileInput = ref<HTMLInputElement>()
 
 // ── Auto-save indicator ──────────────────────────────────────
@@ -30,6 +32,14 @@ const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'modern',   label: '现代',   desc: '双栏·标题色块' },
   { id: 'sidebar',  label: '侧边栏', desc: '色彩·个性' },
 ]
+
+function templateLabel(id: TemplateId) {
+  return t(id)
+}
+
+function templateDesc(id: TemplateId) {
+  return t(`${id}Desc` as 'classicDesc' | 'modernDesc' | 'sidebarDesc')
+}
 
 function closePicker(e: MouseEvent) {
   if (!templatePickerRef.value?.contains(e.target as Node)) {
@@ -111,37 +121,42 @@ function handleFileChange(e: Event) {
       </div>
     </div>
 
+    <div class="locale-switch">
+      <button :class="{ on: store.config.locale === 'zh-CN' }" @click="store.setLocale('zh-CN')">中</button>
+      <button :class="{ on: store.config.locale === 'en-US' }" @click="store.setLocale('en-US')">EN</button>
+    </div>
+
     <nav class="topbar-crumbs" aria-label="当前位置">
-      <button class="crumb-link" @click="emit('navigate', 'workspace')">workspace</button>
+      <button class="crumb-link" @click="emit('navigate', 'workspace')">{{ t('workspace') }}</button>
       <span class="sep">/</span>
       <strong>{{ store.data.personal.name || '未命名简历' }}</strong>
-      <span class="status-badge">{{ templates.find(t => t.id === store.config.templateId)?.label }}</span>
+      <span class="status-badge">{{ templateLabel(store.config.templateId) }}</span>
       <span class="status-badge">{{ currentView }}</span>
       <span class="status-badge">v1.0</span>
     </nav>
 
     <button class="topbar-button command-trigger" @click="emit('openCommand')">
       <span>⌕</span>
-      命令
+      {{ t('command') }}
       <kbd>⌘K</kbd>
     </button>
 
     <button class="topbar-button" @click="emit('openTweaks')">
       <span>⌘</span>
-      Tweaks
+      {{ t('tweaks') }}
     </button>
 
     <button @click="askConfirm('clearAll')"
       class="topbar-button">
       <span>＋</span>
-      新建
+      {{ t('newResume') }}
     </button>
 
     <div ref="templatePickerRef" class="template-menu">
       <button @click="showTemplatePicker = !showTemplatePicker"
         class="topbar-button">
         <span>▦</span>
-        <span class="font-semibold">{{ templates.find(t => t.id === store.config.templateId)?.label }}</span>
+        <span class="font-semibold">{{ templateLabel(store.config.templateId) }}</span>
         <span class="caret">▾</span>
       </button>
 
@@ -154,8 +169,8 @@ function handleFileChange(e: Event) {
             :class="{ active: store.config.templateId === t.id }">
             <TemplateThumbnail :type="t.id" :color="store.config.themeColor" />
             <div>
-              <strong>{{ t.label }}</strong>
-              <small>{{ t.desc }}</small>
+              <strong>{{ templateLabel(t.id) }}</strong>
+              <small>{{ templateDesc(t.id) }}</small>
             </div>
           </button>
         </div>
@@ -163,7 +178,7 @@ function handleFileChange(e: Event) {
     </div>
 
     <div class="theme-picker">
-      <span>主题色</span>
+      <span>{{ t('themeColor') }}</span>
       <div class="swatches">
         <button v-for="color in presetColors" :key="color" @click="store.setThemeColor(color)"
           class="swatch"
@@ -177,23 +192,23 @@ function handleFileChange(e: Event) {
 
     <div class="save-state" :class="{ pending: !saved }">
       <i />
-      <span>{{ saved ? 'Saved' : 'Saving' }}</span>
+      <span>{{ saved ? t('saved') : t('saving') }}</span>
     </div>
 
     <div class="topbar-actions">
       <button @click="handleImportClick"
         class="topbar-button">
         <span>↥</span>
-        导入
+        {{ t('import') }}
       </button>
       <button @click="handleExportJSON"
         class="topbar-button">
         <span>↧</span>
-        备份
+        {{ t('backup') }}
       </button>
       <button @click="askConfirm('resetDemo')"
         class="topbar-link">
-        重置示例
+        {{ t('resetDemo') }}
       </button>
     </div>
 

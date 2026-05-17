@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useI18n } from '../i18n'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
@@ -10,25 +11,26 @@ const emit = defineEmits<{
 const query = ref('')
 const selected = ref(0)
 const inputRef = ref<HTMLInputElement>()
+const { t } = useI18n()
 
 const groups = [
   {
     label: 'Quick actions',
     items: [
-      { icon: '＋', label: 'New résumé', hint: 'N', command: 'new' },
-      { icon: '§', label: 'Open editor', hint: 'E', command: 'editor' },
-      { icon: '↧', label: 'Export current as PDF', hint: '⌘E', command: 'export' },
+      { icon: '＋', label: 'newResumeFull', hint: 'N', command: 'new' },
+      { icon: '§', label: 'openEditor', hint: 'E', command: 'editor' },
+      { icon: '↧', label: 'exportPdf', hint: '⌘E', command: 'export' },
     ],
   },
   {
     label: 'Jump to',
     items: [
-      { icon: '⌂', label: 'Workspace overview', hint: '↵', command: 'workspace' },
-      { icon: '▦', label: 'Templates', hint: '↵', command: 'templates' },
-      { icon: '✦', label: 'AI Studio', hint: '↵', command: 'assistant' },
-      { icon: '▤', label: 'Pipeline', hint: '↵', command: 'pipeline' },
-      { icon: '↺', label: 'History', hint: '↵', command: 'history' },
-      { icon: '⌘', label: 'Settings', hint: '↵', command: 'settings' },
+      { icon: '⌂', label: 'workspace', hint: '↵', command: 'workspace' },
+      { icon: '▦', label: 'templates', hint: '↵', command: 'templates' },
+      { icon: '✦', label: 'assistant', hint: '↵', command: 'assistant' },
+      { icon: '▤', label: 'pipeline', hint: '↵', command: 'pipeline' },
+      { icon: '↺', label: 'history', hint: '↵', command: 'history' },
+      { icon: '⌘', label: 'settings', hint: '↵', command: 'settings' },
     ],
   },
 ]
@@ -39,7 +41,7 @@ const filteredGroups = computed(() => {
   return groups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => item.label.toLowerCase().includes(q)),
+      items: group.items.filter((item) => t(item.label as never).toLowerCase().includes(q)),
     }))
     .filter((group) => group.items.length)
 })
@@ -85,7 +87,7 @@ function onKeydown(e: KeyboardEvent) {
       <div class="cmdk" @click.stop @keydown="onKeydown">
         <div class="cmdk__head">
           <span class="prompt">›</span>
-          <input ref="inputRef" v-model="query" placeholder="Search résumés, run a command…" />
+          <input ref="inputRef" v-model="query" :placeholder="`${t('command')}…`" />
           <span class="esc">ESC</span>
         </div>
 
@@ -98,11 +100,11 @@ function onKeydown(e: KeyboardEvent) {
               @mouseenter="selected = flatItems.findIndex((it) => it.command === item.command)"
               @click="choose(item.command)">
               <span class="icon">{{ item.icon }}</span>
-              <span>{{ item.label }}</span>
+              <span>{{ t(item.label as never) }}</span>
               <span class="hint">{{ item.hint }}</span>
             </button>
           </div>
-          <div v-if="!flatItems.length" class="cmdk-empty">没有匹配的命令</div>
+          <div v-if="!flatItems.length" class="cmdk-empty">{{ t('todo') }}</div>
         </div>
 
         <div class="cmdk__foot">

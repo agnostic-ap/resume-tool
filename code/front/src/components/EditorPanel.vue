@@ -11,9 +11,11 @@ import ProjectsEditor from './editor/ProjectsEditor.vue'
 import AwardsEditor from './editor/AwardsEditor.vue'
 import LanguagesEditor from './editor/LanguagesEditor.vue'
 import CertificationsEditor from './editor/CertificationsEditor.vue'
+import { useI18n } from '../i18n'
 
 const store = useResumeStore()
 defineProps<{ showTree?: boolean }>()
+const { t } = useI18n()
 
 const sectionMeta: Record<SectionId, { label: string; icon: string; component: any }> = {
   summary: { label: '个人简介', icon: '¶', component: SummaryEditor },
@@ -89,7 +91,7 @@ async function copySource() {
   <section class="editor-panel" :class="{ 'no-tree': showTree === false }">
     <aside v-if="showTree !== false" class="section-tree">
       <div class="tree-head">
-        <span>Sections</span>
+        <span>{{ t('sectionsLabel') }}</span>
         <strong>resume-main</strong>
       </div>
 
@@ -99,7 +101,7 @@ async function copySource() {
           <button class="tree-item" :class="{ on: expanded.has('personal') }" @click="toggle('personal')">
             <span class="ic">⌘</span>
             <span>personal.yaml</span>
-            <small>{{ store.data.personal.name ? 'filled' : 'empty' }}</small>
+            <small>{{ store.data.personal.name ? t('filled') : t('todo') }}</small>
           </button>
         </div>
 
@@ -112,15 +114,15 @@ async function copySource() {
             <span class="ic">{{ sectionMeta[sectionId].icon }}</span>
             <span>{{ sectionId }}.mdx</span>
             <small v-if="sectionCount[sectionId] > 0">{{ sectionId === 'summary' ? 'ok' : sectionCount[sectionId] }}</small>
-            <small v-else-if="store.config.sectionVisible[sectionId]" class="warn">todo</small>
-            <small v-else>hidden</small>
+            <small v-else-if="store.config.sectionVisible[sectionId]" class="warn">{{ t('todo') }}</small>
+            <small v-else>{{ t('hidden') }}</small>
           </button>
         </div>
       </div>
 
       <div class="tree-foot">
         <div class="score-row">
-          <span>完整度</span>
+          <span>{{ t('complete') }}</span>
           <strong :style="{ color: completenessColor }">{{ store.completeness }}<small>%</small></strong>
         </div>
         <div class="meter"><i :style="{ width: `${store.completeness}%`, background: completenessColor }" /></div>
@@ -134,8 +136,8 @@ async function copySource() {
         <span class="tab">theme.css</span>
         <span class="tab">export.config</span>
         <div class="segmented">
-          <button :class="{ on: editorMode === 'form' }" @click="editorMode = 'form'">表单</button>
-          <button :class="{ on: editorMode === 'source' }" @click="editorMode = 'source'">源码</button>
+          <button :class="{ on: editorMode === 'form' }" @click="editorMode = 'form'">{{ t('form') }}</button>
+          <button :class="{ on: editorMode === 'source' }" @click="editorMode = 'source'">{{ t('source') }}</button>
           <button :class="{ on: editorMode === 'diff' }" @click="editorMode = 'diff'">Diff</button>
         </div>
       </div>
@@ -143,17 +145,17 @@ async function copySource() {
       <div v-if="editorMode === 'source'" class="editor-scroll source-view">
         <div class="source-toolbar">
           <span>resume-data.json</span>
-          <button @click="copySource">copy</button>
+          <button @click="copySource">{{ t('copy') }}</button>
         </div>
         <pre>{{ sourceText }}</pre>
       </div>
 
       <div v-else-if="editorMode === 'diff'" class="editor-scroll diff-view">
         <div class="diff-row diff-row--head">
-          <span>section</span>
-          <span>order</span>
-          <span>items</span>
-          <span>state</span>
+          <span>{{ t('section') }}</span>
+          <span>{{ t('order') }}</span>
+          <span>{{ t('items') }}</span>
+          <span>{{ t('state') }}</span>
         </div>
         <div v-for="row in diffRows" :key="row.id" class="diff-row" :class="{ muted: row.status === 'hidden' }">
           <span>{{ row.label }}</span>
@@ -168,7 +170,7 @@ async function copySource() {
           <button class="section-toggle" @click="toggle('personal')">
             <span class="section-title">
               <i>⌘</i>
-              <strong>个人信息</strong>
+              <strong>{{ t('personalInfo') }}</strong>
               <small>personal.yaml</small>
             </span>
             <span class="chevron">{{ expanded.has('personal') ? '−' : '+' }}</span>
@@ -191,7 +193,7 @@ async function copySource() {
               <span v-if="sectionCount[sectionId] > 0" class="count-badge">
                 {{ sectionId === 'summary' ? '已填' : sectionCount[sectionId] }}
               </span>
-              <span v-else-if="store.config.sectionVisible[sectionId]" class="count-badge warn">未填</span>
+              <span v-else-if="store.config.sectionVisible[sectionId]" class="count-badge warn">{{ t('todo') }}</span>
               <button @click="store.toggleSectionVisible(sectionId)"
                 :title="store.config.sectionVisible[sectionId] ? '在简历中隐藏' : '在简历中显示'">
                 {{ store.config.sectionVisible[sectionId] ? 'show' : 'hide' }}

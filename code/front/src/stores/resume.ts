@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale } from '../types/resume'
 import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
@@ -98,6 +98,7 @@ const defaultResume: ResumeData = {
 }
 
 const defaultConfig: ResumeConfig = {
+  locale: 'zh-CN',
   templateId: 'classic',
   themeColor: '#B73E1B',
   fontSize: 14,
@@ -163,6 +164,10 @@ export const useResumeStore = defineStore('resume', () => {
 
   function setTemplate(id: TemplateId) {
     config.value.templateId = id
+  }
+
+  function setLocale(locale: Locale) {
+    config.value.locale = locale
   }
 
   function setThemeColor(color: string) {
@@ -335,6 +340,7 @@ export const useResumeStore = defineStore('resume', () => {
     config,
     completeness,
     setTemplate,
+    setLocale,
     setThemeColor,
     setTweak,
     resetTweaks,
