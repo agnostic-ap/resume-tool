@@ -1,6 +1,21 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
-import type { ResumeData, ResumeConfig, TemplateId } from '../types/resume'
+import { ref, computed, watch } from 'vue'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId } from '../types/resume'
+
+const DEFAULT_ORDER: SectionId[] = [
+  'summary', 'experience', 'education', 'skills', 'projects', 'awards', 'languages', 'certifications',
+]
+
+const DEFAULT_VISIBLE: Record<SectionId, boolean> = {
+  summary: true,
+  experience: true,
+  education: true,
+  skills: true,
+  projects: true,
+  awards: true,
+  languages: false,
+  certifications: false,
+}
 
 const defaultResume: ResumeData = {
   personal: {
@@ -63,12 +78,16 @@ const defaultResume: ResumeData = {
       description: '',
     },
   ],
+  languages: [],
+  certifications: [],
 }
 
 const defaultConfig: ResumeConfig = {
   templateId: 'classic',
   themeColor: '#2563eb',
   fontSize: 14,
+  sectionOrder: [...DEFAULT_ORDER],
+  sectionVisible: { ...DEFAULT_VISIBLE },
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -80,12 +99,43 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
+  return {
+    ...defaultConfig,
+    ...saved,
+    sectionOrder: saved.sectionOrder?.length ? saved.sectionOrder : [...DEFAULT_ORDER],
+    sectionVisible: { ...DEFAULT_VISIBLE, ...(saved.sectionVisible ?? {}) },
+  }
+}
+
 export const useResumeStore = defineStore('resume', () => {
-  const data = ref<ResumeData>(loadFromStorage('resume-data', JSON.parse(JSON.stringify(defaultResume))))
-  const config = ref<ResumeConfig>(loadFromStorage('resume-config', { ...defaultConfig }))
+  const data = ref<ResumeData>(
+    loadFromStorage('resume-data', JSON.parse(JSON.stringify(defaultResume))),
+  )
+  const config = ref<ResumeConfig>(mergeConfig(loadFromStorage('resume-config', {})))
+
+  // Ensure languages/certifications arrays exist (migration for old saved data)
+  if (!data.value.languages) data.value.languages = []
+  if (!data.value.certifications) data.value.certifications = []
 
   watch(data, (v) => localStorage.setItem('resume-data', JSON.stringify(v)), { deep: true })
   watch(config, (v) => localStorage.setItem('resume-config', JSON.stringify(v)), { deep: true })
+
+  // Completeness score 0-100
+  const completeness = computed(() => {
+    let score = 0
+    const p = data.value.personal
+    if (p.name) score += 10
+    if (p.title) score += 5
+    if (p.phone && p.email) score += 10
+    if (p.summary && p.summary.length > 20) score += 10
+    if (data.value.experience.length > 0) score += 15
+    if (data.value.experience.some((e) => e.description.length > 30)) score += 10
+    if (data.value.education.length > 0) score += 15
+    if (data.value.skills.length > 0) score += 10
+    if (data.value.projects.length > 0) score += 15
+    return Math.min(100, score)
+  })
 
   function setTemplate(id: TemplateId) {
     config.value.templateId = id
@@ -93,6 +143,20 @@ export const useResumeStore = defineStore('resume', () => {
 
   function setThemeColor(color: string) {
     config.value.themeColor = color
+  }
+
+  function moveSection(id: SectionId, direction: 'up' | 'down') {
+    const arr = config.value.sectionOrder
+    const idx = arr.indexOf(id)
+    if (direction === 'up' && idx > 0) {
+      ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
+    } else if (direction === 'down' && idx < arr.length - 1) {
+      ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
+    }
+  }
+
+  function toggleSectionVisible(id: SectionId) {
+    config.value.sectionVisible[id] = !config.value.sectionVisible[id]
   }
 
   function addExperience() {
@@ -107,7 +171,6 @@ export const useResumeStore = defineStore('resume', () => {
       description: '',
     })
   }
-
   function removeExperience(id: string) {
     data.value.experience = data.value.experience.filter((e) => e.id !== id)
   }
@@ -124,7 +187,6 @@ export const useResumeStore = defineStore('resume', () => {
       description: '',
     })
   }
-
   function removeEducation(id: string) {
     data.value.education = data.value.education.filter((e) => e.id !== id)
   }
@@ -132,7 +194,6 @@ export const useResumeStore = defineStore('resume', () => {
   function addSkill() {
     data.value.skills.push({ id: Date.now().toString(), category: '', items: '' })
   }
-
   function removeSkill(id: string) {
     data.value.skills = data.value.skills.filter((s) => s.id !== id)
   }
@@ -149,7 +210,6 @@ export const useResumeStore = defineStore('resume', () => {
       description: '',
     })
   }
-
   function removeProject(id: string) {
     data.value.projects = data.value.projects.filter((p) => p.id !== id)
   }
@@ -163,31 +223,65 @@ export const useResumeStore = defineStore('resume', () => {
       description: '',
     })
   }
-
   function removeAward(id: string) {
     data.value.awards = data.value.awards.filter((a) => a.id !== id)
   }
 
+  function addLanguage() {
+    data.value.languages.push({ id: Date.now().toString(), language: '', level: '' })
+  }
+  function removeLanguage(id: string) {
+    data.value.languages = data.value.languages.filter((l) => l.id !== id)
+  }
+
+  function addCertification() {
+    data.value.certifications.push({
+      id: Date.now().toString(),
+      name: '',
+      issuer: '',
+      date: '',
+    })
+  }
+  function removeCertification(id: string) {
+    data.value.certifications = data.value.certifications.filter((c) => c.id !== id)
+  }
+
   function resetToDefault() {
     data.value = JSON.parse(JSON.stringify(defaultResume))
-    config.value = { ...defaultConfig }
+    config.value = JSON.parse(JSON.stringify(defaultConfig))
+  }
+
+  function importData(json: string) {
+    try {
+      const parsed = JSON.parse(json)
+      if (parsed.data) data.value = { ...defaultResume, ...parsed.data }
+      if (parsed.config) config.value = mergeConfig(parsed.config)
+    } catch {
+      alert('导入失败：JSON 格式不正确')
+    }
+  }
+
+  function exportData() {
+    return JSON.stringify({ data: data.value, config: config.value }, null, 2)
   }
 
   return {
     data,
     config,
+    completeness,
     setTemplate,
     setThemeColor,
-    addExperience,
-    removeExperience,
-    addEducation,
-    removeEducation,
-    addSkill,
-    removeSkill,
-    addProject,
-    removeProject,
-    addAward,
-    removeAward,
+    moveSection,
+    toggleSectionVisible,
+    addExperience, removeExperience,
+    addEducation, removeEducation,
+    addSkill, removeSkill,
+    addProject, removeProject,
+    addAward, removeAward,
+    addLanguage, removeLanguage,
+    addCertification, removeCertification,
     resetToDefault,
+    importData,
+    exportData,
   }
 })
