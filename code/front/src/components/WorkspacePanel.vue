@@ -33,9 +33,28 @@ const applicationDraft = reactive({
   appliedAt: '',
   notes: '',
 })
-const assistantSuggestions = ref<string[]>([
-  '把个人简介改成“岗位定位 + 技术栈 + 量化结果”的三段式。',
-  '工作经历每条 bullet 至少保留一个数字，弱相关职责移到项目里。',
+type AssistantSuggestion = {
+  id: string
+  zh: string
+  en: string
+  summaryZh: string
+  summaryEn: string
+}
+const assistantSuggestions = ref<AssistantSuggestion[]>([
+  {
+    id: 'summary-structure',
+    zh: '把个人简介改成“岗位定位 + 技术栈 + 量化结果”的三段式。',
+    en: 'Rewrite the summary as role focus + stack + measurable impact.',
+    summaryZh: '聚焦目标岗位，突出核心技术栈，并补充可量化的业务结果。',
+    summaryEn: 'Focus on the target role, highlight the core stack, and add measurable business impact.',
+  },
+  {
+    id: 'bullet-metrics',
+    zh: '工作经历每条 bullet 至少保留一个数字，弱相关职责移到项目里。',
+    en: 'Keep at least one metric in each experience bullet and move weaker duties into projects.',
+    summaryZh: '强化工作经历中的量化成果，压缩弱相关职责，让简历更贴近目标岗位。',
+    summaryEn: 'Strengthen measurable outcomes in experience bullets and trim weaker responsibilities for the target role.',
+  },
 ])
 
 const documents = computed(() => store.documents)
@@ -271,17 +290,34 @@ function runAssistant() {
     showToast(locale.value === 'zh-CN' ? '先输入想优化的方向' : 'Enter an optimization goal first', 'info', 3500)
     return
   }
-  assistantSuggestions.value.unshift(locale.value === 'zh-CN'
-    ? `根据“${assistantPrompt.value.trim()}”重写 Summary，并保留一页版式。`
-    : `Rewrite the summary for "${assistantPrompt.value.trim()}" and keep the resume to one page.`)
+  const prompt = assistantPrompt.value.trim()
+  assistantSuggestions.value.unshift({
+    id: `suggestion-${Date.now()}`,
+    zh: `根据“${prompt}”重写个人简介，并保留一页版式。`,
+    en: `Rewrite the summary for "${prompt}" and keep the resume to one page.`,
+    summaryZh: `面向“${prompt}”优化个人简介，突出最近经历、关键技术和可验证成果。`,
+    summaryEn: `Tailor the summary for "${prompt}", emphasizing recent experience, key technologies, and verifiable outcomes.`,
+  })
+  store.logActivity({
+    type: 'ai',
+    tag: 'AI',
+    message: 'Generated local resume advice',
+    messageZh: '生成本地简历优化建议',
+    messageEn: 'Generated local resume advice',
+    meta: prompt,
+  })
   showToast(locale.value === 'zh-CN' ? '已生成优化建议，可直接采纳到个人简介' : 'Advice generated. You can apply it to the summary.', 'success', 3500)
   assistantPrompt.value = ''
 }
 
-function applySuggestion(text: string) {
+function applySuggestion(suggestion: AssistantSuggestion) {
   const current = store.data.personal.summary.trim()
-  const prefix = current || '前端开发工程师，熟悉 Vue3、TypeScript 与工程化体系。'
-  store.data.personal.summary = `${prefix} ${text.replace(/^把|^根据.+重写 Summary，并/, '').replace(/。$/, '')}。`
+  const fallback = locale.value === 'zh-CN'
+    ? '前端开发工程师，熟悉 Vue3、TypeScript 与工程化体系。'
+    : 'Frontend engineer experienced with Vue, TypeScript, and modern web tooling.'
+  const addition = locale.value === 'zh-CN' ? suggestion.summaryZh : suggestion.summaryEn
+  const joiner = locale.value === 'zh-CN' ? ' ' : ' '
+  store.data.personal.summary = `${current || fallback}${joiner}${addition}`.trim()
   store.logActivity({
     type: 'ai',
     tag: 'AI',
@@ -327,7 +363,7 @@ function matchClass(score: number) {
               {{ store.data.personal.title || 'Frontend' }} <em>{{ store.data.personal.name || 'Resume' }}</em>
             </h1>
             <div class="hero__sub">
-              <span class="pill">zh-CN</span>
+              <span class="pill">{{ store.config.locale }}</span>
               <span>{{ store.config.templateId }} template</span>
               <span>·</span>
                 <span>{{ label('完整度', 'Complete') }} {{ store.completeness }}%</span>
@@ -640,8 +676,8 @@ function matchClass(score: number) {
                       </div>
                     </div>
                     <div class="ai-suggestions">
-                      <button v-for="suggestion in assistantSuggestions" :key="suggestion" @click="applySuggestion(suggestion)">
-                        <span>{{ suggestion }}</span>
+                      <button v-for="suggestion in assistantSuggestions" :key="suggestion.id" @click="applySuggestion(suggestion)">
+                        <span>{{ locale === 'zh-CN' ? suggestion.zh : suggestion.en }}</span>
                         <b>{{ t('apply') }}</b>
                       </button>
                     </div>

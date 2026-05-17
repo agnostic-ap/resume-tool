@@ -343,11 +343,30 @@ export const useResumeStore = defineStore('resume', () => {
   const persistActivityLog = useDebounceFn((v: ActivityEvent[]) => {
     try { localStorage.setItem('resume-activity-log', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const logContentEdit = useDebounceFn(() => {
+    activeDocument.value.updatedAt = new Date().toISOString()
+    if (!activeDocument.value.title.trim() || activeDocument.value.title === 'Untitled resume') {
+      activeDocument.value.title = data.value.personal.title || data.value.personal.name || activeDocument.value.title
+    }
+    logActivity({
+      type: 'edit',
+      tag: 'autosave',
+      message: 'Saved resume content edits',
+      messageZh: '保存简历内容修改',
+      messageEn: 'Saved resume content edits',
+      meta: activeDocument.value.title,
+    })
+  }, 3000)
+  const markConfigChanged = useDebounceFn(() => {
+    activeDocument.value.updatedAt = new Date().toISOString()
+  }, 1000)
 
   watch(documents, persistDocuments, { deep: true })
   watch(activeResumeId, persistActiveId)
   watch(applications, persistApplications, { deep: true })
   watch(activityLog, persistActivityLog, { deep: true })
+  watch(() => activeDocument.value.data, () => logContentEdit(), { deep: true })
+  watch(() => activeDocument.value.config, () => markConfigChanged(), { deep: true })
 
   function logActivity(input: Omit<Partial<ActivityEvent>, 'id' | 'createdAt'> & { message?: string; messageZh?: string; messageEn?: string }) {
     const event = normalizeActivity({
@@ -426,11 +445,13 @@ export const useResumeStore = defineStore('resume', () => {
       }[value as StudioTheme['accent']]
       if (color) config.value.themeColor = color
     }
+    touchActive()
   }
 
   function resetStudioTheme() {
     config.value.studioTheme = { ...DEFAULT_STUDIO_THEME }
     config.value.themeColor = '#B73E1B'
+    touchActive()
   }
 
   function setTweak<K extends keyof ResumeTweaks>(key: K, value: ResumeTweaks[K]) {
@@ -444,11 +465,13 @@ export const useResumeStore = defineStore('resume', () => {
       }[value as ResumeTweaks['accent']]
       if (color) config.value.themeColor = color
     }
+    touchActive()
   }
 
   function resetTweaks() {
     config.value.tweaks = { ...DEFAULT_TWEAKS }
     config.value.themeColor = '#B73E1B'
+    touchActive()
   }
 
   function moveSection(id: SectionId, direction: 'up' | 'down') {
@@ -659,6 +682,14 @@ export const useResumeStore = defineStore('resume', () => {
     const deletedTitle = documents.value[index].title
     documents.value.splice(index, 1)
     if (activeResumeId.value === id) activeResumeId.value = documents.value[0].id
+    const fallbackDoc = documents.value.find((doc) => doc.id === activeResumeId.value) ?? documents.value[0]
+    applications.value.forEach((app) => {
+      if (app.resumeId === id && fallbackDoc) {
+        app.resumeId = fallbackDoc.id
+        app.resumeTitle = `${deletedTitle} → ${fallbackDoc.title}`
+        app.updatedAt = new Date().toISOString()
+      }
+    })
     logActivity({ type: 'resume', tag: 'delete', message: `Deleted ${deletedTitle}`, messageZh: `删除简历：${deletedTitle}`, messageEn: `Deleted ${deletedTitle}`, meta: 'document removed', resumeId: activeResumeId.value })
   }
 
@@ -740,11 +771,11 @@ export const useResumeStore = defineStore('resume', () => {
       }
       if (imported) {
         logActivity({ type: 'system', tag: 'import', message: 'Imported backup data', messageZh: '导入备份数据', messageEn: 'Imported backup data', meta: 'JSON backup' })
-        showToast('数据导入成功', 'success')
+        showToast(config.value.locale === 'zh-CN' ? '数据导入成功' : 'Data imported', 'success')
       }
-      else showToast('导入失败：未识别的文件格式', 'error')
+      else showToast(config.value.locale === 'zh-CN' ? '导入失败：未识别的文件格式' : 'Import failed: unrecognized file format', 'error')
     } catch {
-      showToast('导入失败：请确认 JSON 格式正确', 'error')
+      showToast(config.value.locale === 'zh-CN' ? '导入失败：请确认 JSON 格式正确' : 'Import failed: check that the JSON is valid', 'error')
     }
   }
 
