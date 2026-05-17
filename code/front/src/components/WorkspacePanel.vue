@@ -16,6 +16,10 @@ const emit = defineEmits<{
 const store = useResumeStore()
 const pipelineFilter = ref('all')
 const assistantPrompt = ref('')
+const assistantSuggestions = ref<string[]>([
+  '把个人简介改成“岗位定位 + 技术栈 + 量化结果”的三段式。',
+  '工作经历每条 bullet 至少保留一个数字，弱相关职责移到项目里。',
+])
 
 const documents = computed(() => [
   {
@@ -35,16 +39,17 @@ const documents = computed(() => [
   { id: 'saas', title: 'SaaS 前端负责人', role: 'Resume · management track', lang: 'ZH', updated: '2 weeks ago', versions: 3, views: 12, sig: 'M' },
 ])
 
-const applications = [
+const applications = ref([
   { co: 'Vercel', mono: 'V', loc: 'Remote · NA', role: 'Senior Frontend', dept: 'Web Platform', resume: '当前简历', stage: 'onsite', stageLabel: 'On-site', match: 92, when: 'Mar 12', ago: '2d ago' },
   { co: 'Stripe', mono: 'S', loc: 'Dublin · Hybrid', role: 'Full-Stack Engineer', dept: 'Payments API', resume: 'Full-Stack · Stripe', stage: 'screen', stageLabel: 'Recruiter', match: 84, when: 'Mar 10', ago: '4d ago' },
   { co: 'Linear', mono: 'L', loc: 'Remote · Global', role: 'Staff Engineer', dept: 'Sync Engine', resume: 'Staff · Linear', stage: 'offer', stageLabel: 'Offer', match: 96, when: 'Mar 04', ago: '10d ago' },
   { co: 'Figma', mono: 'F', loc: 'NYC · Hybrid', role: 'Software Engineer · UI', dept: 'Editor', resume: '当前简历', stage: 'onsite', stageLabel: 'On-site', match: 88, when: 'Feb 28', ago: '14d ago' },
   { co: 'Notion', mono: 'N', loc: 'SF · Remote-friendly', role: 'Software Engineer', dept: 'Databases', resume: '作品集版', stage: 'rejected', stageLabel: 'Closed', match: 64, when: 'Feb 22', ago: '20d ago' },
-]
+])
 
 const filters = [
   { id: 'all', label: 'All' },
+  { id: 'applied', label: 'Applied' },
   { id: 'screen', label: 'Screening' },
   { id: 'onsite', label: 'On-site' },
   { id: 'offer', label: 'Offer' },
@@ -53,8 +58,8 @@ const filters = [
 
 const filteredApplications = computed(() =>
   pipelineFilter.value === 'all'
-    ? applications
-    : applications.filter((item) => item.stage === pipelineFilter.value),
+    ? applications.value
+    : applications.value.filter((item) => item.stage === pipelineFilter.value),
 )
 
 const commits = computed(() => [
@@ -88,8 +93,36 @@ function runAssistant() {
     showToast('先输入想优化的方向，例如“针对前端负责人岗位强化管理经验”', 'info', 3500)
     return
   }
-  showToast('已生成优化建议，请在编辑器中逐条采纳', 'success', 3500)
+  assistantSuggestions.value.unshift(`根据“${assistantPrompt.value.trim()}”重写 Summary，并保留一页版式。`)
+  showToast('已生成优化建议，可直接采纳到个人简介', 'success', 3500)
   assistantPrompt.value = ''
+}
+
+function applySuggestion(text: string) {
+  const current = store.data.personal.summary.trim()
+  const prefix = current || '前端开发工程师，熟悉 Vue3、TypeScript 与工程化体系。'
+  store.data.personal.summary = `${prefix} ${text.replace(/^把|^根据.+重写 Summary，并/, '').replace(/。$/, '')}。`
+  emit('navigate', 'editor')
+  showToast('建议已写入个人简介', 'success')
+}
+
+function logApplication() {
+  const n = applications.value.length + 1
+  applications.value.unshift({
+    co: `新公司 ${n}`,
+    mono: 'N',
+    loc: 'Remote · Draft',
+    role: store.data.personal.title || '目标岗位',
+    dept: '待补充部门',
+    resume: '当前简历',
+    stage: 'applied',
+    stageLabel: 'Applied',
+    match: Math.max(62, store.completeness),
+    when: 'Today',
+    ago: 'just now',
+  })
+  pipelineFilter.value = 'all'
+  showToast('投递记录已添加到列表顶部', 'success')
 }
 
 function matchClass(score: number) {
@@ -256,7 +289,7 @@ function matchClass(score: number) {
           </div>
           <div class="meta">
             <span>1 offer · 4 active · 1 closed</span>
-            <button @click="showToast('投递记录已添加到列表顶部', 'success')">+ Log application</button>
+            <button @click="logApplication">+ Log application</button>
           </div>
         </div>
         <div class="apps">
@@ -349,6 +382,12 @@ function matchClass(score: number) {
                         <div class="row"><span class="k">template</span><span class="v">{{ store.config.templateId }}</span></div>
                       </div>
                     </div>
+                    <div class="ai-suggestions">
+                      <button v-for="suggestion in assistantSuggestions" :key="suggestion" @click="applySuggestion(suggestion)">
+                        <span>{{ suggestion }}</span>
+                        <b>apply</b>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -375,7 +414,9 @@ function matchClass(score: number) {
           </label>
           <label>
             <span>字号</span>
-            <input type="range" min="12" max="18" :value="store.config.fontSize" disabled />
+            <input type="range" min="12" max="18" :value="store.config.fontSize"
+              @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
+            <small>{{ store.config.fontSize }}px</small>
           </label>
           <button class="btn btn--ghost" @click="store.resetToDefault()">恢复示例数据</button>
         </div>

@@ -38,6 +38,7 @@ const sectionCount = computed<Record<SectionId, number>>(() => ({
 }))
 
 const expanded = ref<Set<string>>(new Set(['personal', 'summary', 'experience']))
+const editorMode = ref<'form' | 'source' | 'diff'>('form')
 
 function toggle(id: string) {
   if (expanded.value.has(id)) expanded.value.delete(id)
@@ -58,6 +59,30 @@ const completenessLabel = computed(() => {
   if (s < 100) return '接近完成'
   return '可以导出'
 })
+
+const sourceText = computed(() => JSON.stringify({
+  personal: store.data.personal,
+  sections: store.config.sectionOrder.map((id) => ({
+    id,
+    visible: store.config.sectionVisible[id],
+    count: sectionCount.value[id],
+  })),
+  config: store.config,
+}, null, 2))
+
+const diffRows = computed(() =>
+  store.config.sectionOrder.map((id, index) => ({
+    id,
+    label: sectionMeta[id].label,
+    status: store.config.sectionVisible[id] ? 'visible' : 'hidden',
+    count: sectionCount.value[id],
+    order: index + 1,
+  })),
+)
+
+async function copySource() {
+  await navigator.clipboard?.writeText(sourceText.value)
+}
 </script>
 
 <template>
@@ -109,12 +134,36 @@ const completenessLabel = computed(() => {
         <span class="tab">theme.css</span>
         <span class="tab">export.config</span>
         <div class="segmented">
-          <button class="on">表单</button>
-          <button>源码</button>
+          <button :class="{ on: editorMode === 'form' }" @click="editorMode = 'form'">表单</button>
+          <button :class="{ on: editorMode === 'source' }" @click="editorMode = 'source'">源码</button>
+          <button :class="{ on: editorMode === 'diff' }" @click="editorMode = 'diff'">Diff</button>
         </div>
       </div>
 
-      <div class="editor-scroll">
+      <div v-if="editorMode === 'source'" class="editor-scroll source-view">
+        <div class="source-toolbar">
+          <span>resume-data.json</span>
+          <button @click="copySource">copy</button>
+        </div>
+        <pre>{{ sourceText }}</pre>
+      </div>
+
+      <div v-else-if="editorMode === 'diff'" class="editor-scroll diff-view">
+        <div class="diff-row diff-row--head">
+          <span>section</span>
+          <span>order</span>
+          <span>items</span>
+          <span>state</span>
+        </div>
+        <div v-for="row in diffRows" :key="row.id" class="diff-row" :class="{ muted: row.status === 'hidden' }">
+          <span>{{ row.label }}</span>
+          <span>#{{ row.order }}</span>
+          <span>{{ row.count }}</span>
+          <span>{{ row.status }}</span>
+        </div>
+      </div>
+
+      <div v-else class="editor-scroll">
         <article class="editor-section" :class="{ open: expanded.has('personal') }">
           <button class="section-toggle" @click="toggle('personal')">
             <span class="section-title">

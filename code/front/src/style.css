@@ -1074,6 +1074,7 @@ button:disabled {
   background: var(--moss);
 }
 
+.stage--applied::before,
 .stage--screen::before {
   background: var(--gold);
 }
@@ -1304,6 +1305,97 @@ button:disabled {
   border: 1px solid var(--rule-soft);
   background: var(--surface);
   color: var(--ink);
+}
+
+.ai-suggestions {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-suggestions button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-softer);
+  background: var(--surface);
+  color: var(--ink-2);
+  text-align: left;
+}
+
+.ai-suggestions button:hover {
+  border-color: var(--vermillion);
+  background: var(--paper);
+}
+
+.ai-suggestions b {
+  color: var(--vermillion);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.source-view,
+.diff-view {
+  background: var(--surface);
+}
+
+.source-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper-2);
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.source-toolbar button {
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink-3);
+  padding: 3px 8px;
+}
+
+.source-view pre {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--rule-soft);
+  border-top: 0;
+  background: #fffdfa;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 1fr 72px 72px 92px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule-softer);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.diff-row--head {
+  background: var(--paper-2);
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.diff-row.muted {
+  opacity: 0.55;
 }
 
 .settings-grid {

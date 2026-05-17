@@ -91,9 +91,13 @@ function runCommand(command: string) {
     navigate('pipeline')
   } else if (command === 'history') {
     navigate('history')
+  } else if (command === 'settings') {
+    navigate('settings')
   } else if (command === 'export') {
     navigate('editor')
-    showToast('请在预览区点击“下载 PDF”导出当前简历', 'info', 3500)
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('resume-export-pdf'))
+    }, 80)
   }
 }
 

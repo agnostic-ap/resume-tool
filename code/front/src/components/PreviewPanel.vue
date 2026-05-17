@@ -51,12 +51,14 @@ function attachObserver() {
 onMounted(async () => {
   calcScale()
   window.addEventListener('resize', calcScale)
+  window.addEventListener('resume-export-pdf', handleExport)
   await nextTick()
   attachObserver()
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', calcScale)
+  window.removeEventListener('resume-export-pdf', handleExport)
   resizeObs?.disconnect()
   resizeObs = null
 })

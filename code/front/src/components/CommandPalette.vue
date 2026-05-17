@@ -28,6 +28,7 @@ const groups = [
       { icon: '✦', label: 'AI Studio', hint: '↵', command: 'assistant' },
       { icon: '▤', label: 'Pipeline', hint: '↵', command: 'pipeline' },
       { icon: '↺', label: 'History', hint: '↵', command: 'history' },
+      { icon: '⌘', label: 'Settings', hint: '↵', command: 'settings' },
     ],
   },
 ]
