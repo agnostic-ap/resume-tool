@@ -31,16 +31,23 @@ function lines(text: string) {
     <div class="mb-4">
       <div class="flex items-end justify-between">
         <div>
-          <h1 class="font-bold text-gray-900 mb-0.5" style="font-size:26px;letter-spacing:2px;">
-            {{ data.personal.name }}
+          <h1 class="font-bold mb-0.5" style="font-size:26px;letter-spacing:2px;"
+            :style="data.personal.name ? 'color:#111827' : 'color:#d1d5db'">
+            {{ data.personal.name || '您的姓名' }}
           </h1>
-          <p class="text-gray-500" style="font-size:13px;letter-spacing:0.5px;">{{ data.personal.title }}</p>
+          <p style="font-size:13px;letter-spacing:0.5px;"
+            :style="data.personal.title ? 'color:#6b7280' : 'color:#d1d5db'">
+            {{ data.personal.title || '期望职位' }}
+          </p>
         </div>
-        <div class="text-right text-gray-500" style="font-size:11.5px;line-height:1.9;">
-          <div v-if="data.personal.phone">{{ data.personal.phone }}</div>
-          <div v-if="data.personal.email">{{ data.personal.email }}</div>
-          <div v-if="data.personal.location">{{ data.personal.location }}</div>
-          <div v-if="data.personal.website">{{ data.personal.website }}</div>
+        <div class="text-right" style="font-size:11.5px;line-height:1.9;">
+          <template v-if="data.personal.phone || data.personal.email || data.personal.location || data.personal.website">
+            <div v-if="data.personal.phone" class="text-gray-500">{{ data.personal.phone }}</div>
+            <div v-if="data.personal.email" class="text-gray-500">{{ data.personal.email }}</div>
+            <div v-if="data.personal.location" class="text-gray-500">{{ data.personal.location }}</div>
+            <div v-if="data.personal.website" class="text-gray-500">{{ data.personal.website }}</div>
+          </template>
+          <div v-else class="text-gray-300">手机 · 邮箱 · 城市</div>
         </div>
       </div>
       <div class="mt-3" :style="`border-bottom:2.5px solid ${config.themeColor}`" />

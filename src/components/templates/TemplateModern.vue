@@ -40,17 +40,22 @@ function lines(text: string) {
   <div class="resume-paper bg-white" style="width:794px;min-height:1123px;">
     <!-- Header -->
     <div :style="`background:${config.themeColor}`" class="px-12 py-7">
-      <h1 class="text-white font-bold mb-1" style="font-size:24px;letter-spacing:2px;">
-        {{ data.personal.name }}
+      <h1 class="font-bold mb-1" style="font-size:24px;letter-spacing:2px;"
+        :style="data.personal.name ? 'color:white' : 'color:rgba(255,255,255,0.35)'">
+        {{ data.personal.name || '您的姓名' }}
       </h1>
-      <p class="mb-3" style="font-size:13px;color:rgba(255,255,255,0.85);letter-spacing:0.5px;">
-        {{ data.personal.title }}
+      <p class="mb-3" style="font-size:13px;letter-spacing:0.5px;"
+        :style="data.personal.title ? 'color:rgba(255,255,255,0.85)' : 'color:rgba(255,255,255,0.35)'">
+        {{ data.personal.title || '期望职位' }}
       </p>
-      <div class="flex flex-wrap gap-x-6 gap-y-0.5" style="font-size:11.5px;color:rgba(255,255,255,0.8);">
-        <span v-if="data.personal.phone">{{ data.personal.phone }}</span>
-        <span v-if="data.personal.email">{{ data.personal.email }}</span>
-        <span v-if="data.personal.location">{{ data.personal.location }}</span>
-        <span v-if="data.personal.website">{{ data.personal.website }}</span>
+      <div class="flex flex-wrap gap-x-6 gap-y-0.5" style="font-size:11.5px;">
+        <template v-if="data.personal.phone || data.personal.email || data.personal.location || data.personal.website">
+          <span v-if="data.personal.phone" style="color:rgba(255,255,255,0.8)">{{ data.personal.phone }}</span>
+          <span v-if="data.personal.email" style="color:rgba(255,255,255,0.8)">{{ data.personal.email }}</span>
+          <span v-if="data.personal.location" style="color:rgba(255,255,255,0.8)">{{ data.personal.location }}</span>
+          <span v-if="data.personal.website" style="color:rgba(255,255,255,0.8)">{{ data.personal.website }}</span>
+        </template>
+        <span v-else style="color:rgba(255,255,255,0.3)">手机 · 邮箱 · 城市</span>
       </div>
     </div>
 

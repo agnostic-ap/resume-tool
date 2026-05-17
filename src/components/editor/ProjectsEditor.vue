@@ -1,8 +1,23 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useResumeStore } from '../../stores/resume'
 
 const store = useResumeStore()
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400'
+
+const showHint = ref<Record<string, boolean>>({})
+function toggleHint(id: string) { showHint.value[id] = !showHint.value[id] }
+
+function autoBullet(proj: { description: string }) {
+  proj.description = proj.description
+    .split('\n')
+    .map(line => {
+      const t = line.trim()
+      if (!t) return ''
+      return /^[•\-\*]/.test(t) ? line : `• ${t}`
+    })
+    .join('\n')
+}
 </script>
 
 <template>
@@ -41,17 +56,41 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
         <input v-model="proj.url" :class="inputCls" placeholder="github.com/xxx/project" />
       </div>
 
+      <!-- Description -->
       <div>
         <div class="flex justify-between items-center mb-1">
           <label class="text-xs font-medium text-gray-600">项目描述</label>
-          <span class="text-xs" :class="proj.description.length < 50 ? 'text-amber-400' : 'text-gray-400'">
-            {{ proj.description.length }} 字{{ proj.description.length < 50 ? '（建议超过50字）' : '' }}
-          </span>
+          <div class="flex items-center gap-2">
+            <button @click="toggleHint(proj.id)"
+              class="text-xs text-blue-400 hover:text-blue-600 transition-colors">
+              💡 写作建议
+            </button>
+            <button @click="autoBullet(proj)"
+              class="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              title="自动为每行加 • 前缀">
+              一键加•
+            </button>
+            <span class="text-xs" :class="proj.description.length < 50 ? 'text-amber-400' : 'text-gray-400'">
+              {{ proj.description.length }}字{{ proj.description.length < 50 ? '（偏少）' : '' }}
+            </span>
+          </div>
         </div>
-        <textarea v-model="proj.description" rows="4" :class="inputCls" style="resize:vertical" placeholder="• 负责...&#10;• 实现..." />
+
+        <div v-if="showHint[proj.id]"
+          class="mb-2 p-3 rounded-lg text-xs text-gray-500 leading-relaxed"
+          style="background:#eff6ff;border:1px solid #dbeafe;">
+          <p class="font-medium text-blue-600 mb-1">参考格式：</p>
+          <p>• 独立完成[功能]，使用[技术]，解决了[问题]</p>
+          <p>• 实现[特性]，提升用户体验，上线后[数据结果]</p>
+          <p>• 项目获得[成果]：Star数/用户数/好评率等</p>
+        </div>
+
+        <textarea v-model="proj.description" rows="4" :class="inputCls" style="resize:vertical"
+          placeholder="• 独立设计并开发核心功能模块&#10;• 实现XX特性，用户体验显著提升&#10;• 上线后获得1000+用户使用，GitHub 200+ Star" />
       </div>
 
-      <button @click="store.removeProject(proj.id)" class="text-xs text-red-400 hover:text-red-600 transition-colors">
+      <button @click="store.removeProject(proj.id)"
+        class="text-xs text-red-400 hover:text-red-600 transition-colors">
         删除此条
       </button>
     </div>

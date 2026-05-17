@@ -55,3 +55,21 @@ input[type="color"] {
   background: #cbd5e1;
   border-radius: 3px;
 }
+
+/* ── Print: only show the resume, full A4 ── */
+@media print {
+  body > #app { display: none !important; }
+  #print-resume {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: white;
+  }
+  #print-resume > * {
+    width: 100% !important;
+    min-height: auto !important;
+    box-shadow: none !important;
+  }
+  @page { margin: 0; size: A4; }
+}

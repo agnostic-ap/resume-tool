@@ -51,10 +51,16 @@ function darken(hex: string, amt = 35): string {
       <div class="mb-6 text-center">
         <div class="w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center font-bold text-2xl"
           :style="`background:${darken(config.themeColor)}`">
-          {{ data.personal.name?.charAt(0) ?? '?' }}
+          {{ data.personal.name?.charAt(0) || '?' }}
         </div>
-        <h1 class="font-bold text-white mb-1" style="font-size:17px;letter-spacing:1px;">{{ data.personal.name }}</h1>
-        <p style="font-size:11.5px;opacity:0.85;line-height:1.4;">{{ data.personal.title }}</p>
+        <h1 class="font-bold mb-1" style="font-size:17px;letter-spacing:1px;"
+          :style="data.personal.name ? 'color:white' : 'color:rgba(255,255,255,0.35)'">
+          {{ data.personal.name || '您的姓名' }}
+        </h1>
+        <p style="font-size:11.5px;line-height:1.4;"
+          :style="data.personal.title ? 'opacity:0.85' : 'opacity:0.35'">
+          {{ data.personal.title || '期望职位' }}
+        </p>
       </div>
 
       <!-- Contact -->
