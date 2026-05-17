@@ -33,11 +33,11 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">开始时间</label>
-          <input v-model="edu.startDate" :class="inputCls" placeholder="2018-09" />
+          <input v-model="edu.startDate" type="month" :class="inputCls" />
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">结束时间</label>
-          <input v-model="edu.endDate" :class="inputCls" placeholder="2022-06" />
+          <input v-model="edu.endDate" type="month" :class="inputCls" />
         </div>
       </div>
 

@@ -20,7 +20,7 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">获取时间</label>
-          <input v-model="cert.date" :class="inputCls" placeholder="2022-06" />
+          <input v-model="cert.date" type="month" :class="inputCls" />
         </div>
       </div>
       <button @click="store.removeCertification(cert.id)" class="text-xs text-red-400 hover:text-red-600 transition-colors">

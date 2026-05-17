@@ -21,7 +21,7 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">获奖时间</label>
-          <input v-model="award.date" :class="inputCls" placeholder="2021-08" />
+          <input v-model="award.date" type="month" :class="inputCls" />
         </div>
       </div>
 

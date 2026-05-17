@@ -24,11 +24,11 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
       <div class="grid grid-cols-3 gap-3">
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">开始时间</label>
-          <input v-model="exp.startDate" :class="inputCls" placeholder="2022-07" />
+          <input v-model="exp.startDate" type="month" :class="inputCls" />
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">结束时间</label>
-          <input v-model="exp.endDate" :disabled="exp.current" :class="inputCls" placeholder="2024-01" />
+          <input v-model="exp.endDate" type="month" :disabled="exp.current" :class="inputCls" />
         </div>
         <div class="flex items-end pb-1">
           <label class="flex items-center gap-1.5 cursor-pointer">

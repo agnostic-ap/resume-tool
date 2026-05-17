@@ -260,6 +260,14 @@ export const useResumeStore = defineStore('resume', () => {
     config.value = JSON.parse(JSON.stringify(defaultConfig))
   }
 
+  function clearAll() {
+    data.value = {
+      personal: { name: '', title: '', phone: '', email: '', location: '', website: '', summary: '' },
+      experience: [], education: [], skills: [], projects: [], awards: [], languages: [], certifications: [],
+    }
+    config.value = JSON.parse(JSON.stringify(defaultConfig))
+  }
+
   function importData(json: string) {
     try {
       const parsed = JSON.parse(json)
@@ -292,6 +300,7 @@ export const useResumeStore = defineStore('resume', () => {
     completeness,
     setTemplate,
     setThemeColor,
+    clearAll,
     moveSection,
     toggleSectionVisible,
     addExperience, removeExperience,

@@ -24,6 +24,18 @@ const sectionMeta: Record<SectionId, { label: string; icon: string; component: a
   certifications: { label: '证书资质', icon: '📜', component: CertificationsEditor },
 }
 
+// section content count badges
+const sectionCount = computed<Record<SectionId, number>>(() => ({
+  summary:        store.data.personal.summary.trim() ? 1 : 0,
+  experience:     store.data.experience.length,
+  education:      store.data.education.length,
+  skills:         store.data.skills.length,
+  projects:       store.data.projects.length,
+  awards:         store.data.awards.length,
+  languages:      store.data.languages.length,
+  certifications: store.data.certifications.length,
+}))
+
 const expanded = ref<Set<string>>(new Set(['personal']))
 
 function toggle(id: string) {
@@ -93,7 +105,15 @@ const completenessLabel = computed(() => {
           <button @click="toggle(sectionId)" class="flex-1 flex items-center gap-2 text-left min-w-0">
             <span class="text-base">{{ sectionMeta[sectionId].icon }}</span>
             <span class="text-sm font-semibold text-gray-700 truncate">{{ sectionMeta[sectionId].label }}</span>
-            <span v-if="!store.config.sectionVisible[sectionId]" class="text-xs text-gray-400">（已隐藏）</span>
+            <!-- count badge -->
+            <span v-if="sectionCount[sectionId] > 0"
+              class="text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0"
+              style="background:#dbeafe;color:#2563eb;font-size:10px;">
+              {{ sectionId === 'summary' ? '已填' : sectionCount[sectionId] }}
+            </span>
+            <span v-else-if="store.config.sectionVisible[sectionId]"
+              class="text-xs shrink-0" style="color:#f59e0b;font-size:10px;">未填</span>
+            <span v-if="!store.config.sectionVisible[sectionId]" class="text-xs text-gray-400 shrink-0">已隐藏</span>
           </button>
 
           <!-- Controls -->

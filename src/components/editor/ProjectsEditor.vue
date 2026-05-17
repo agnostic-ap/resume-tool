@@ -23,11 +23,11 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">开始时间</label>
-          <input v-model="proj.startDate" :class="inputCls" placeholder="2023-03" />
+          <input v-model="proj.startDate" type="month" :class="inputCls" />
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">结束时间</label>
-          <input v-model="proj.endDate" :class="inputCls" placeholder="2023-08" />
+          <input v-model="proj.endDate" type="month" :class="inputCls" />
         </div>
       </div>
 
