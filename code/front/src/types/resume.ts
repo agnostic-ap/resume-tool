@@ -90,6 +90,25 @@ export interface ResumeDocument {
   nextCareerUpdateAt: string
 }
 
+export type ApplicationStage = 'applied' | 'screen' | 'onsite' | 'offer' | 'rejected'
+
+export interface JobApplication {
+  id: string
+  company: string
+  companyMono: string
+  location: string
+  role: string
+  department: string
+  resumeId: string
+  resumeTitle: string
+  stage: ApplicationStage
+  match: number
+  appliedAt: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type TemplateId = 'classic' | 'modern' | 'sidebar'
 export type Locale = 'zh-CN' | 'en-US'
 

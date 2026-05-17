@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage } from '../types/resume'
 import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
@@ -116,6 +116,66 @@ const defaultConfig: ResumeConfig = {
   tweaks: { ...DEFAULT_TWEAKS },
 }
 
+function isoDateDaysAgo(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return date.toISOString().slice(0, 10)
+}
+
+function defaultApplications(resumeId: string, resumeTitle: string): JobApplication[] {
+  const now = new Date().toISOString()
+  return [
+    {
+      id: 'app-vercel',
+      company: 'Vercel',
+      companyMono: 'V',
+      location: 'Remote · NA',
+      role: 'Senior Frontend',
+      department: 'Web Platform',
+      resumeId,
+      resumeTitle,
+      stage: 'onsite',
+      match: 92,
+      appliedAt: isoDateDaysAgo(2),
+      notes: 'Focus on frontend architecture, performance, and design systems.',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'app-stripe',
+      company: 'Stripe',
+      companyMono: 'S',
+      location: 'Dublin · Hybrid',
+      role: 'Full-Stack Engineer',
+      department: 'Payments API',
+      resumeId,
+      resumeTitle: 'Full-Stack · Stripe',
+      stage: 'screen',
+      match: 84,
+      appliedAt: isoDateDaysAgo(4),
+      notes: 'Emphasize API work and backend collaboration.',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'app-linear',
+      company: 'Linear',
+      companyMono: 'L',
+      location: 'Remote · Global',
+      role: 'Staff Engineer',
+      department: 'Sync Engine',
+      resumeId,
+      resumeTitle: 'Staff · Linear',
+      stage: 'offer',
+      match: 96,
+      appliedAt: isoDateDaysAgo(10),
+      notes: 'Strong match: product engineering and systems ownership.',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]
+}
+
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
@@ -137,6 +197,27 @@ function addDays(date: Date, days: number) {
 
 function newId(prefix = 'resume') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+function normalizeApplication(app: Partial<JobApplication>, fallbackResume: ResumeDocument): JobApplication {
+  const now = new Date().toISOString()
+  const company = app.company?.trim() || 'Untitled company'
+  return {
+    id: app.id || newId('app'),
+    company,
+    companyMono: (app.companyMono || company.slice(0, 1) || 'A').slice(0, 2).toUpperCase(),
+    location: app.location || '',
+    role: app.role || '',
+    department: app.department || '',
+    resumeId: app.resumeId || fallbackResume.id,
+    resumeTitle: app.resumeTitle || fallbackResume.title,
+    stage: (app.stage || 'applied') as ApplicationStage,
+    match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
+    appliedAt: app.appliedAt || now.slice(0, 10),
+    notes: app.notes || '',
+    createdAt: app.createdAt || now,
+    updatedAt: app.updatedAt || now,
+  }
 }
 
 function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
@@ -174,6 +255,11 @@ export const useResumeStore = defineStore('resume', () => {
     })),
   )
   const activeResumeId = ref(loadFromStorage('active-resume-id', documents.value[0]?.id ?? fallbackDocument.id))
+  const seedApplicationResume = documents.value.find((doc) => doc.id === activeResumeId.value) ?? documents.value[0] ?? fallbackDocument
+  const applications = ref<JobApplication[]>(
+    loadFromStorage<JobApplication[]>('resume-applications', defaultApplications(seedApplicationResume.id, seedApplicationResume.title))
+      .map((app) => normalizeApplication(app, documents.value.find((doc) => doc.id === app.resumeId) ?? seedApplicationResume)),
+  )
 
   if (!documents.value.some((doc) => doc.id === activeResumeId.value)) {
     activeResumeId.value = documents.value[0]?.id ?? fallbackDocument.id
@@ -215,9 +301,13 @@ export const useResumeStore = defineStore('resume', () => {
   const persistActiveId = useDebounceFn((v: string) => {
     try { localStorage.setItem('active-resume-id', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const persistApplications = useDebounceFn((v: JobApplication[]) => {
+    try { localStorage.setItem('resume-applications', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 400)
 
   watch(documents, persistDocuments, { deep: true })
   watch(activeResumeId, persistActiveId)
+  watch(applications, persistApplications, { deep: true })
 
   function touchActive() {
     activeDocument.value.updatedAt = new Date().toISOString()
@@ -468,6 +558,9 @@ export const useResumeStore = defineStore('resume', () => {
     if (!doc) return
     doc.title = title.trim() || 'Untitled resume'
     doc.updatedAt = new Date().toISOString()
+    applications.value.forEach((app) => {
+      if (app.resumeId === id) app.resumeTitle = doc.title
+    })
   }
 
   function markCareerUpdated(id = activeResumeId.value) {
@@ -503,6 +596,12 @@ export const useResumeStore = defineStore('resume', () => {
           : documents.value[0]?.id
         imported = true
       }
+      if (Array.isArray(parsed.applications)) {
+        applications.value = parsed.applications.map((app: Partial<JobApplication>) =>
+          normalizeApplication(app, documents.value.find((doc) => doc.id === app.resumeId) ?? activeDocument.value),
+        )
+        imported = true
+      }
       if (parsed.data && typeof parsed.data === 'object') {
         data.value = {
           ...JSON.parse(JSON.stringify(defaultResume)),
@@ -527,11 +626,42 @@ export const useResumeStore = defineStore('resume', () => {
     return JSON.stringify({
       activeResumeId: activeResumeId.value,
       documents: documents.value,
+      applications: applications.value,
     }, null, 2)
+  }
+
+  function addApplication(input: Partial<JobApplication>) {
+    const doc = documents.value.find((item) => item.id === input.resumeId) ?? activeDocument.value
+    const app = normalizeApplication({
+      ...input,
+      resumeId: doc.id,
+      resumeTitle: doc.title,
+      companyMono: input.companyMono || input.company?.slice(0, 1),
+    }, doc)
+    applications.value.unshift(app)
+    return app
+  }
+
+  function updateApplication(id: string, patch: Partial<JobApplication>) {
+    const app = applications.value.find((item) => item.id === id)
+    if (!app) return
+    const doc = documents.value.find((item) => item.id === (patch.resumeId ?? app.resumeId))
+    Object.assign(app, patch, {
+      resumeId: doc?.id ?? patch.resumeId ?? app.resumeId,
+      resumeTitle: doc?.title ?? patch.resumeTitle ?? app.resumeTitle,
+      companyMono: (patch.companyMono || patch.company?.slice(0, 1) || app.companyMono || 'A').slice(0, 2).toUpperCase(),
+      match: Math.max(0, Math.min(100, Number(patch.match ?? app.match))),
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  function deleteApplication(id: string) {
+    applications.value = applications.value.filter((app) => app.id !== id)
   }
 
   return {
     documents,
+    applications,
     activeResumeId,
     activeDocument,
     data,
@@ -544,6 +674,9 @@ export const useResumeStore = defineStore('resume', () => {
     renameResume,
     markCareerUpdated,
     daysUntilCareerUpdate,
+    addApplication,
+    updateApplication,
+    deleteApplication,
     setTemplate,
     setLocale,
     setThemeColor,

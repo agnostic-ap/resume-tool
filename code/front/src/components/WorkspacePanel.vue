@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ApplicationStage, JobApplication, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
@@ -20,6 +20,19 @@ const pipelineFilter = ref('all')
 const assistantPrompt = ref('')
 const renameId = ref('')
 const renameDraft = ref('')
+const applicationFormOpen = ref(false)
+const editingApplicationId = ref('')
+const applicationDraft = reactive({
+  company: '',
+  location: '',
+  role: '',
+  department: '',
+  resumeId: '',
+  stage: 'applied' as ApplicationStage,
+  match: 70,
+  appliedAt: '',
+  notes: '',
+})
 const assistantSuggestions = ref<string[]>([
   '把个人简介改成“岗位定位 + 技术栈 + 量化结果”的三段式。',
   '工作经历每条 bullet 至少保留一个数字，弱相关职责移到项目里。',
@@ -40,28 +53,33 @@ const careerUpdateLabel = computed(() => {
   return `Due in ${days} days`
 })
 
-const applications = ref([
-  { co: 'Vercel', mono: 'V', loc: 'Remote · NA', role: 'Senior Frontend', dept: 'Web Platform', resume: '当前简历', stage: 'onsite', stageLabel: 'On-site', match: 92, when: 'Mar 12', ago: '2d ago' },
-  { co: 'Stripe', mono: 'S', loc: 'Dublin · Hybrid', role: 'Full-Stack Engineer', dept: 'Payments API', resume: 'Full-Stack · Stripe', stage: 'screen', stageLabel: 'Recruiter', match: 84, when: 'Mar 10', ago: '4d ago' },
-  { co: 'Linear', mono: 'L', loc: 'Remote · Global', role: 'Staff Engineer', dept: 'Sync Engine', resume: 'Staff · Linear', stage: 'offer', stageLabel: 'Offer', match: 96, when: 'Mar 04', ago: '10d ago' },
-  { co: 'Figma', mono: 'F', loc: 'NYC · Hybrid', role: 'Software Engineer · UI', dept: 'Editor', resume: '当前简历', stage: 'onsite', stageLabel: 'On-site', match: 88, when: 'Feb 28', ago: '14d ago' },
-  { co: 'Notion', mono: 'N', loc: 'SF · Remote-friendly', role: 'Software Engineer', dept: 'Databases', resume: '作品集版', stage: 'rejected', stageLabel: 'Closed', match: 64, when: 'Feb 22', ago: '20d ago' },
-])
+const applications = computed(() => store.applications)
 
-const filters = [
-  { id: 'all', label: 'All' },
-  { id: 'applied', label: 'Applied' },
-  { id: 'screen', label: 'Screening' },
-  { id: 'onsite', label: 'On-site' },
-  { id: 'offer', label: 'Offer' },
-  { id: 'rejected', label: 'Closed' },
+const stageOptions: { id: ApplicationStage; zh: string; en: string }[] = [
+  { id: 'applied', zh: '已投递', en: 'Applied' },
+  { id: 'screen', zh: '初筛', en: 'Screening' },
+  { id: 'onsite', zh: '面试', en: 'On-site' },
+  { id: 'offer', zh: 'Offer', en: 'Offer' },
+  { id: 'rejected', zh: '已关闭', en: 'Closed' },
 ]
+
+const filters = computed(() => [
+  { id: 'all', label: label('全部', 'All') },
+  ...stageOptions.map((stage) => ({ id: stage.id, label: label(stage.zh, stage.en) })),
+])
 
 const filteredApplications = computed(() =>
   pipelineFilter.value === 'all'
     ? applications.value
     : applications.value.filter((item) => item.stage === pipelineFilter.value),
 )
+
+const pipelineStats = computed(() => {
+  const offer = applications.value.filter((app) => app.stage === 'offer').length
+  const closed = applications.value.filter((app) => app.stage === 'rejected').length
+  const active = applications.value.length - offer - closed
+  return { offer, active, closed }
+})
 
 const commits = computed(() => [
   { type: 'ai', tag: 'AI', msg: '优化个人简介：突出 TypeScript、性能优化和组件体系', meta: 'auto-edit · accepted', hash: 'c4f2b1e', when: '4m' },
@@ -99,6 +117,82 @@ const densities: TweakDensity[] = ['tight', 'cozy', 'loose']
 
 function label(zh: string, en: string) {
   return locale.value === 'zh-CN' ? zh : en
+}
+
+function stageLabel(stage: ApplicationStage) {
+  const item = stageOptions.find((option) => option.id === stage)
+  return item ? label(item.zh, item.en) : stage
+}
+
+function resetApplicationDraft(app?: JobApplication) {
+  editingApplicationId.value = app?.id ?? ''
+  applicationDraft.company = app?.company ?? ''
+  applicationDraft.location = app?.location ?? ''
+  applicationDraft.role = app?.role ?? store.data.personal.title ?? ''
+  applicationDraft.department = app?.department ?? ''
+  applicationDraft.resumeId = app?.resumeId ?? store.activeResumeId
+  applicationDraft.stage = app?.stage ?? 'applied'
+  applicationDraft.match = app?.match ?? Math.max(60, store.completeness)
+  applicationDraft.appliedAt = app?.appliedAt ?? new Date().toISOString().slice(0, 10)
+  applicationDraft.notes = app?.notes ?? ''
+}
+
+function formatAppliedDate(date: string) {
+  if (!date) return label('未填写', 'No date')
+  return new Intl.DateTimeFormat(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${date}T00:00:00`))
+}
+
+function daysAgo(date: string) {
+  if (!date) return ''
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(`${date}T00:00:00`).getTime()) / 86400000))
+  if (locale.value === 'zh-CN') return diff === 0 ? '今天' : `${diff} 天前`
+  if (diff === 0) return 'today'
+  return `${diff}d ago`
+}
+
+function openApplicationForm(app?: JobApplication) {
+  resetApplicationDraft(app)
+  applicationFormOpen.value = true
+}
+
+function closeApplicationForm() {
+  applicationFormOpen.value = false
+  editingApplicationId.value = ''
+}
+
+function saveApplication() {
+  if (!applicationDraft.company.trim() || !applicationDraft.role.trim()) {
+    showToast(label('公司和岗位必填', 'Company and role are required'), 'error')
+    return
+  }
+  const payload = {
+    company: applicationDraft.company.trim(),
+    location: applicationDraft.location.trim(),
+    role: applicationDraft.role.trim(),
+    department: applicationDraft.department.trim(),
+    resumeId: applicationDraft.resumeId,
+    stage: applicationDraft.stage,
+    match: applicationDraft.match,
+    appliedAt: applicationDraft.appliedAt,
+    notes: applicationDraft.notes.trim(),
+  }
+  if (editingApplicationId.value) {
+    store.updateApplication(editingApplicationId.value, payload)
+    showToast(label('投递记录已更新', 'Application updated'), 'success')
+  } else {
+    store.addApplication(payload)
+    showToast(label('投递记录已添加', 'Application added'), 'success')
+  }
+  pipelineFilter.value = 'all'
+  closeApplicationForm()
+}
+
+function removeApplication(id: string) {
+  store.deleteApplication(id)
+  showToast(label('投递记录已删除', 'Application deleted'), 'success')
 }
 
 function openEditor() {
@@ -174,25 +268,6 @@ function applySuggestion(text: string) {
   store.data.personal.summary = `${prefix} ${text.replace(/^把|^根据.+重写 Summary，并/, '').replace(/。$/, '')}。`
   emit('navigate', 'editor')
   showToast(locale.value === 'zh-CN' ? '建议已写入个人简介' : 'Advice applied to the summary', 'success')
-}
-
-function logApplication() {
-  const n = applications.value.length + 1
-  applications.value.unshift({
-    co: `新公司 ${n}`,
-    mono: 'N',
-    loc: 'Remote · Draft',
-    role: store.data.personal.title || '目标岗位',
-    dept: '待补充部门',
-    resume: '当前简历',
-    stage: 'applied',
-    stageLabel: 'Applied',
-    match: Math.max(62, store.completeness),
-    when: 'Today',
-    ago: 'just now',
-  })
-  pipelineFilter.value = 'all'
-  showToast(locale.value === 'zh-CN' ? '投递记录已添加到列表顶部' : 'Application added to the top of the list', 'success')
 }
 
 function matchClass(score: number) {
@@ -377,8 +452,8 @@ function matchClass(score: number) {
             <h2>{{ t('pipelineTitle') }}</h2>
           </div>
           <div class="meta">
-            <span>1 offer · 4 active · 1 closed</span>
-            <button @click="logApplication">+ {{ t('logApplication') }}</button>
+            <span>{{ pipelineStats.offer }} offer · {{ pipelineStats.active }} active · {{ pipelineStats.closed }} closed</span>
+            <button @click="openApplicationForm()">+ {{ t('logApplication') }}</button>
           </div>
         </div>
         <div class="apps">
@@ -390,8 +465,62 @@ function matchClass(score: number) {
                 {{ filter.label }}<span class="count">{{ filter.id === 'all' ? applications.length : applications.filter((a) => a.stage === filter.id).length }}</span>
               </button>
             </div>
-            <span class="toolbar-note">sorted by · most recent</span>
+            <span class="toolbar-note">{{ label('按投递时间排序', 'sorted by applied date') }}</span>
           </div>
+
+          <form v-if="applicationFormOpen" class="application-form" @submit.prevent="saveApplication">
+            <div class="application-form__head">
+              <strong>{{ editingApplicationId ? label('编辑投递记录', 'Edit application') : label('新增投递记录', 'New application') }}</strong>
+              <button type="button" @click="closeApplicationForm">×</button>
+            </div>
+            <div class="application-form__grid">
+              <label>
+                <span>{{ t('company') }}</span>
+                <input v-model="applicationDraft.company" :placeholder="label('例如：字节跳动', 'Example: Vercel')" />
+              </label>
+              <label>
+                <span>{{ t('role') }}</span>
+                <input v-model="applicationDraft.role" :placeholder="label('前端开发工程师', 'Frontend Engineer')" />
+              </label>
+              <label>
+                <span>{{ label('部门 / 团队', 'Department / team') }}</span>
+                <input v-model="applicationDraft.department" :placeholder="label('商业化平台', 'Web Platform')" />
+              </label>
+              <label>
+                <span>{{ label('地点', 'Location') }}</span>
+                <input v-model="applicationDraft.location" :placeholder="label('上海 · 混合办公', 'Remote · Global')" />
+              </label>
+              <label>
+                <span>{{ t('resumeUsed') }}</span>
+                <select v-model="applicationDraft.resumeId">
+                  <option v-for="doc in documents" :key="doc.id" :value="doc.id">{{ doc.title }}</option>
+                </select>
+              </label>
+              <label>
+                <span>{{ t('stage') }}</span>
+                <select v-model="applicationDraft.stage">
+                  <option v-for="stage in stageOptions" :key="stage.id" :value="stage.id">{{ label(stage.zh, stage.en) }}</option>
+                </select>
+              </label>
+              <label>
+                <span>{{ t('match') }}</span>
+                <input v-model.number="applicationDraft.match" type="number" min="0" max="100" />
+              </label>
+              <label>
+                <span>{{ t('applied') }}</span>
+                <input v-model="applicationDraft.appliedAt" type="date" />
+              </label>
+              <label class="application-form__notes">
+                <span>{{ label('备注', 'Notes') }}</span>
+                <textarea v-model="applicationDraft.notes" rows="3" :placeholder="label('记录岗位重点、下一步动作或面试反馈', 'Track role focus, next step, or interview feedback')" />
+              </label>
+            </div>
+            <div class="application-form__actions">
+              <button type="button" class="btn btn--ghost" @click="closeApplicationForm">{{ label('取消', 'Cancel') }}</button>
+              <button type="submit" class="btn btn--primary">{{ editingApplicationId ? label('保存修改', 'Save changes') : label('添加记录', 'Add application') }}</button>
+            </div>
+          </form>
+
           <table class="apps__table">
             <thead>
               <tr>
@@ -401,29 +530,41 @@ function matchClass(score: number) {
                 <th>{{ t('stage') }}</th>
                 <th>{{ t('match') }}</th>
                 <th>{{ t('applied') }}</th>
+                <th>{{ label('操作', 'Actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="app in filteredApplications" :key="`${app.co}-${app.role}`">
+              <tr v-for="app in filteredApplications" :key="app.id">
                 <td>
                   <div class="co">
-                    <div class="co__logo">{{ app.mono }}</div>
+                    <div class="co__logo">{{ app.companyMono }}</div>
                     <div>
-                      <div class="co__name">{{ app.co }}</div>
-                      <div class="co__loc">{{ app.loc }}</div>
+                      <div class="co__name">{{ app.company }}</div>
+                      <div class="co__loc">{{ app.location || label('未填写地点', 'No location') }}</div>
                     </div>
                   </div>
                 </td>
-                <td><div class="role-cell">{{ app.role }}<small>{{ app.dept }}</small></div></td>
-                <td><span class="mono">{{ app.resume }}</span></td>
-                <td><span class="stage" :class="`stage--${app.stage}`">{{ app.stageLabel }}</span></td>
+                <td><div class="role-cell">{{ app.role }}<small>{{ app.department || label('未填写团队', 'No team') }}</small></div></td>
+                <td><span class="mono">{{ app.resumeTitle }}</span></td>
+                <td><span class="stage" :class="`stage--${app.stage}`">{{ stageLabel(app.stage) }}</span></td>
                 <td>
                   <div class="match-cell">
                     <div class="bar" :class="matchClass(app.match)"><i :style="{ width: `${app.match}%` }"></i></div>
                     <span>{{ app.match }}</span>
                   </div>
                 </td>
-                <td><div class="applied-when">{{ app.when }}<small>{{ app.ago }}</small></div></td>
+                <td><div class="applied-when">{{ formatAppliedDate(app.appliedAt) }}<small>{{ daysAgo(app.appliedAt) }}</small></div></td>
+                <td>
+                  <div class="row-actions">
+                    <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
+                    <button @click="removeApplication(app.id)">{{ label('删除', 'Delete') }}</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!filteredApplications.length">
+                <td colspan="7">
+                  <div class="empty-row">{{ label('还没有投递记录，先添加一个目标岗位。', 'No applications yet. Add a target role first.') }}</div>
+                </td>
               </tr>
             </tbody>
           </table>
