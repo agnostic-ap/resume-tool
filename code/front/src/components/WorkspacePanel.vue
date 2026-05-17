@@ -6,6 +6,7 @@ import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
+import { backendApi, type PlatformResumeDraft } from '../api/backend'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
 
@@ -18,7 +19,15 @@ const emit = defineEmits<{
 const store = useResumeStore()
 const { t, locale } = useI18n()
 const pipelineFilter = ref('all')
+const pipelineSearch = ref('')
+const pipelineSort = ref<'applied-desc' | 'match-desc' | 'company-asc'>('applied-desc')
 const assistantPrompt = ref('')
+const jdCompany = ref('')
+const jdRole = ref('')
+const jdText = ref('')
+const jdGenerating = ref(false)
+const jdDraft = ref<PlatformResumeDraft | null>(null)
+const jdError = ref('')
 const renameId = ref('')
 const renameDraft = ref('')
 const applicationFormOpen = ref(false)
@@ -91,10 +100,33 @@ const filters = computed(() => [
 ])
 
 const filteredApplications = computed(() =>
-  pipelineFilter.value === 'all'
-    ? applications.value
-    : applications.value.filter((item) => item.stage === pipelineFilter.value),
+  applications.value
+    .filter((item) => pipelineFilter.value === 'all' || item.stage === pipelineFilter.value)
+    .filter((item) => {
+      const query = pipelineSearch.value.trim().toLowerCase()
+      if (!query) return true
+      return [
+        item.company,
+        item.role,
+        item.department,
+        item.location,
+        item.resumeTitle,
+        item.notes,
+      ].some((value) => value.toLowerCase().includes(query))
+    })
+    .slice()
+    .sort((a, b) => {
+      if (pipelineSort.value === 'match-desc') return b.match - a.match
+      if (pipelineSort.value === 'company-asc') return a.company.localeCompare(b.company)
+      return new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime()
+    }),
 )
+
+const pipelineSortLabel = computed(() => {
+  if (pipelineSort.value === 'match-desc') return label('按匹配度排序', 'sorted by match')
+  if (pipelineSort.value === 'company-asc') return label('按公司排序', 'sorted by company')
+  return label('按投递时间排序', 'sorted by applied date')
+})
 
 const pipelineStats = computed(() => {
   const offer = applications.value.filter((app) => app.stage === 'offer').length
@@ -307,6 +339,105 @@ function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[
 function resetStudioTheme() {
   store.resetStudioTheme()
   showToast(locale.value === 'zh-CN' ? '页面主题已恢复默认' : 'Page theme reset to defaults', 'success')
+}
+
+function splitItems(value: string) {
+  return value
+    .split(/[,，、\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function splitBullets(value: string) {
+  return value
+    .split('\n')
+    .map((line) => line.replace(/^[•\-\*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+async function generateJdDraft() {
+  const role = jdRole.value.trim() || store.data.personal.title.trim()
+  const description = jdText.value.trim()
+  if (!role || !description) {
+    jdError.value = label('请至少填写目标岗位和 JD 内容。', 'Add a target role and JD text first.')
+    return
+  }
+  if (!store.data.experience.length) {
+    jdError.value = label('请先补充至少一段工作经历，再生成定制草稿。', 'Add at least one work experience before generating a draft.')
+    return
+  }
+
+  jdGenerating.value = true
+  jdError.value = ''
+  jdDraft.value = null
+  try {
+    const draft = await backendApi.generateResumeDraft({
+      requestId: `front-${Date.now()}`,
+      persist: false,
+      locale: store.config.locale,
+      templateId: store.config.templateId,
+      personal: store.data.personal,
+      workHistory: store.data.experience.map((item) => ({
+        id: item.id,
+        company: item.company || label('未填写公司', 'Untitled company'),
+        title: item.position || label('未填写岗位', 'Untitled role'),
+        location: item.location,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        current: item.current,
+        description: item.description,
+        achievements: splitBullets(item.description),
+        skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
+      })),
+      education: store.data.education,
+      skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
+      projects: store.data.projects,
+      jobDescription: {
+        company: jdCompany.value.trim(),
+        title: role,
+        description,
+        requirements: splitBullets(description),
+      },
+    })
+    jdDraft.value = draft
+    store.logActivity({
+      type: 'ai',
+      tag: 'JD',
+      message: 'Generated JD-tailored resume draft',
+      messageZh: '生成 JD 定制简历草稿',
+      messageEn: 'Generated JD-tailored resume draft',
+      meta: draft.title,
+    })
+    showToast(label('已生成 JD 定制草稿', 'JD-tailored draft generated'), 'success')
+  } catch (error) {
+    jdError.value = error instanceof Error ? error.message : String(error)
+    showToast(label('生成失败，请确认后端已连接', 'Generation failed. Check backend connection.'), 'error', 4200)
+  } finally {
+    jdGenerating.value = false
+  }
+}
+
+function applyJdDraft() {
+  if (!jdDraft.value) return
+  const currentStudioTheme = store.config.studioTheme
+  const currentTweaks = store.config.tweaks
+  store.data = jdDraft.value.data
+  store.config = {
+    ...jdDraft.value.config,
+    studioTheme: currentStudioTheme,
+    tweaks: currentTweaks,
+  }
+  store.renameResume(store.activeResumeId, jdDraft.value.title)
+  store.logActivity({
+    type: 'ai',
+    tag: 'JD',
+    message: 'Applied JD-tailored resume draft',
+    messageZh: '采纳 JD 定制简历草稿',
+    messageEn: 'Applied JD-tailored resume draft',
+    meta: `${jdDraft.value.match.score}/100`,
+  })
+  emit('navigate', 'editor')
+  showToast(label('草稿已应用到当前简历', 'Draft applied to the current resume'), 'success')
 }
 
 function runAssistant() {
@@ -549,7 +680,15 @@ function matchClass(score: number) {
                 {{ filter.label }}<span class="count">{{ filter.id === 'all' ? applications.length : applications.filter((a) => a.stage === filter.id).length }}</span>
               </button>
             </div>
-            <span class="toolbar-note">{{ label('按投递时间排序', 'sorted by applied date') }}</span>
+            <div class="apps__tools">
+              <input v-model="pipelineSearch" type="search" :placeholder="label('搜索公司、岗位、简历', 'Search company, role, resume')" />
+              <select v-model="pipelineSort">
+                <option value="applied-desc">{{ label('最近投递', 'Newest applied') }}</option>
+                <option value="match-desc">{{ label('匹配度最高', 'Highest match') }}</option>
+                <option value="company-asc">{{ label('公司 A-Z', 'Company A-Z') }}</option>
+              </select>
+            </div>
+            <span class="toolbar-note">{{ pipelineSortLabel }}</span>
           </div>
 
           <form v-if="applicationFormOpen" class="application-form" @submit.prevent="saveApplication">
@@ -648,7 +787,9 @@ function matchClass(score: number) {
               </tr>
               <tr v-if="!filteredApplications.length">
                 <td colspan="7">
-                  <div class="empty-row">{{ label('还没有投递记录，先添加一个目标岗位。', 'No applications yet. Add a target role first.') }}</div>
+                  <div class="empty-row">
+                    {{ pipelineSearch ? label('没有匹配的投递记录，换个关键词试试。', 'No matching applications. Try another keyword.') : label('还没有投递记录，先添加一个目标岗位。', 'No applications yet. Add a target role first.') }}
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -699,6 +840,28 @@ function matchClass(score: number) {
                         <div class="row"><span class="k">{{ label('章节', 'sections') }}</span><span class="v">{{ store.config.sectionOrder.length }} {{ label('块', 'blocks') }}</span></div>
                         <div class="row"><span class="k">{{ label('模板', 'template') }}</span><span class="v">{{ t(store.config.templateId) }}</span></div>
                       </div>
+                    </div>
+                    <div class="jd-builder">
+                      <div class="jd-builder__head">
+                        <span>{{ label('JD 定制草稿', 'JD-tailored draft') }}</span>
+                        <b>{{ jdDraft ? `${jdDraft.match.score}/100` : label('待生成', 'ready') }}</b>
+                      </div>
+                      <div class="jd-builder__grid">
+                        <input v-model="jdCompany" :placeholder="label('目标公司', 'Target company')" />
+                        <input v-model="jdRole" :placeholder="label('目标岗位', 'Target role')" />
+                      </div>
+                      <textarea v-model="jdText" rows="5" :placeholder="label('粘贴招聘 JD：职责、要求、关键词都会用于排序经历和生成摘要。', 'Paste the JD: responsibilities, requirements, and keywords will rank experience and shape the summary.')" />
+                      <p v-if="jdError" class="form-error">{{ jdError }}</p>
+                      <div v-if="jdDraft" class="jd-result">
+                        <div>
+                          <strong>{{ jdDraft.title }}</strong>
+                          <span>{{ label('命中关键词', 'Matched keywords') }} · {{ jdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || label('暂无', 'none') }}</span>
+                        </div>
+                        <button class="btn btn--primary" @click="applyJdDraft">{{ label('应用草稿', 'Apply draft') }}</button>
+                      </div>
+                      <button class="btn" :disabled="jdGenerating" @click="generateJdDraft">
+                        {{ jdGenerating ? label('生成中...', 'Generating...') : label('根据 JD 生成草稿', 'Generate from JD') }}
+                      </button>
                     </div>
                     <div class="ai-suggestions">
                       <button v-for="suggestion in assistantSuggestions" :key="suggestion.id" @click="applySuggestion(suggestion)">

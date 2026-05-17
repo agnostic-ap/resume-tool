@@ -1,4 +1,4 @@
-import type { ActivityEvent, JobApplication, ResumeDocument } from '../types/resume'
+import type { ActivityEvent, JobApplication, Locale, ResumeConfig, ResumeData, ResumeDocument, TemplateId } from '../types/resume'
 
 export interface BackendState {
   activeResumeId: string
@@ -11,6 +11,59 @@ export interface BackendStatus {
   online: boolean
   checkedAt?: string
   error?: string
+}
+
+export interface PlatformGenerateResumeInput {
+  requestId?: string
+  userId?: string
+  persist?: boolean
+  locale?: Locale
+  templateId?: TemplateId
+  personal?: Partial<ResumeData['personal']>
+  workHistory: Array<{
+    id?: string
+    company: string
+    title: string
+    location?: string
+    startDate?: string
+    endDate?: string
+    current?: boolean
+    description?: string
+    achievements?: string[]
+    skills?: string[]
+  }>
+  education?: Array<Partial<ResumeData['education'][number]>>
+  skills?: string[]
+  projects?: Array<Partial<ResumeData['projects'][number]>>
+  jobDescription: {
+    company?: string
+    title: string
+    location?: string
+    description?: string
+    requirements?: string[]
+    keywords?: string[]
+  }
+}
+
+export interface PlatformResumeDraft {
+  requestId?: string
+  userId?: string
+  title: string
+  data: ResumeData
+  config: ResumeConfig
+  match: {
+    score: number
+    keywords: string[]
+    matchedKeywords: string[]
+    selectedExperienceIds: string[]
+    selectedExperienceIndexes?: number[]
+  }
+  generation: {
+    strategy: string
+    generatedAt: string
+    persisted: boolean
+    documentId?: string
+  }
 }
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8787'
@@ -104,6 +157,13 @@ export const backendApi = {
   deleteApplication(id: string) {
     return request<{ deletedId: string }>(`/api/applications/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    })
+  },
+
+  generateResumeDraft(input: PlatformGenerateResumeInput) {
+    return request<PlatformResumeDraft>('/api/platform/resume-drafts', {
+      method: 'POST',
+      body: JSON.stringify(input),
     })
   },
 }

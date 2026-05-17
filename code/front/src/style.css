@@ -1127,9 +1127,10 @@ button:disabled {
 }
 
 .apps__toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--rule-soft);
   background: var(--paper-2);
@@ -1137,6 +1138,8 @@ button:disabled {
 
 .apps__filters {
   display: flex;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .apps__filters button {
@@ -1166,9 +1169,35 @@ button:disabled {
   font-size: 9px;
 }
 
+.apps__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.apps__tools input,
+.apps__tools select {
+  height: 30px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.apps__tools input {
+  width: 210px;
+  padding: 0 9px;
+}
+
+.apps__tools select {
+  padding: 0 7px;
+}
+
 .toolbar-note {
   color: var(--ink-4);
   font-size: 10px;
+  white-space: nowrap;
 }
 
 .application-form {
@@ -1598,6 +1627,86 @@ button:disabled {
   grid-template-columns: 70px 1fr;
   gap: 8px;
   color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.jd-builder {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+}
+
+.jd-builder__head,
+.jd-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jd-builder__head {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.jd-builder__head b {
+  color: var(--vermillion);
+  font-weight: 600;
+}
+
+.jd-builder__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.jd-builder input,
+.jd-builder textarea {
+  width: 100%;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.jd-builder input {
+  height: 32px;
+  padding: 0 9px;
+}
+
+.jd-builder textarea {
+  min-height: 112px;
+  padding: 9px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.jd-result {
+  padding: 9px;
+  border: 1px dashed var(--rule-soft);
+  background: var(--paper);
+}
+
+.jd-result strong,
+.jd-result span {
+  display: block;
+}
+
+.jd-result strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.jd-result span {
+  margin-top: 3px;
+  color: var(--ink-4);
   font-family: var(--mono);
   font-size: 10px;
 }
