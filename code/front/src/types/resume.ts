@@ -99,6 +99,7 @@ export interface ResumeConfig {
   fontSize: number
   sectionOrder: SectionId[]
   sectionVisible: Record<SectionId, boolean>
+  studioTheme: StudioTheme
   tweaks: ResumeTweaks
 }
 
@@ -120,4 +121,12 @@ export interface ResumeTweaks {
   ruleLines: boolean
   marginaliaMode: TweakMarginalia
   aiTone: TweakTone
+}
+
+export interface StudioTheme {
+  accent: TweakAccent
+  paper: TweakPaper
+  density: TweakDensity
+  font: TweakFont
+  ruleLines: boolean
 }

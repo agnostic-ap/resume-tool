@@ -15,7 +15,7 @@ defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const store = useResumeStore()
-const { locale, t } = useI18n()
+const { locale } = useI18n()
 
 const accents: { id: TweakAccent; hex: string; label: string }[] = [
   { id: 'vermillion', hex: '#B73E1B', label: 'Vermillion' },
@@ -52,7 +52,7 @@ function reset() {
     <div v-if="open" class="tweaks-backdrop" @click="emit('close')"></div>
     <aside v-if="open" class="tweaks">
       <div class="tweaks__head">
-        <h3>{{ t('tweaks') }}<small>{{ locale === 'zh-CN' ? '工作台 · 实时' : 'workspace · live' }}</small></h3>
+        <h3>{{ locale === 'zh-CN' ? '编辑器微调' : 'Editor Tweaks' }}<small>{{ locale === 'zh-CN' ? '编辑台 · 实时' : 'editor · live' }}</small></h3>
         <button class="tweaks__close" @click="emit('close')">×</button>
       </div>
 

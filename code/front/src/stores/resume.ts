@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme } from '../types/resume'
 import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
@@ -30,6 +30,14 @@ export const DEFAULT_TWEAKS: ResumeTweaks = {
   ruleLines: false,
   marginaliaMode: 'notes',
   aiTone: 'editor',
+}
+
+export const DEFAULT_STUDIO_THEME: StudioTheme = {
+  accent: 'vermillion',
+  paper: 'cream',
+  density: 'cozy',
+  font: 'serif',
+  ruleLines: false,
 }
 
 const defaultResume: ResumeData = {
@@ -104,6 +112,7 @@ const defaultConfig: ResumeConfig = {
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },
+  studioTheme: { ...DEFAULT_STUDIO_THEME },
   tweaks: { ...DEFAULT_TWEAKS },
 }
 
@@ -122,6 +131,7 @@ function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
     ...saved,
     sectionOrder: saved.sectionOrder?.length ? saved.sectionOrder : [...DEFAULT_ORDER],
     sectionVisible: { ...DEFAULT_VISIBLE, ...(saved.sectionVisible ?? {}) },
+    studioTheme: { ...DEFAULT_STUDIO_THEME, ...(saved.studioTheme ?? {}) },
     tweaks: { ...DEFAULT_TWEAKS, ...(saved.tweaks ?? {}) },
   }
 }
@@ -172,6 +182,24 @@ export const useResumeStore = defineStore('resume', () => {
 
   function setThemeColor(color: string) {
     config.value.themeColor = color
+  }
+
+  function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[K]) {
+    config.value.studioTheme[key] = value
+    if (key === 'accent') {
+      const color = {
+        vermillion: '#B73E1B',
+        moss: '#4A5D2F',
+        prussian: '#1F4068',
+        'ink-only': '#0E0E0C',
+      }[value as StudioTheme['accent']]
+      if (color) config.value.themeColor = color
+    }
+  }
+
+  function resetStudioTheme() {
+    config.value.studioTheme = { ...DEFAULT_STUDIO_THEME }
+    config.value.themeColor = '#B73E1B'
   }
 
   function setTweak<K extends keyof ResumeTweaks>(key: K, value: ResumeTweaks[K]) {
@@ -342,6 +370,8 @@ export const useResumeStore = defineStore('resume', () => {
     setTemplate,
     setLocale,
     setThemeColor,
+    setStudioTheme,
+    resetStudioTheme,
     setTweak,
     resetTweaks,
     clearAll,

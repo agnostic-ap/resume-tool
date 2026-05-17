@@ -8,6 +8,7 @@ import WelcomeDialog from './components/WelcomeDialog.vue'
 import WorkspacePanel from './components/WorkspacePanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TweaksPanel from './components/TweaksPanel.vue'
+import StudioThemePanel from './components/StudioThemePanel.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 import { useI18n } from './i18n'
@@ -20,7 +21,8 @@ const tr = (key: string) => t(key as never)
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
-const tweaksOpen = ref(false)
+const editorTweaksOpen = ref(false)
+const studioThemeOpen = ref(false)
 
 const activeSections = computed(() =>
   store.config.sectionOrder.filter((id) => store.config.sectionVisible[id]).length,
@@ -60,6 +62,15 @@ const editorClasses = computed(() => [
   `density-${store.config.tweaks.density}`,
   `font-${store.config.tweaks.font}`,
   store.config.tweaks.ruleLines ? 'lines-on' : '',
+].filter(Boolean))
+
+const shellClasses = computed(() => [
+  'studio-shell',
+  `theme-${store.config.studioTheme.accent}`,
+  `paper-${store.config.studioTheme.paper}`,
+  `density-${store.config.studioTheme.density}`,
+  `font-${store.config.studioTheme.font}`,
+  store.config.studioTheme.ruleLines ? 'lines-on' : '',
 ].filter(Boolean))
 
 const editorGridStyle = computed(() => ({
@@ -132,7 +143,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="studio-shell">
+  <div :class="shellClasses">
     <aside class="studio-rail" aria-label="主导航">
       <div class="rail-mark">R</div>
       <button v-for="item in railItems" :key="item.id"
@@ -153,7 +164,7 @@ onUnmounted(() => {
       :current-view="tr(viewTitle[currentView])"
       @navigate="navigate"
       @open-command="commandOpen = true"
-      @open-tweaks="tweaksOpen = true" />
+      @open-tweaks="studioThemeOpen = true" />
 
     <WorkspacePanel
       v-if="currentView === 'workspace'"
@@ -203,7 +214,7 @@ onUnmounted(() => {
           </ul>
         </div>
       </aside>
-      <button class="tweaks-fab" @click="tweaksOpen = true" aria-label="Open Tweaks">
+      <button class="tweaks-fab" @click="editorTweaksOpen = true" aria-label="Open editor tweaks">
         Tw
         <span class="ind"></span>
       </button>
@@ -221,8 +232,11 @@ onUnmounted(() => {
       @close="commandOpen = false"
       @command="runCommand" />
     <TweaksPanel
-      :open="tweaksOpen"
-      @close="tweaksOpen = false" />
+      :open="editorTweaksOpen"
+      @close="editorTweaksOpen = false" />
+    <StudioThemePanel
+      :open="studioThemeOpen"
+      @close="studioThemeOpen = false" />
     <ToastContainer />
     <WelcomeDialog v-if="showWelcome" @close="showWelcome = false" />
   </div>
