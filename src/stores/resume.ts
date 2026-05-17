@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
 import type { ResumeData, ResumeConfig, TemplateId, SectionId } from '../types/resume'
+import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
   'summary', 'experience', 'education', 'skills', 'projects', 'awards', 'languages', 'certifications',
@@ -118,8 +120,15 @@ export const useResumeStore = defineStore('resume', () => {
   if (!data.value.languages) data.value.languages = []
   if (!data.value.certifications) data.value.certifications = []
 
-  watch(data, (v) => localStorage.setItem('resume-data', JSON.stringify(v)), { deep: true })
-  watch(config, (v) => localStorage.setItem('resume-config', JSON.stringify(v)), { deep: true })
+  const persistData = useDebounceFn((v: ResumeData) => {
+    try { localStorage.setItem('resume-data', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 400)
+  const persistConfig = useDebounceFn((v: ResumeConfig) => {
+    try { localStorage.setItem('resume-config', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 400)
+
+  watch(data, persistData, { deep: true })
+  watch(config, persistConfig, { deep: true })
 
   // Completeness score 0-100
   const completeness = computed(() => {
@@ -254,10 +263,22 @@ export const useResumeStore = defineStore('resume', () => {
   function importData(json: string) {
     try {
       const parsed = JSON.parse(json)
-      if (parsed.data) data.value = { ...defaultResume, ...parsed.data }
-      if (parsed.config) config.value = mergeConfig(parsed.config)
+      if (!parsed || typeof parsed !== 'object') throw new Error('invalid')
+      if (parsed.data && typeof parsed.data === 'object') {
+        data.value = {
+          ...JSON.parse(JSON.stringify(defaultResume)),
+          ...parsed.data,
+          // ensure arrays exist even if missing in backup
+          languages: Array.isArray(parsed.data.languages) ? parsed.data.languages : [],
+          certifications: Array.isArray(parsed.data.certifications) ? parsed.data.certifications : [],
+        }
+      }
+      if (parsed.config && typeof parsed.config === 'object') {
+        config.value = mergeConfig(parsed.config)
+      }
+      showToast('数据导入成功', 'success')
     } catch {
-      alert('导入失败：JSON 格式不正确')
+      showToast('导入失败：请确认 JSON 格式正确', 'error')
     }
   }
 

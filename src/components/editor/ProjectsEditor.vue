@@ -42,7 +42,12 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
       </div>
 
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">项目描述</label>
+        <div class="flex justify-between items-center mb-1">
+          <label class="text-xs font-medium text-gray-600">项目描述</label>
+          <span class="text-xs" :class="proj.description.length < 50 ? 'text-amber-400' : 'text-gray-400'">
+            {{ proj.description.length }} 字{{ proj.description.length < 50 ? '（建议超过50字）' : '' }}
+          </span>
+        </div>
         <textarea v-model="proj.description" rows="4" :class="inputCls" style="resize:vertical" placeholder="• 负责...&#10;• 实现..." />
       </div>
 

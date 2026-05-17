@@ -2,6 +2,7 @@
 import TopBar from './components/TopBar.vue'
 import EditorPanel from './components/EditorPanel.vue'
 import PreviewPanel from './components/PreviewPanel.vue'
+import ToastContainer from './components/ToastContainer.vue'
 </script>
 
 <template>
@@ -11,5 +12,6 @@ import PreviewPanel from './components/PreviewPanel.vue'
       <EditorPanel />
       <PreviewPanel />
     </div>
+    <ToastContainer />
   </div>
 </template>
