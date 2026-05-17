@@ -24,6 +24,28 @@ const saved = ref(true)
 watch(() => store.data, () => { saved.value = false }, { deep: true })
 watch(saved, (v) => { if (!v) setTimeout(() => (saved.value = true), 600) })
 
+const syncLabel = computed(() => {
+  if (store.backendStatus.connecting) return l('连接中', 'Connecting')
+  if (store.backendStatus.online) return l('云端同步', 'Synced')
+  return l('本地模式', 'Local')
+})
+
+const syncTitle = computed(() => {
+  if (store.backendStatus.online) return l(`已连接 ${store.backendStatus.baseUrl}`, `Connected to ${store.backendStatus.baseUrl}`)
+  return store.backendStatus.error
+    ? l(`后端不可用：${store.backendStatus.error}`, `Backend unavailable: ${store.backendStatus.error}`)
+    : l('后端不可用，数据会保存在本地', 'Backend unavailable. Data is saved locally.')
+})
+
+async function reconnectBackend() {
+  const ok = await store.connectBackend()
+  showToast(
+    ok ? l('已连接后端同步', 'Backend sync connected') : l('后端仍不可用，继续使用本地模式', 'Backend still unavailable. Continuing locally.'),
+    ok ? 'success' : 'info',
+    3200,
+  )
+}
+
 // ── Template picker popover ──────────────────────────────────
 const showTemplatePicker = ref(false)
 const templatePickerRef = ref<HTMLElement>()
@@ -179,6 +201,14 @@ function handleFileChange(e: Event) {
       <i />
       <span>{{ saved ? t('saved') : t('saving') }}</span>
     </div>
+
+    <button class="sync-state"
+      :class="{ online: store.backendStatus.online, pending: store.backendStatus.connecting }"
+      :title="syncTitle"
+      @click="reconnectBackend">
+      <i />
+      <span>{{ syncLabel }}</span>
+    </button>
 
     <div class="topbar-actions">
       <button @click="handleImportClick"

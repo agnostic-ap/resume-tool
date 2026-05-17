@@ -207,6 +207,7 @@ button:disabled {
 .topbar-crumbs,
 .status-badge,
 .save-state,
+.sync-state,
 .topbar-button,
 .topbar-link {
   font-family: var(--mono);
@@ -368,6 +369,39 @@ button:disabled {
 
 .save-state.pending {
   color: var(--gold);
+}
+
+.sync-state {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 0;
+  border-left: 1px solid var(--rule-soft);
+  background: transparent;
+  color: var(--gold);
+  font-size: 10px;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.sync-state:hover {
+  background: var(--paper-2);
+}
+
+.sync-state i {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  border-radius: 999px;
+}
+
+.sync-state.online {
+  color: var(--moss);
+}
+
+.sync-state.pending {
+  color: var(--ink-4);
 }
 
 .topbar-actions {
