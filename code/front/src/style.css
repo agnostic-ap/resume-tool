@@ -675,11 +675,15 @@ button:disabled {
 
 .hero__stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin: 18px -28px;
   padding: 14px 28px;
   border-top: 1px solid var(--rule-softer);
   border-bottom: 1px solid var(--rule-softer);
+}
+
+.career-due {
+  color: var(--vermillion) !important;
 }
 
 .hero__stat .k {
@@ -870,10 +874,91 @@ button:disabled {
 }
 
 .doc:hover,
+.doc.active,
 .template-card:hover,
 .template-card.active {
   background: var(--paper);
   transform: translateY(-1px);
+}
+
+.doc.active {
+  box-shadow: inset 0 0 0 2px var(--vermillion);
+}
+
+.doc-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-softer);
+}
+
+.doc-actions button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.doc-actions button:hover {
+  color: var(--vermillion);
+}
+
+.doc-rename {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--vermillion);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.career-reminder {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+}
+
+.career-reminder.due {
+  border-color: var(--vermillion);
+  background: rgba(183, 62, 27, 0.06);
+}
+
+.career-reminder span {
+  display: block;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.career-reminder strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.career-reminder p {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.career-reminder button {
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .template-card.active {

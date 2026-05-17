@@ -18,28 +18,27 @@ const store = useResumeStore()
 const { t, locale } = useI18n()
 const pipelineFilter = ref('all')
 const assistantPrompt = ref('')
+const renameId = ref('')
+const renameDraft = ref('')
 const assistantSuggestions = ref<string[]>([
   '把个人简介改成“岗位定位 + 技术栈 + 量化结果”的三段式。',
   '工作经历每条 bullet 至少保留一个数字，弱相关职责移到项目里。',
 ])
 
-const documents = computed(() => [
-  {
-    id: 'current',
-    title: store.data.personal.title || '未命名岗位',
-    role: `${store.config.templateId} · zh-CN`,
-    lang: 'ZH',
-    updated: 'just now',
-    versions: Math.max(1, store.data.experience.length + store.data.projects.length + 2),
-    views: store.completeness + 17,
-    sig: (store.data.personal.name || 'R').slice(0, 1),
-    live: true,
-  },
-  { id: 'stripe', title: 'Full-Stack · Stripe', role: 'Tailored · Payments API', lang: 'EN', updated: 'yesterday', versions: 8, views: 31, sig: 'S' },
-  { id: 'portfolio', title: '独立开发者 · 中文版', role: 'Long-form · 个人作品集', lang: 'ZH', updated: '3 days ago', versions: 12, views: 88, sig: '独' },
-  { id: 'linear', title: 'Staff Engineer · Linear', role: 'Tailored · Sync Engine', lang: 'EN', updated: '1 week ago', versions: 5, views: 19, sig: 'L' },
-  { id: 'saas', title: 'SaaS 前端负责人', role: 'Resume · management track', lang: 'ZH', updated: '2 weeks ago', versions: 3, views: 12, sig: 'M' },
-])
+const documents = computed(() => store.documents)
+
+const careerUpdateDays = computed(() => store.daysUntilCareerUpdate())
+const careerUpdateLabel = computed(() => {
+  const days = careerUpdateDays.value
+  if (locale.value === 'zh-CN') {
+    if (days < 0) return `已逾期 ${Math.abs(days)} 天`
+    if (days === 0) return '今天该更新'
+    return `${days} 天后更新`
+  }
+  if (days < 0) return `${Math.abs(days)} days overdue`
+  if (days === 0) return 'Due today'
+  return `Due in ${days} days`
+})
 
 const applications = ref([
   { co: 'Vercel', mono: 'V', loc: 'Remote · NA', role: 'Senior Frontend', dept: 'Web Platform', resume: '当前简历', stage: 'onsite', stageLabel: 'On-site', match: 92, when: 'Mar 12', ago: '2d ago' },
@@ -82,7 +81,40 @@ function openEditor() {
 }
 
 function createBlank() {
-  emit('command', 'new')
+  store.createResume(true)
+  emit('navigate', 'editor')
+  showToast(locale.value === 'zh-CN' ? '已创建新的空白简历' : 'Created a new blank resume', 'success')
+}
+
+function openDocument(id: string) {
+  store.selectResume(id)
+  emit('navigate', 'editor')
+}
+
+function startRename(id: string, title: string) {
+  renameId.value = id
+  renameDraft.value = title
+}
+
+function finishRename() {
+  if (!renameId.value) return
+  store.renameResume(renameId.value, renameDraft.value)
+  renameId.value = ''
+  renameDraft.value = ''
+}
+
+function duplicateDocument(id: string) {
+  store.duplicateResume(id)
+  showToast(locale.value === 'zh-CN' ? '已复制一份简历' : 'Resume duplicated', 'success')
+}
+
+function deleteDocument(id: string) {
+  store.deleteResume(id)
+}
+
+function recordCareerUpdate() {
+  store.markCareerUpdated()
+  showToast(locale.value === 'zh-CN' ? '已记录本次职业经历更新，两周后再次提醒' : 'Career update recorded. Next reminder is in two weeks.', 'success', 4000)
 }
 
 function setTemplate(id: TemplateId) {
@@ -156,7 +188,7 @@ function matchClass(score: number) {
             <div class="hero__eyebrow">
               <span class="dot"></span>
               <span>{{ t('nowEditing') }}</span>
-              <span class="version">main · v1.0</span>
+            <span class="version">{{ store.activeDocument.title }} · v1.0</span>
             </div>
             <h1 class="hero__title">
               {{ store.data.personal.title || 'Frontend' }} <em>{{ store.data.personal.name || 'Resume' }}</em>
@@ -185,6 +217,10 @@ function matchClass(score: number) {
                 <div class="k">Match</div>
                 <div class="v">{{ store.completeness }}<small>/100</small></div>
               </div>
+              <div class="hero__stat">
+                <div class="k">{{ locale === 'zh-CN' ? '双周更新' : 'Biweekly' }}</div>
+                <div class="v career-due">{{ careerUpdateDays < 0 ? '!' : Math.max(0, careerUpdateDays) }}<small>{{ locale === 'zh-CN' ? '天' : 'days' }}</small></div>
+              </div>
             </div>
 
             <div class="hero__actions">
@@ -192,6 +228,7 @@ function matchClass(score: number) {
               <button class="btn" @click="emit('navigate', 'assistant')">{{ t('tailorWithAI') }}</button>
               <button class="btn btn--ghost" @click="emit('command', 'export')">{{ t('exportPdf') }}</button>
               <button class="btn btn--ghost" @click="emit('navigate', 'history')">{{ t('viewHistory') }}</button>
+              <button class="btn btn--ghost" @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '记录本次更新' : 'Record update' }}</button>
             </div>
           </div>
 
@@ -258,23 +295,37 @@ function matchClass(score: number) {
             <button @click="createBlank">{{ t('newResumeFull') }}</button>
           </div>
         </div>
+        <div class="career-reminder" :class="{ due: careerUpdateDays <= 0 }">
+          <div>
+            <span>{{ locale === 'zh-CN' ? '职业经历双周更新' : 'Biweekly career update' }}</span>
+            <strong>{{ careerUpdateLabel }}</strong>
+            <p>{{ locale === 'zh-CN' ? '建议每两周补充一次新项目、职责变化、成果数字或面试反馈。' : 'Every two weeks, add new projects, responsibility changes, measurable outcomes, or interview feedback.' }}</p>
+          </div>
+          <button @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '我已更新' : 'I updated it' }}</button>
+        </div>
         <div class="docs">
-          <article v-for="doc in documents" :key="doc.id" class="doc" @click="openEditor">
+          <article v-for="doc in documents" :key="doc.id" class="doc" :class="{ active: doc.id === store.activeResumeId }" @click="openDocument(doc.id)">
             <div class="doc__head">
-              <span class="lang">{{ doc.lang }}</span>
-              <span class="menu">···</span>
+              <span class="lang">{{ doc.config.locale === 'zh-CN' ? 'ZH' : 'EN' }}</span>
+              <span class="menu">{{ doc.id === store.activeResumeId ? 'LIVE' : '···' }}</span>
             </div>
             <div>
-              <div class="doc__title">{{ doc.title }}</div>
-              <div class="doc__role">{{ doc.role }}</div>
+              <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @blur="finishRename" />
+              <div v-else class="doc__title">{{ doc.title }}</div>
+              <div class="doc__role">{{ doc.config.templateId }} · {{ doc.data.personal.title || doc.data.personal.name || 'Untitled' }}</div>
             </div>
-            <div class="doc__sig">{{ doc.sig }}</div>
+            <div class="doc__sig">{{ (doc.data.personal.name || doc.title || 'R').slice(0, 1) }}</div>
             <div class="doc__meta">
-              <span class="dot" :class="{ live: doc.live }"></span>
-              <span>{{ doc.versions }} commits</span>
+              <span class="dot" :class="{ live: doc.id === store.activeResumeId }"></span>
+              <span>{{ doc.data.experience.length }} exp</span>
               <span>·</span>
-              <span>{{ doc.views }} views</span>
-              <span class="push">{{ doc.updated }}</span>
+              <span>{{ doc.data.projects.length }} projects</span>
+              <span class="push">{{ locale === 'zh-CN' ? '更新' : 'due' }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}d</span>
+            </div>
+            <div class="doc-actions" @click.stop>
+              <button @click="startRename(doc.id, doc.title)">{{ locale === 'zh-CN' ? '重命名' : 'Rename' }}</button>
+              <button @click="duplicateDocument(doc.id)">{{ locale === 'zh-CN' ? '复制' : 'Copy' }}</button>
+              <button @click="deleteDocument(doc.id)">{{ locale === 'zh-CN' ? '删除' : 'Delete' }}</button>
             </div>
           </article>
           <article class="doc doc--new" @click="createBlank">

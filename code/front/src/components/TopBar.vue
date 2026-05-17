@@ -72,7 +72,7 @@ function askConfirm(action: ConfirmAction) {
 function onConfirm() {
   confirmVisible.value = false
   if (confirmAction.value === 'clearAll') {
-    store.clearAll()
+    store.createResume(true)
     showToast('已新建空白简历，请从个人信息开始填写', 'info', 3500)
     emit('navigate', 'editor')
   } else {

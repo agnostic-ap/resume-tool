@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument } from '../types/resume'
 import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
@@ -125,6 +125,20 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function newId(prefix = 'resume') {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
 function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
   return {
     ...defaultConfig,
@@ -137,24 +151,80 @@ function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
 }
 
 export const useResumeStore = defineStore('resume', () => {
-  const data = ref<ResumeData>(
-    loadFromStorage('resume-data', JSON.parse(JSON.stringify(defaultResume))),
+  const legacyData = loadFromStorage<ResumeData>('resume-data', clone(defaultResume))
+  const legacyConfig = mergeConfig(loadFromStorage('resume-config', {}))
+  const now = new Date()
+  const fallbackDocument: ResumeDocument = {
+    id: 'resume-main',
+    title: legacyData.personal.title || legacyData.personal.name || '主简历',
+    data: clone(legacyData),
+    config: clone(legacyConfig),
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    lastCareerUpdateAt: now.toISOString(),
+    nextCareerUpdateAt: addDays(now, 14).toISOString(),
+  }
+  const documents = ref<ResumeDocument[]>(
+    loadFromStorage('resume-documents', [fallbackDocument]).map((doc: ResumeDocument) => ({
+      ...doc,
+      data: { ...clone(defaultResume), ...doc.data },
+      config: mergeConfig(doc.config ?? {}),
+      lastCareerUpdateAt: doc.lastCareerUpdateAt ?? doc.updatedAt ?? now.toISOString(),
+      nextCareerUpdateAt: doc.nextCareerUpdateAt ?? addDays(new Date(doc.updatedAt ?? now), 14).toISOString(),
+    })),
   )
-  const config = ref<ResumeConfig>(mergeConfig(loadFromStorage('resume-config', {})))
+  const activeResumeId = ref(loadFromStorage('active-resume-id', documents.value[0]?.id ?? fallbackDocument.id))
+
+  if (!documents.value.some((doc) => doc.id === activeResumeId.value)) {
+    activeResumeId.value = documents.value[0]?.id ?? fallbackDocument.id
+  }
+
+  const activeDocument = computed(() => {
+    let doc = documents.value.find((item) => item.id === activeResumeId.value)
+    if (!doc) {
+      doc = documents.value[0] ?? fallbackDocument
+      if (!documents.value.length) documents.value.push(doc)
+      activeResumeId.value = doc.id
+    }
+    return doc
+  })
+
+  const data = computed<ResumeData>({
+    get: () => activeDocument.value.data,
+    set: (value) => {
+      activeDocument.value.data = value
+      touchActive()
+    },
+  })
+
+  const config = computed<ResumeConfig>({
+    get: () => activeDocument.value.config,
+    set: (value) => {
+      activeDocument.value.config = mergeConfig(value)
+      touchActive()
+    },
+  })
 
   // Ensure languages/certifications arrays exist (migration for old saved data)
   if (!data.value.languages) data.value.languages = []
   if (!data.value.certifications) data.value.certifications = []
 
-  const persistData = useDebounceFn((v: ResumeData) => {
-    try { localStorage.setItem('resume-data', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  const persistDocuments = useDebounceFn((v: ResumeDocument[]) => {
+    try { localStorage.setItem('resume-documents', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
-  const persistConfig = useDebounceFn((v: ResumeConfig) => {
-    try { localStorage.setItem('resume-config', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  const persistActiveId = useDebounceFn((v: string) => {
+    try { localStorage.setItem('active-resume-id', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
 
-  watch(data, persistData, { deep: true })
-  watch(config, persistConfig, { deep: true })
+  watch(documents, persistDocuments, { deep: true })
+  watch(activeResumeId, persistActiveId)
+
+  function touchActive() {
+    activeDocument.value.updatedAt = new Date().toISOString()
+    if (!activeDocument.value.title.trim()) {
+      activeDocument.value.title = data.value.personal.title || data.value.personal.name || 'Untitled resume'
+    }
+  }
 
   // Completeness score 0-100
   const completeness = computed(() => {
@@ -174,14 +244,17 @@ export const useResumeStore = defineStore('resume', () => {
 
   function setTemplate(id: TemplateId) {
     config.value.templateId = id
+    touchActive()
   }
 
   function setLocale(locale: Locale) {
     config.value.locale = locale
+    touchActive()
   }
 
   function setThemeColor(color: string) {
     config.value.themeColor = color
+    touchActive()
   }
 
   function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[K]) {
@@ -324,6 +397,8 @@ export const useResumeStore = defineStore('resume', () => {
   function resetToDefault() {
     data.value = JSON.parse(JSON.stringify(defaultResume))
     config.value = JSON.parse(JSON.stringify(defaultConfig))
+    activeDocument.value.title = data.value.personal.title || '主简历'
+    markCareerUpdated()
   }
 
   function clearAll() {
@@ -332,6 +407,82 @@ export const useResumeStore = defineStore('resume', () => {
       experience: [], education: [], skills: [], projects: [], awards: [], languages: [], certifications: [],
     }
     config.value = JSON.parse(JSON.stringify(defaultConfig))
+    activeDocument.value.title = 'Untitled resume'
+    markCareerUpdated()
+  }
+
+  function createResume(blank = false) {
+    const created = new Date()
+    const doc: ResumeDocument = {
+      id: newId(),
+      title: blank ? 'Untitled resume' : `${activeDocument.value.title} Copy`,
+      data: blank
+        ? {
+            personal: { name: '', title: '', phone: '', email: '', location: '', website: '', summary: '' },
+            experience: [], education: [], skills: [], projects: [], awards: [], languages: [], certifications: [],
+          }
+        : clone(data.value),
+      config: blank ? clone(defaultConfig) : clone(config.value),
+      createdAt: created.toISOString(),
+      updatedAt: created.toISOString(),
+      lastCareerUpdateAt: created.toISOString(),
+      nextCareerUpdateAt: addDays(created, 14).toISOString(),
+    }
+    documents.value.unshift(doc)
+    activeResumeId.value = doc.id
+    return doc
+  }
+
+  function duplicateResume(id = activeResumeId.value) {
+    const source = documents.value.find((doc) => doc.id === id)
+    if (!source) return
+    const created = new Date()
+    const doc: ResumeDocument = {
+      ...clone(source),
+      id: newId(),
+      title: `${source.title} Copy`,
+      createdAt: created.toISOString(),
+      updatedAt: created.toISOString(),
+    }
+    documents.value.unshift(doc)
+    activeResumeId.value = doc.id
+  }
+
+  function deleteResume(id: string) {
+    if (documents.value.length <= 1) {
+      showToast(config.value.locale === 'zh-CN' ? '至少保留一份简历' : 'Keep at least one resume', 'error')
+      return
+    }
+    const index = documents.value.findIndex((doc) => doc.id === id)
+    if (index < 0) return
+    documents.value.splice(index, 1)
+    if (activeResumeId.value === id) activeResumeId.value = documents.value[0].id
+  }
+
+  function selectResume(id: string) {
+    if (documents.value.some((doc) => doc.id === id)) activeResumeId.value = id
+  }
+
+  function renameResume(id: string, title: string) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (!doc) return
+    doc.title = title.trim() || 'Untitled resume'
+    doc.updatedAt = new Date().toISOString()
+  }
+
+  function markCareerUpdated(id = activeResumeId.value) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (!doc) return
+    const updated = new Date()
+    doc.lastCareerUpdateAt = updated.toISOString()
+    doc.nextCareerUpdateAt = addDays(updated, 14).toISOString()
+    doc.updatedAt = updated.toISOString()
+  }
+
+  function daysUntilCareerUpdate(id = activeResumeId.value) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (!doc) return 0
+    return Math.ceil((new Date(doc.nextCareerUpdateAt).getTime() - Date.now()) / 86400000)
   }
 
   function importData(json: string) {
@@ -339,6 +490,19 @@ export const useResumeStore = defineStore('resume', () => {
       const parsed = JSON.parse(json)
       if (!parsed || typeof parsed !== 'object') throw new Error('invalid')
       let imported = false
+      if (Array.isArray(parsed.documents)) {
+        documents.value = parsed.documents.map((doc: ResumeDocument) => ({
+          ...doc,
+          data: { ...clone(defaultResume), ...doc.data },
+          config: mergeConfig(doc.config ?? {}),
+          lastCareerUpdateAt: doc.lastCareerUpdateAt ?? doc.updatedAt ?? new Date().toISOString(),
+          nextCareerUpdateAt: doc.nextCareerUpdateAt ?? addDays(new Date(doc.updatedAt ?? new Date()), 14).toISOString(),
+        }))
+        activeResumeId.value = parsed.activeResumeId && documents.value.some((doc) => doc.id === parsed.activeResumeId)
+          ? parsed.activeResumeId
+          : documents.value[0]?.id
+        imported = true
+      }
       if (parsed.data && typeof parsed.data === 'object') {
         data.value = {
           ...JSON.parse(JSON.stringify(defaultResume)),
@@ -360,13 +524,26 @@ export const useResumeStore = defineStore('resume', () => {
   }
 
   function exportData() {
-    return JSON.stringify({ data: data.value, config: config.value }, null, 2)
+    return JSON.stringify({
+      activeResumeId: activeResumeId.value,
+      documents: documents.value,
+    }, null, 2)
   }
 
   return {
+    documents,
+    activeResumeId,
+    activeDocument,
     data,
     config,
     completeness,
+    createResume,
+    duplicateResume,
+    deleteResume,
+    selectResume,
+    renameResume,
+    markCareerUpdated,
+    daysUntilCareerUpdate,
     setTemplate,
     setLocale,
     setThemeColor,

@@ -90,7 +90,7 @@ function navigate(view: AppView) {
 function runCommand(command: string) {
   commandOpen.value = false
   if (command === 'new') {
-    store.clearAll()
+    store.createResume(true)
     navigate('editor')
     showToast('已新建空白简历，请从个人信息开始填写', 'info', 3500)
   } else if (command === 'editor') {

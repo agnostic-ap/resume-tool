@@ -79,6 +79,17 @@ export interface ResumeData {
   certifications: Certification[]
 }
 
+export interface ResumeDocument {
+  id: string
+  title: string
+  data: ResumeData
+  config: ResumeConfig
+  createdAt: string
+  updatedAt: string
+  lastCareerUpdateAt: string
+  nextCareerUpdateAt: string
+}
+
 export type TemplateId = 'classic' | 'modern' | 'sidebar'
 export type Locale = 'zh-CN' | 'en-US'
 
