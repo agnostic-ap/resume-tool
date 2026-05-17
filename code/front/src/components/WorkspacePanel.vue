@@ -360,30 +360,30 @@ function matchClass(score: number) {
             <span class="version">{{ store.activeDocument.title }} · v1.0</span>
             </div>
             <h1 class="hero__title">
-              {{ store.data.personal.title || 'Frontend' }} <em>{{ store.data.personal.name || 'Resume' }}</em>
+              {{ store.data.personal.title || label('目标岗位', 'Target role') }} <em>{{ store.data.personal.name || label('未命名简历', 'Untitled resume') }}</em>
             </h1>
             <div class="hero__sub">
               <span class="pill">{{ store.config.locale }}</span>
-              <span>{{ store.config.templateId }} template</span>
+              <span>{{ t(store.config.templateId) }} · {{ label('模板', 'template') }}</span>
               <span>·</span>
                 <span>{{ label('完整度', 'Complete') }} {{ store.completeness }}%</span>
             </div>
 
             <div class="hero__stats">
               <div class="hero__stat">
-                <div class="k">Sections</div>
-                <div class="v">{{ store.config.sectionOrder.length }}<small>files</small></div>
+                <div class="k">{{ label('章节', 'Sections') }}</div>
+                <div class="v">{{ store.config.sectionOrder.length }}<small>{{ label('项', 'files') }}</small></div>
               </div>
               <div class="hero__stat">
-                <div class="k">Projects</div>
-                <div class="v">{{ store.data.projects.length }}<small>items</small></div>
+                <div class="k">{{ label('项目', 'Projects') }}</div>
+                <div class="v">{{ store.data.projects.length }}<small>{{ label('项', 'items') }}</small></div>
               </div>
               <div class="hero__stat">
-                <div class="k">Experience</div>
-                <div class="v">{{ store.data.experience.length }}<small>roles</small></div>
+                <div class="k">{{ label('经历', 'Experience') }}</div>
+                <div class="v">{{ store.data.experience.length }}<small>{{ label('段', 'roles') }}</small></div>
               </div>
               <div class="hero__stat">
-                <div class="k">Match</div>
+                <div class="k">{{ label('匹配', 'Match') }}</div>
                 <div class="v">{{ store.completeness }}<small>/100</small></div>
               </div>
               <div class="hero__stat">
@@ -415,14 +415,14 @@ function matchClass(score: number) {
                 <h1>{{ store.data.personal.name || label('你的姓名', 'Your Name') }}</h1>
                 <div class="role">{{ store.data.personal.title || label('目标岗位', 'Target Role') }} · {{ store.data.personal.location || label('城市', 'Location') }}</div>
                 <div class="rule"></div>
-                <h3>Summary</h3>
+                <h3>{{ label('个人简介', 'Summary') }}</h3>
                 <p>{{ store.data.personal.summary || label('这里会显示你的个人简介。', 'Your summary will appear here.') }}</p>
-                <h3>Experience</h3>
+                <h3>{{ label('工作经历', 'Experience') }}</h3>
                 <div v-for="item in store.data.experience.slice(0, 2)" :key="item.id">
                   <div class="row"><strong>{{ item.company || label('公司名称', 'Company') }} · {{ item.position || label('岗位', 'Role') }}</strong><span>{{ item.startDate }} — {{ item.current ? label('至今', 'Now') : item.endDate }}</span></div>
                   <p>{{ item.description.split('\n')[0] }}</p>
                 </div>
-                <h3>Skills</h3>
+                <h3>{{ label('技能', 'Skills') }}</h3>
                 <p>{{ store.data.skills.map((s) => s.items).join(' · ') }}</p>
               </div>
             </div>
@@ -437,7 +437,7 @@ function matchClass(score: number) {
             <h2>{{ t('chooseLayout') }}</h2>
           </div>
           <div class="meta">
-            <span>Current · {{ store.config.templateId }}</span>
+            <span>{{ label('当前', 'Current') }} · {{ t(store.config.templateId) }}</span>
             <button @click="emit('navigate', 'editor')">{{ t('previewInEditor') }} →</button>
           </div>
         </div>
@@ -481,15 +481,15 @@ function matchClass(score: number) {
             <div>
               <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @blur="finishRename" />
               <div v-else class="doc__title">{{ doc.title }}</div>
-              <div class="doc__role">{{ doc.config.templateId }} · {{ doc.data.personal.title || doc.data.personal.name || 'Untitled' }}</div>
+              <div class="doc__role">{{ t(doc.config.templateId) }} · {{ doc.data.personal.title || doc.data.personal.name || label('未命名', 'Untitled') }}</div>
             </div>
             <div class="doc__sig">{{ (doc.data.personal.name || doc.title || 'R').slice(0, 1) }}</div>
             <div class="doc__meta">
               <span class="dot" :class="{ live: doc.id === store.activeResumeId }"></span>
-              <span>{{ doc.data.experience.length }} exp</span>
+              <span>{{ doc.data.experience.length }} {{ label('经历', 'exp') }}</span>
               <span>·</span>
-              <span>{{ doc.data.projects.length }} projects</span>
-              <span class="push">{{ locale === 'zh-CN' ? '更新' : 'due' }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}d</span>
+              <span>{{ doc.data.projects.length }} {{ label('项目', 'projects') }}</span>
+              <span class="push">{{ locale === 'zh-CN' ? '更新' : 'due' }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}{{ locale === 'zh-CN' ? '天' : 'd' }}</span>
             </div>
             <div class="doc-actions" @click.stop>
               <button @click="startRename(doc.id, doc.title)">{{ locale === 'zh-CN' ? '重命名' : 'Rename' }}</button>
@@ -512,7 +512,7 @@ function matchClass(score: number) {
             <h2>{{ t('pipelineTitle') }}</h2>
           </div>
           <div class="meta">
-            <span>{{ pipelineStats.offer }} offer · {{ pipelineStats.active }} active · {{ pipelineStats.closed }} closed</span>
+            <span>{{ pipelineStats.offer }} {{ label('个 Offer', 'offer') }} · {{ pipelineStats.active }} {{ label('进行中', 'active') }} · {{ pipelineStats.closed }} {{ label('已关闭', 'closed') }}</span>
             <button @click="openApplicationForm()">+ {{ t('logApplication') }}</button>
           </div>
         </div>
@@ -656,7 +656,7 @@ function matchClass(score: number) {
           <div class="panel ai-panel">
             <div class="panel__head">
               <div class="ttl">AI · <em>{{ t('coEditor') }}</em></div>
-              <div class="live">SESSION · {{ t('ready') }}</div>
+              <div class="live">{{ label('会话', 'SESSION') }} · {{ t('ready') }}</div>
             </div>
             <div class="ai">
               <div class="ai__convo">
@@ -669,10 +669,10 @@ function matchClass(score: number) {
                   <div class="body">
                     {{ label('我会检查摘要、经历和项目三块。当前完整度', 'I will review the summary, experience, and projects. Current completeness') }} <strong>{{ store.completeness }}</strong>{{ label('，建议先补量化结果，再压缩弱相关内容。', '. Add measurable outcomes first, then trim weaker details.') }}
                     <div class="ai__tool">
-                      <div class="ai__tool__head"><span class="name">read_resume</span><span class="status">DONE</span></div>
+                      <div class="ai__tool__head"><span class="name">read_resume</span><span class="status">{{ label('完成', 'DONE') }}</span></div>
                       <div class="ai__tool__body">
-                        <div class="row"><span class="k">sections</span><span class="v">{{ store.config.sectionOrder.length }} blocks</span></div>
-                        <div class="row"><span class="k">template</span><span class="v">{{ store.config.templateId }}</span></div>
+                        <div class="row"><span class="k">{{ label('章节', 'sections') }}</span><span class="v">{{ store.config.sectionOrder.length }} {{ label('块', 'blocks') }}</span></div>
+                        <div class="row"><span class="k">{{ label('模板', 'template') }}</span><span class="v">{{ t(store.config.templateId) }}</span></div>
                       </div>
                     </div>
                     <div class="ai-suggestions">

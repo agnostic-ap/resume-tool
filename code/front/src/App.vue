@@ -46,14 +46,14 @@ const viewTitle: Record<AppView, string> = {
   settings: 'settings',
 }
 
-const railItems: { id: AppView; icon: string; label: string; count?: number }[] = [
+const railItems = computed<{ id: AppView; icon: string; label: string; count?: number }[]>(() => [
   { id: 'workspace', icon: '⌂', label: 'workspace' },
   { id: 'editor', icon: '§', label: 'editor' },
   { id: 'templates', icon: '▦', label: 'templates' },
   { id: 'assistant', icon: '✦', label: 'assistant' },
-  { id: 'pipeline', icon: '▤', label: 'pipeline', count: 6 },
+  { id: 'pipeline', icon: '▤', label: 'pipeline', count: store.applications.length },
   { id: 'history', icon: '↺', label: 'history' },
-]
+])
 
 const editorClasses = computed(() => [
   'studio-main',

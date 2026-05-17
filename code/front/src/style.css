@@ -207,7 +207,6 @@ button:disabled {
 .topbar-crumbs,
 .status-badge,
 .save-state,
-.theme-picker,
 .topbar-button,
 .topbar-link {
   font-family: var(--mono);
@@ -348,43 +347,6 @@ button:disabled {
   margin-top: 2px;
   color: var(--ink-4);
   font-size: 10px;
-}
-
-.theme-picker {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 12px;
-  border-left: 1px solid var(--rule-soft);
-  color: var(--ink-3);
-  font-size: 10px;
-}
-
-.swatches {
-  display: flex;
-  gap: 5px;
-}
-
-.swatch {
-  width: 16px;
-  height: 16px;
-  border: 1px solid rgba(31, 30, 26, 0.25);
-  box-shadow: inset 0 0 0 2px var(--paper);
-  transition: transform 160ms ease, box-shadow 160ms ease;
-}
-
-.swatch:hover,
-.swatch.active {
-  transform: translateY(-1px) scale(1.08);
-  box-shadow: inset 0 0 0 2px var(--paper), 0 0 0 1px var(--ink);
-}
-
-.color-input {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--rule-soft);
-  background: transparent;
 }
 
 .save-state {

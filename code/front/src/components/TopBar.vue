@@ -50,12 +50,6 @@ function closePicker(e: MouseEvent) {
 onMounted(() => document.addEventListener('mousedown', closePicker))
 onUnmounted(() => document.removeEventListener('mousedown', closePicker))
 
-// ── Theme colors ─────────────────────────────────────────────
-const presetColors = [
-  '#2563eb', '#7c3aed', '#db2777', '#ea580c',
-  '#16a34a', '#0891b2', '#374151', '#9f1239',
-]
-
 // ── Confirm dialog ────────────────────────────────────────────
 type ConfirmAction = 'clearAll' | 'resetDemo'
 const confirmVisible = ref(false)
@@ -179,19 +173,6 @@ function handleFileChange(e: Event) {
           </button>
         </div>
       </Transition>
-    </div>
-
-    <div class="theme-picker">
-      <span>{{ t('themeColor') }}</span>
-      <div class="swatches">
-        <button v-for="color in presetColors" :key="color" @click="store.setThemeColor(color)"
-          class="swatch"
-          :style="{ background: color }"
-          :class="{ active: store.config.themeColor === color }" />
-      </div>
-      <input type="color" :value="store.config.themeColor"
-        @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)"
-        class="color-input" :title="l('自定义颜色', 'Custom color')" />
     </div>
 
     <div class="save-state" :class="{ pending: !saved }">
