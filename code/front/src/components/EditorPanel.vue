@@ -13,6 +13,7 @@ import LanguagesEditor from './editor/LanguagesEditor.vue'
 import CertificationsEditor from './editor/CertificationsEditor.vue'
 
 const store = useResumeStore()
+defineProps<{ showTree?: boolean }>()
 
 const sectionMeta: Record<SectionId, { label: string; icon: string; component: any }> = {
   summary: { label: '个人简介', icon: '¶', component: SummaryEditor },
@@ -60,8 +61,8 @@ const completenessLabel = computed(() => {
 </script>
 
 <template>
-  <section class="editor-panel">
-    <aside class="section-tree">
+  <section class="editor-panel" :class="{ 'no-tree': showTree === false }">
+    <aside v-if="showTree !== false" class="section-tree">
       <div class="tree-head">
         <span>Sections</span>
         <strong>resume-main</strong>

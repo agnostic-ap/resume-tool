@@ -7,6 +7,7 @@ import ToastContainer from './components/ToastContainer.vue'
 import WelcomeDialog from './components/WelcomeDialog.vue'
 import WorkspacePanel from './components/WorkspacePanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import TweaksPanel from './components/TweaksPanel.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 
@@ -16,6 +17,7 @@ const store = useResumeStore()
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
+const tweaksOpen = ref(false)
 
 const activeSections = computed(() =>
   store.config.sectionOrder.filter((id) => store.config.sectionVisible[id]).length,
@@ -47,6 +49,24 @@ const railItems: { id: AppView; icon: string; label: string; count?: number }[] 
   { id: 'pipeline', icon: '▤', label: 'Pipeline', count: 6 },
   { id: 'history', icon: '↺', label: 'History' },
 ]
+
+const editorClasses = computed(() => [
+  'studio-main',
+  `theme-${store.config.tweaks.accent}`,
+  `paper-${store.config.tweaks.paper}`,
+  `density-${store.config.tweaks.density}`,
+  `font-${store.config.tweaks.font}`,
+  store.config.tweaks.ruleLines ? 'lines-on' : '',
+].filter(Boolean))
+
+const editorGridStyle = computed(() => ({
+  gridTemplateColumns: [
+    store.config.tweaks.showTree ? 'minmax(520px, 0.9fr)' : 'minmax(320px, 0.7fr)',
+    'minmax(420px, 1.1fr)',
+    store.config.tweaks.showAI ? '280px' : '0px',
+  ].join(' '),
+  fontSize: `${store.config.tweaks.fontScale / 100}rem`,
+}))
 
 function navigate(view: AppView) {
   currentView.value = view
@@ -125,17 +145,18 @@ onUnmounted(() => {
     <TopBar
       :current-view="viewTitle[currentView]"
       @navigate="navigate"
-      @open-command="commandOpen = true" />
+      @open-command="commandOpen = true"
+      @open-tweaks="tweaksOpen = true" />
 
     <WorkspacePanel
       v-if="currentView === 'workspace'"
       @navigate="navigate"
       @command="runCommand" />
 
-    <main v-else-if="currentView === 'editor'" class="studio-main">
-      <EditorPanel />
+    <main v-else-if="currentView === 'editor'" :class="editorClasses" :style="editorGridStyle">
+      <EditorPanel :show-tree="store.config.tweaks.showTree" />
       <PreviewPanel />
-      <aside class="inspector-panel">
+      <aside v-if="store.config.tweaks.showAI" class="inspector-panel">
         <div class="inspector-card score-card">
           <span class="inspector-eyebrow">Match score</span>
           <strong>{{ store.completeness }}<small>/100</small></strong>
@@ -175,6 +196,10 @@ onUnmounted(() => {
           </ul>
         </div>
       </aside>
+      <button class="tweaks-fab" @click="tweaksOpen = true" aria-label="Open Tweaks">
+        Tw
+        <span class="ind"></span>
+      </button>
     </main>
 
     <main v-else class="studio-utility">
@@ -188,6 +213,9 @@ onUnmounted(() => {
       :open="commandOpen"
       @close="commandOpen = false"
       @command="runCommand" />
+    <TweaksPanel
+      :open="tweaksOpen"
+      @close="tweaksOpen = false" />
     <ToastContainer />
     <WelcomeDialog v-if="showWelcome" @close="showWelcome = false" />
   </div>

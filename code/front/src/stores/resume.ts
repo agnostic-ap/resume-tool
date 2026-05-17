@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks } from '../types/resume'
 import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
@@ -17,6 +17,19 @@ const DEFAULT_VISIBLE: Record<SectionId, boolean> = {
   awards: true,
   languages: false,
   certifications: false,
+}
+
+export const DEFAULT_TWEAKS: ResumeTweaks = {
+  accent: 'vermillion',
+  paper: 'cream',
+  density: 'cozy',
+  font: 'serif',
+  fontScale: 100,
+  showAI: true,
+  showTree: true,
+  ruleLines: false,
+  marginaliaMode: 'notes',
+  aiTone: 'editor',
 }
 
 const defaultResume: ResumeData = {
@@ -86,10 +99,11 @@ const defaultResume: ResumeData = {
 
 const defaultConfig: ResumeConfig = {
   templateId: 'classic',
-  themeColor: '#2563eb',
+  themeColor: '#B73E1B',
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },
+  tweaks: { ...DEFAULT_TWEAKS },
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -107,6 +121,7 @@ function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
     ...saved,
     sectionOrder: saved.sectionOrder?.length ? saved.sectionOrder : [...DEFAULT_ORDER],
     sectionVisible: { ...DEFAULT_VISIBLE, ...(saved.sectionVisible ?? {}) },
+    tweaks: { ...DEFAULT_TWEAKS, ...(saved.tweaks ?? {}) },
   }
 }
 
@@ -152,6 +167,24 @@ export const useResumeStore = defineStore('resume', () => {
 
   function setThemeColor(color: string) {
     config.value.themeColor = color
+  }
+
+  function setTweak<K extends keyof ResumeTweaks>(key: K, value: ResumeTweaks[K]) {
+    config.value.tweaks[key] = value
+    if (key === 'accent') {
+      const color = {
+        vermillion: '#B73E1B',
+        moss: '#4A5D2F',
+        prussian: '#1F4068',
+        'ink-only': '#0E0E0C',
+      }[value as ResumeTweaks['accent']]
+      if (color) config.value.themeColor = color
+    }
+  }
+
+  function resetTweaks() {
+    config.value.tweaks = { ...DEFAULT_TWEAKS }
+    config.value.themeColor = '#B73E1B'
   }
 
   function moveSection(id: SectionId, direction: 'up' | 'down') {
@@ -303,6 +336,8 @@ export const useResumeStore = defineStore('resume', () => {
     completeness,
     setTemplate,
     setThemeColor,
+    setTweak,
+    resetTweaks,
     clearAll,
     moveSection,
     toggleSectionVisible,

@@ -97,4 +97,25 @@ export interface ResumeConfig {
   fontSize: number
   sectionOrder: SectionId[]
   sectionVisible: Record<SectionId, boolean>
+  tweaks: ResumeTweaks
+}
+
+export type TweakAccent = 'vermillion' | 'moss' | 'prussian' | 'ink-only'
+export type TweakPaper = 'cream' | 'snow' | 'newsprint'
+export type TweakDensity = 'tight' | 'cozy' | 'loose'
+export type TweakFont = 'serif' | 'sans' | 'mono'
+export type TweakMarginalia = 'notes' | 'inline' | 'off'
+export type TweakTone = 'editor' | 'coach' | 'minimal'
+
+export interface ResumeTweaks {
+  accent: TweakAccent
+  paper: TweakPaper
+  density: TweakDensity
+  font: TweakFont
+  fontScale: number
+  showAI: boolean
+  showTree: boolean
+  ruleLines: boolean
+  marginaliaMode: TweakMarginalia
+  aiTone: TweakTone
 }
