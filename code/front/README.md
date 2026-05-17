@@ -1,5 +1,24 @@
-# Vue 3 + TypeScript + Vite
+# Resume Studio Frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + TypeScript frontend for the resume workspace.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Run
+
+```bash
+npm install
+npm run dev
+```
+
+By default the app tries to sync with the local backend at `http://127.0.0.1:8787`. If the backend is not running, it falls back to localStorage so the editor still works offline.
+
+To point at another backend:
+
+```bash
+VITE_RESUME_API_BASE_URL=http://127.0.0.1:8787 npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+```

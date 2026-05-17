@@ -132,6 +132,7 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   syncHash()
+  void store.connectBackend()
   window.addEventListener('hashchange', syncHash)
   window.addEventListener('keydown', onKeydown)
 })

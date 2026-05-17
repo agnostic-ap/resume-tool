@@ -3,6 +3,8 @@ import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent } from '../types/resume'
 import { showToast } from '../composables/toast'
+import { backendApi } from '../api/backend'
+import type { BackendState } from '../api/backend'
 
 const DEFAULT_ORDER: SectionId[] = [
   'summary', 'experience', 'education', 'skills', 'projects', 'awards', 'languages', 'certifications',
@@ -252,6 +254,26 @@ function normalizeActivity(activity: Partial<ActivityEvent>, fallbackResume: Res
   }
 }
 
+function normalizeDocument(doc: Partial<ResumeDocument>): ResumeDocument {
+  const now = new Date().toISOString()
+  const data = {
+    ...clone(defaultResume),
+    ...(doc.data ?? {}),
+    languages: Array.isArray(doc.data?.languages) ? doc.data.languages : [],
+    certifications: Array.isArray(doc.data?.certifications) ? doc.data.certifications : [],
+  }
+  return {
+    id: doc.id || newId(),
+    title: doc.title?.trim() || data.personal.title || data.personal.name || 'Untitled resume',
+    data,
+    config: mergeConfig(doc.config ?? {}),
+    createdAt: doc.createdAt ?? now,
+    updatedAt: doc.updatedAt ?? now,
+    lastCareerUpdateAt: doc.lastCareerUpdateAt ?? doc.updatedAt ?? now,
+    nextCareerUpdateAt: doc.nextCareerUpdateAt ?? addDays(new Date(doc.updatedAt ?? now), 14).toISOString(),
+  }
+}
+
 function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
   return {
     ...defaultConfig,
@@ -278,13 +300,7 @@ export const useResumeStore = defineStore('resume', () => {
     nextCareerUpdateAt: addDays(now, 14).toISOString(),
   }
   const documents = ref<ResumeDocument[]>(
-    loadFromStorage('resume-documents', [fallbackDocument]).map((doc: ResumeDocument) => ({
-      ...doc,
-      data: { ...clone(defaultResume), ...doc.data },
-      config: mergeConfig(doc.config ?? {}),
-      lastCareerUpdateAt: doc.lastCareerUpdateAt ?? doc.updatedAt ?? now.toISOString(),
-      nextCareerUpdateAt: doc.nextCareerUpdateAt ?? addDays(new Date(doc.updatedAt ?? now), 14).toISOString(),
-    })),
+    loadFromStorage('resume-documents', [fallbackDocument]).map((doc: ResumeDocument) => normalizeDocument(doc)),
   )
   const activeResumeId = ref(loadFromStorage('active-resume-id', documents.value[0]?.id ?? fallbackDocument.id))
   const seedApplicationResume = documents.value.find((doc) => doc.id === activeResumeId.value) ?? documents.value[0] ?? fallbackDocument
@@ -296,6 +312,14 @@ export const useResumeStore = defineStore('resume', () => {
     loadFromStorage<ActivityEvent[]>('resume-activity-log', defaultActivityLog(seedApplicationResume.id, seedApplicationResume.title))
       .map((activity) => normalizeActivity(activity, documents.value.find((doc) => doc.id === activity.resumeId) ?? seedApplicationResume)),
   )
+  const backendStatus = ref({
+    online: false,
+    connecting: false,
+    baseUrl: backendApi.baseUrl,
+    lastSyncAt: '',
+    error: '',
+  })
+  let suppressBackendSync = false
 
   if (!documents.value.some((doc) => doc.id === activeResumeId.value)) {
     activeResumeId.value = documents.value[0]?.id ?? fallbackDocument.id
@@ -343,6 +367,15 @@ export const useResumeStore = defineStore('resume', () => {
   const persistActivityLog = useDebounceFn((v: ActivityEvent[]) => {
     try { localStorage.setItem('resume-activity-log', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const syncActiveDocumentToBackend = useDebounceFn(() => {
+    if (suppressBackendSync || !backendStatus.value.online) return
+    const doc = activeDocument.value
+    void runBackendSync(() => backendApi.updateResume(doc.id, {
+      title: doc.title,
+      data: doc.data,
+      config: doc.config,
+    }))
+  }, 700)
   const logContentEdit = useDebounceFn(() => {
     activeDocument.value.updatedAt = new Date().toISOString()
     if (!activeDocument.value.title.trim() || activeDocument.value.title === 'Untitled resume') {
@@ -365,8 +398,104 @@ export const useResumeStore = defineStore('resume', () => {
   watch(activeResumeId, persistActiveId)
   watch(applications, persistApplications, { deep: true })
   watch(activityLog, persistActivityLog, { deep: true })
-  watch(() => activeDocument.value.data, () => logContentEdit(), { deep: true })
-  watch(() => activeDocument.value.config, () => markConfigChanged(), { deep: true })
+  watch(() => activeDocument.value.data, () => {
+    logContentEdit()
+    syncActiveDocumentToBackend()
+  }, { deep: true })
+  watch(() => activeDocument.value.config, () => {
+    markConfigChanged()
+    syncActiveDocumentToBackend()
+  }, { deep: true })
+
+  function applyBackendState(state: BackendState) {
+    const incomingDocuments = state.documents?.length ? state.documents.map((doc) => normalizeDocument(doc)) : documents.value
+    const incomingActive = incomingDocuments.some((doc) => doc.id === state.activeResumeId)
+      ? state.activeResumeId
+      : incomingDocuments[0]?.id ?? activeResumeId.value
+    const fallback = incomingDocuments.find((doc) => doc.id === incomingActive) ?? incomingDocuments[0] ?? activeDocument.value
+
+    suppressBackendSync = true
+    documents.value = incomingDocuments
+    activeResumeId.value = incomingActive
+    applications.value = Array.isArray(state.applications)
+      ? state.applications.map((app) => normalizeApplication(app, incomingDocuments.find((doc) => doc.id === app.resumeId) ?? fallback))
+      : []
+    activityLog.value = Array.isArray(state.activityLog)
+      ? state.activityLog.map((activity) => normalizeActivity(activity, incomingDocuments.find((doc) => doc.id === activity.resumeId) ?? fallback))
+      : []
+    window.setTimeout(() => {
+      suppressBackendSync = false
+    }, 0)
+  }
+
+  function markBackendOnline() {
+    backendStatus.value = {
+      ...backendStatus.value,
+      online: true,
+      connecting: false,
+      lastSyncAt: new Date().toISOString(),
+      error: '',
+    }
+  }
+
+  function markBackendOffline(error: unknown) {
+    backendStatus.value = {
+      ...backendStatus.value,
+      online: false,
+      connecting: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+
+  async function connectBackend() {
+    if (backendStatus.value.connecting) return backendStatus.value.online
+    backendStatus.value = { ...backendStatus.value, connecting: true, error: '' }
+    try {
+      const state = await backendApi.getState()
+      applyBackendState(state)
+      markBackendOnline()
+      return true
+    } catch (error) {
+      markBackendOffline(error)
+      return false
+    }
+  }
+
+  async function runBackendSync<T>(task: () => Promise<T>) {
+    if (!backendStatus.value.online) return undefined
+    try {
+      const result = await task()
+      markBackendOnline()
+      return result
+    } catch (error) {
+      markBackendOffline(error)
+      return undefined
+    }
+  }
+
+  function replaceDocument(tempId: string, serverDoc: ResumeDocument) {
+    const normalized = normalizeDocument(serverDoc)
+    const idx = documents.value.findIndex((doc) => doc.id === tempId)
+    if (idx >= 0) documents.value[idx] = normalized
+    else documents.value.unshift(normalized)
+    if (activeResumeId.value === tempId) activeResumeId.value = normalized.id
+    applications.value.forEach((app) => {
+      if (app.resumeId === tempId) {
+        app.resumeId = normalized.id
+        app.resumeTitle = normalized.title
+      }
+    })
+    return normalized
+  }
+
+  function replaceApplication(tempId: string, serverApp: JobApplication) {
+    const doc = documents.value.find((item) => item.id === serverApp.resumeId) ?? activeDocument.value
+    const normalized = normalizeApplication(serverApp, doc)
+    const idx = applications.value.findIndex((app) => app.id === tempId)
+    if (idx >= 0) applications.value[idx] = normalized
+    else applications.value.unshift(normalized)
+    return normalized
+  }
 
   function logActivity(input: Omit<Partial<ActivityEvent>, 'id' | 'createdAt'> & { message?: string; messageZh?: string; messageEn?: string }) {
     const event = normalizeActivity({
@@ -414,6 +543,7 @@ export const useResumeStore = defineStore('resume', () => {
       messageEn: `Changed template to ${id}`,
       meta: activeDocument.value.title,
     })
+    syncActiveDocumentToBackend()
   }
 
   function setLocale(locale: Locale) {
@@ -427,11 +557,13 @@ export const useResumeStore = defineStore('resume', () => {
       messageEn: `Switched language to ${locale}`,
       meta: activeDocument.value.title,
     })
+    syncActiveDocumentToBackend()
   }
 
   function setThemeColor(color: string) {
     config.value.themeColor = color
     touchActive()
+    syncActiveDocumentToBackend()
   }
 
   function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[K]) {
@@ -446,12 +578,14 @@ export const useResumeStore = defineStore('resume', () => {
       if (color) config.value.themeColor = color
     }
     touchActive()
+    syncActiveDocumentToBackend()
   }
 
   function resetStudioTheme() {
     config.value.studioTheme = { ...DEFAULT_STUDIO_THEME }
     config.value.themeColor = '#B73E1B'
     touchActive()
+    syncActiveDocumentToBackend()
   }
 
   function setTweak<K extends keyof ResumeTweaks>(key: K, value: ResumeTweaks[K]) {
@@ -466,12 +600,14 @@ export const useResumeStore = defineStore('resume', () => {
       if (color) config.value.themeColor = color
     }
     touchActive()
+    syncActiveDocumentToBackend()
   }
 
   function resetTweaks() {
     config.value.tweaks = { ...DEFAULT_TWEAKS }
     config.value.themeColor = '#B73E1B'
     touchActive()
+    syncActiveDocumentToBackend()
   }
 
   function moveSection(id: SectionId, direction: 'up' | 'down') {
@@ -490,6 +626,7 @@ export const useResumeStore = defineStore('resume', () => {
       messageEn: `Moved ${id} ${direction}`,
       meta: 'section order',
     })
+    syncActiveDocumentToBackend()
   }
 
   function toggleSectionVisible(id: SectionId) {
@@ -502,6 +639,7 @@ export const useResumeStore = defineStore('resume', () => {
       messageEn: `${config.value.sectionVisible[id] ? 'Showed' : 'Hid'} ${id}`,
       meta: 'visibility changed',
     })
+    syncActiveDocumentToBackend()
   }
 
   function addExperience() {
@@ -611,6 +749,7 @@ export const useResumeStore = defineStore('resume', () => {
     activeDocument.value.title = data.value.personal.title || '主简历'
     markCareerUpdated(activeResumeId.value, false)
     logActivity({ type: 'system', tag: 'reset', message: 'Restored demo resume data', messageZh: '恢复示例简历数据', messageEn: 'Restored demo resume data', meta: activeDocument.value.title })
+    syncActiveDocumentToBackend()
   }
 
   function clearAll() {
@@ -622,11 +761,15 @@ export const useResumeStore = defineStore('resume', () => {
     activeDocument.value.title = 'Untitled resume'
     markCareerUpdated(activeResumeId.value, false)
     logActivity({ type: 'resume', tag: 'blank', message: 'Cleared current resume', messageZh: '清空当前简历', messageEn: 'Cleared current resume', meta: activeDocument.value.title })
+    syncActiveDocumentToBackend()
   }
 
   function createResume(blank = false) {
     const created = new Date()
     const sourceTitle = activeDocument.value.title
+    const sourceId = activeResumeId.value
+    const syncingWithBackend = backendStatus.value.online
+    if (syncingWithBackend) suppressBackendSync = true
     const doc: ResumeDocument = {
       id: newId(),
       title: blank ? 'Untitled resume' : `${activeDocument.value.title} Copy`,
@@ -653,6 +796,17 @@ export const useResumeStore = defineStore('resume', () => {
       meta: doc.title,
       resumeId: doc.id,
     })
+    if (syncingWithBackend) {
+      void runBackendSync(() => backendApi.createResume({
+        blank,
+        sourceId: blank ? undefined : sourceId,
+        title: doc.title,
+      })).then((serverDoc) => {
+        if (serverDoc) replaceDocument(doc.id, serverDoc)
+      }).finally(() => {
+        suppressBackendSync = false
+      })
+    }
     return doc
   }
 
@@ -660,6 +814,8 @@ export const useResumeStore = defineStore('resume', () => {
     const source = documents.value.find((doc) => doc.id === id)
     if (!source) return
     const created = new Date()
+    const syncingWithBackend = backendStatus.value.online
+    if (syncingWithBackend) suppressBackendSync = true
     const doc: ResumeDocument = {
       ...clone(source),
       id: newId(),
@@ -670,6 +826,13 @@ export const useResumeStore = defineStore('resume', () => {
     documents.value.unshift(doc)
     activeResumeId.value = doc.id
     logActivity({ type: 'resume', tag: 'copy', message: `Duplicated ${source.title}`, messageZh: `复制简历：${source.title}`, messageEn: `Duplicated ${source.title}`, meta: doc.title, resumeId: doc.id })
+    if (syncingWithBackend) {
+      void runBackendSync(() => backendApi.duplicateResume(source.id, { title: doc.title })).then((serverDoc) => {
+        if (serverDoc) replaceDocument(doc.id, serverDoc)
+      }).finally(() => {
+        suppressBackendSync = false
+      })
+    }
   }
 
   function deleteResume(id: string) {
@@ -691,10 +854,14 @@ export const useResumeStore = defineStore('resume', () => {
       }
     })
     logActivity({ type: 'resume', tag: 'delete', message: `Deleted ${deletedTitle}`, messageZh: `删除简历：${deletedTitle}`, messageEn: `Deleted ${deletedTitle}`, meta: 'document removed', resumeId: activeResumeId.value })
+    void runBackendSync(() => backendApi.deleteResume(id))
   }
 
   function selectResume(id: string) {
-    if (documents.value.some((doc) => doc.id === id)) activeResumeId.value = id
+    if (documents.value.some((doc) => doc.id === id)) {
+      activeResumeId.value = id
+      void runBackendSync(() => backendApi.selectResume(id))
+    }
   }
 
   function renameResume(id: string, title: string) {
@@ -706,6 +873,7 @@ export const useResumeStore = defineStore('resume', () => {
       if (app.resumeId === id) app.resumeTitle = doc.title
     })
     logActivity({ type: 'resume', tag: 'rename', message: `Renamed resume to ${doc.title}`, messageZh: `重命名简历：${doc.title}`, messageEn: `Renamed resume to ${doc.title}`, meta: 'document title', resumeId: id })
+    void runBackendSync(() => backendApi.updateResume(id, { title: doc.title }))
   }
 
   function markCareerUpdated(id = activeResumeId.value, shouldLog = true) {
@@ -718,6 +886,9 @@ export const useResumeStore = defineStore('resume', () => {
     if (shouldLog) {
       logActivity({ type: 'resume', tag: 'career', message: 'Recorded biweekly career update', messageZh: '记录双周职业经历更新', messageEn: 'Recorded biweekly career update', meta: doc.title, resumeId: id })
     }
+    void runBackendSync(() => backendApi.markCareerUpdated(id)).then((serverDoc) => {
+      if (serverDoc) replaceDocument(id, serverDoc)
+    })
   }
 
   function daysUntilCareerUpdate(id = activeResumeId.value) {
@@ -772,6 +943,7 @@ export const useResumeStore = defineStore('resume', () => {
       if (imported) {
         logActivity({ type: 'system', tag: 'import', message: 'Imported backup data', messageZh: '导入备份数据', messageEn: 'Imported backup data', meta: 'JSON backup' })
         showToast(config.value.locale === 'zh-CN' ? '数据导入成功' : 'Data imported', 'success')
+        syncActiveDocumentToBackend()
       }
       else showToast(config.value.locale === 'zh-CN' ? '导入失败：未识别的文件格式' : 'Import failed: unrecognized file format', 'error')
     } catch {
@@ -798,6 +970,9 @@ export const useResumeStore = defineStore('resume', () => {
     }, doc)
     applications.value.unshift(app)
     logActivity({ type: 'application', tag: 'apply', message: `Added application: ${app.company}`, messageZh: `新增投递：${app.company}`, messageEn: `Added application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
+    void runBackendSync(() => backendApi.createApplication(app)).then((serverApp) => {
+      if (serverApp) replaceApplication(app.id, serverApp)
+    })
     return app
   }
 
@@ -813,23 +988,27 @@ export const useResumeStore = defineStore('resume', () => {
       updatedAt: new Date().toISOString(),
     })
     logActivity({ type: 'application', tag: 'update', message: `Updated application: ${app.company}`, messageZh: `更新投递：${app.company}`, messageEn: `Updated application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
+    void runBackendSync(() => backendApi.updateApplication(id, app))
   }
 
   function deleteApplication(id: string) {
     const app = applications.value.find((item) => item.id === id)
     applications.value = applications.value.filter((app) => app.id !== id)
     if (app) logActivity({ type: 'application', tag: 'delete', message: `Deleted application: ${app.company}`, messageZh: `删除投递：${app.company}`, messageEn: `Deleted application: ${app.company}`, meta: app.role, resumeId: app.resumeId })
+    void runBackendSync(() => backendApi.deleteApplication(id))
   }
 
   return {
     documents,
     applications,
     activityLog,
+    backendStatus,
     activeResumeId,
     activeDocument,
     data,
     config,
     completeness,
+    connectBackend,
     createResume,
     duplicateResume,
     deleteResume,
