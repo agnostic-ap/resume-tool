@@ -8,7 +8,8 @@
     "build": "tsc --outDir dist --noEmit false && cp src/*.mjs dist/",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.*"
+    "test": "node --import tsx --test test/*.test.*",
+    "coverage": "node --experimental-test-coverage --import tsx --test test/*.test.*"
   },
   "engines": {
     "node": ">=20.0.0"

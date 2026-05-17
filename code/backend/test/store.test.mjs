@@ -42,6 +42,42 @@ test('creates, updates, selects, and deletes resume documents', async () => {
   }
 })
 
+test('protects resume deletion edges and relinks applications', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+
+    await assert.rejects(
+      () => store.deleteDocument('resume-main'),
+      /At least one resume must remain/,
+    )
+
+    const source = await store.createDocument({ blank: true, title: 'Source Resume' })
+    const app = await store.createApplication({
+      company: 'OpenAI',
+      role: 'Platform Engineer',
+      resumeId: source.id,
+    })
+    const copy = await store.createDocument({ sourceId: source.id, title: 'Source Copy' })
+    assert.equal(copy.data.personal.name, source.data.personal.name)
+
+    await assert.rejects(
+      () => store.deleteDocument('missing-resume'),
+      /Resume not found/,
+    )
+
+    const deleted = await store.deleteDocument(source.id)
+    assert.equal(deleted.deletedId, source.id)
+
+    const applications = await store.listApplications()
+    const relinked = applications.find((item) => item.id === app.id)
+    assert.equal(relinked.resumeId, copy.id)
+    assert.equal(relinked.resumeTitle, copy.title)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('validates and persists applications', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   try {
@@ -62,6 +98,39 @@ test('validates and persists applications', async () => {
 
     const state = await store.readState()
     assert.equal(state.applications.length, 1)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('lists activity, deletes applications, and creates assistant suggestions', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const app = await store.createApplication({
+      company: 'Anthropic',
+      role: 'Frontend Engineer',
+    })
+
+    const suggestion = await store.createAssistantSuggestion({ prompt: 'match a senior frontend JD' })
+    assert.equal(suggestion.prompt, 'match a senior frontend JD')
+    assert.match(suggestion.summaryEn, /Tailor the summary/)
+
+    await assert.rejects(
+      () => store.createAssistantSuggestion({ prompt: '   ' }),
+      /Prompt is required/,
+    )
+
+    const deleted = await store.deleteApplication(app.id)
+    assert.equal(deleted.deletedId, app.id)
+    await assert.rejects(
+      () => store.deleteApplication(app.id),
+      /Application not found/,
+    )
+
+    const activity = await store.listActivity()
+    assert.ok(activity.some((entry) => entry.type === 'ai'))
+    assert.ok(activity.some((entry) => entry.tag === 'delete'))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

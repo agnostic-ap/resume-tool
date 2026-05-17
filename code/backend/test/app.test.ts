@@ -117,6 +117,41 @@ test('platform API supports API key auth and optional persistence', async () => 
   }
 })
 
+test('platform API accepts bearer auth and rejects invalid payloads', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+  const previousApiKey = process.env.RESUME_PLATFORM_API_KEY
+  process.env.RESUME_PLATFORM_API_KEY = 'bearer-secret'
+
+  try {
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/platform/resume-drafts',
+      headers: { authorization: 'Bearer bearer-secret' },
+      payload: { jobDescription: { title: '' }, workHistory: [] },
+    })
+    assert.equal(invalid.statusCode, 400)
+    assert.equal(invalid.json().error, 'Validation failed')
+
+    const generated = await app.inject({
+      method: 'POST',
+      url: '/api/platform/resume-drafts',
+      headers: { authorization: 'Bearer bearer-secret' },
+      payload: platformPayload({ persist: false }),
+    })
+    assert.equal(generated.statusCode, 200)
+    assert.equal(generated.json().generation.persisted, false)
+  } finally {
+    if (previousApiKey === undefined) {
+      delete process.env.RESUME_PLATFORM_API_KEY
+    } else {
+      process.env.RESUME_PLATFORM_API_KEY = previousApiKey
+    }
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 function platformPayload(overrides: Record<string, unknown> = {}) {
   return {
     requestId: 'req-platform-1',
