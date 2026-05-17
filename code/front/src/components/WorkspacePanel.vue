@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { TemplateId } from '../types/resume'
+import type { StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
@@ -76,6 +76,31 @@ const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'sidebar', label: '侧边栏', desc: '色彩·个性' },
 ]
 
+const accents: { id: TweakAccent; hex: string; label: string }[] = [
+  { id: 'vermillion', hex: '#B73E1B', label: 'Vermillion' },
+  { id: 'moss', hex: '#4A5D2F', label: 'Moss' },
+  { id: 'prussian', hex: '#1F4068', label: 'Prussian' },
+  { id: 'ink-only', hex: '#0E0E0C', label: 'Ink only' },
+]
+
+const papers: { id: TweakPaper; hex: string; label: string }[] = [
+  { id: 'cream', hex: '#FAF8F2', label: 'Cream' },
+  { id: 'snow', hex: '#FFFFFF', label: 'Snow' },
+  { id: 'newsprint', hex: '#F1ECDF', label: 'Newsprint' },
+]
+
+const interfaceFonts: { id: TweakFont; name: string; meta: string; className: string }[] = [
+  { id: 'serif', name: 'Serif', meta: 'editorial · warm', className: 'serif-stack' },
+  { id: 'sans', name: 'Sans', meta: 'neutral · crisp', className: 'sans-stack' },
+  { id: 'mono', name: 'Mono', meta: 'technical · compact', className: 'mono-stack' },
+]
+
+const densities: TweakDensity[] = ['tight', 'cozy', 'loose']
+
+function label(zh: string, en: string) {
+  return locale.value === 'zh-CN' ? zh : en
+}
+
 function openEditor() {
   emit('navigate', 'editor')
 }
@@ -120,6 +145,15 @@ function recordCareerUpdate() {
 function setTemplate(id: TemplateId) {
   store.setTemplate(id)
   showToast(locale.value === 'zh-CN' ? `已切换到${t(id)}模板` : `Switched to ${t(id)} template`, 'success')
+}
+
+function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[K]) {
+  store.setStudioTheme(key, value)
+}
+
+function resetStudioTheme() {
+  store.resetStudioTheme()
+  showToast(locale.value === 'zh-CN' ? '页面主题已恢复默认' : 'Page theme reset to defaults', 'success')
 }
 
 function runAssistant() {
@@ -462,18 +496,117 @@ function matchClass(score: number) {
             <h2>{{ t('studioPrefs') }}</h2>
           </div>
         </div>
-        <div class="settings-grid">
-          <label>
-            <span>{{ t('themeColor') }}</span>
-            <input type="color" :value="store.config.themeColor" @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)" />
-          </label>
-          <label>
-            <span>{{ t('fontSize') }}</span>
-            <input type="range" min="12" max="18" :value="store.config.fontSize"
-              @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
-            <small>{{ store.config.fontSize }}px</small>
-          </label>
-          <button class="btn btn--ghost" @click="store.resetToDefault()">{{ t('restoreDemo') }}</button>
+        <div class="settings-panel">
+          <section class="settings-card settings-card--wide">
+            <div class="settings-card__head">
+              <div>
+                <span>{{ label('页面主题', 'Page theme') }}</span>
+                <strong>{{ label('控制整个工作台，不影响简历内容排版', 'Controls the whole workspace, not resume content layout') }}</strong>
+              </div>
+              <button class="btn btn--ghost" @click="resetStudioTheme">{{ label('恢复默认', 'Reset') }}</button>
+            </div>
+
+            <div class="settings-rows">
+              <div class="settings-row">
+                <div class="settings-row__copy">
+                  <span>{{ label('强调色', 'Accent') }}</span>
+                  <small>{{ label('导航、按钮、分数条', 'Navigation, buttons, meters') }}</small>
+                </div>
+                <div class="settings-swatches">
+                  <button v-for="accent in accents" :key="accent.id"
+                    class="settings-swatch"
+                    :class="{ on: store.config.studioTheme.accent === accent.id }"
+                    :style="{ background: accent.hex }"
+                    :title="accent.label"
+                    @click="setStudioTheme('accent', accent.id)"></button>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-row__copy">
+                  <span>{{ label('纸张', 'Paper') }}</span>
+                  <small>{{ label('整站背景和面板底色', 'App background and panels') }}</small>
+                </div>
+                <div class="settings-swatches">
+                  <button v-for="paper in papers" :key="paper.id"
+                    class="settings-swatch"
+                    :class="{ on: store.config.studioTheme.paper === paper.id }"
+                    :style="{ background: paper.hex }"
+                    :title="paper.label"
+                    @click="setStudioTheme('paper', paper.id)"></button>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-row__copy">
+                  <span>{{ label('全局辅助线', 'Global rule lines') }}</span>
+                  <small>{{ label('工作台背景参考线', 'Workspace background guides') }}</small>
+                </div>
+                <button class="tgl" :class="{ on: store.config.studioTheme.ruleLines }"
+                  @click="setStudioTheme('ruleLines', !store.config.studioTheme.ruleLines)"></button>
+              </div>
+
+              <div class="settings-row settings-row--fonts">
+                <div class="settings-row__copy">
+                  <span>{{ label('界面字体', 'Interface font') }}</span>
+                  <small>{{ label('仅影响工作台界面', 'Workspace UI only') }}</small>
+                </div>
+                <div class="settings-fonts">
+                  <button v-for="font in interfaceFonts" :key="font.id"
+                    class="font-swatch"
+                    :class="[font.className, { on: store.config.studioTheme.font === font.id }]"
+                    @click="setStudioTheme('font', font.id)">
+                    <div>
+                      <div class="name">{{ font.name }}</div>
+                      <div class="meta">{{ font.meta }}</div>
+                    </div>
+                    <div class="meta">Aa</div>
+                  </button>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-row__copy">
+                  <span>{{ label('页面密度', 'Page density') }}</span>
+                  <small>{{ label('控制工作台间距', 'Controls workspace spacing') }}</small>
+                </div>
+                <div class="seg-radio">
+                  <button v-for="density in densities" :key="density"
+                    :class="{ on: store.config.studioTheme.density === density }"
+                    @click="setStudioTheme('density', density)">{{ density }}</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-card">
+            <div class="settings-card__head">
+              <div>
+                <span>{{ label('简历导出外观', 'Resume export appearance') }}</span>
+                <strong>{{ label('这些设置会影响当前简历模板', 'These settings affect the active resume template') }}</strong>
+              </div>
+            </div>
+            <label class="settings-field">
+              <span>{{ t('themeColor') }}</span>
+              <input type="color" :value="store.config.themeColor" @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)" />
+            </label>
+            <label class="settings-field">
+              <span>{{ t('fontSize') }}</span>
+              <input type="range" min="12" max="18" :value="store.config.fontSize"
+                @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
+              <small>{{ store.config.fontSize }}px</small>
+            </label>
+          </section>
+
+          <section class="settings-card">
+            <div class="settings-card__head">
+              <div>
+                <span>{{ label('数据', 'Data') }}</span>
+                <strong>{{ label('恢复示例会覆盖当前简历内容', 'Restoring demo content overwrites the current resume') }}</strong>
+              </div>
+            </div>
+            <button class="btn btn--ghost settings-danger" @click="store.resetToDefault()">{{ t('restoreDemo') }}</button>
+          </section>
         </div>
       </section>
     </div>

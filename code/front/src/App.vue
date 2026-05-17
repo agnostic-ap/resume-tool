@@ -8,7 +8,6 @@ import WelcomeDialog from './components/WelcomeDialog.vue'
 import WorkspacePanel from './components/WorkspacePanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TweaksPanel from './components/TweaksPanel.vue'
-import StudioThemePanel from './components/StudioThemePanel.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 import { useI18n } from './i18n'
@@ -22,7 +21,6 @@ const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
 const editorTweaksOpen = ref(false)
-const studioThemeOpen = ref(false)
 
 const activeSections = computed(() =>
   store.config.sectionOrder.filter((id) => store.config.sectionVisible[id]).length,
@@ -163,8 +161,7 @@ onUnmounted(() => {
     <TopBar
       :current-view="tr(viewTitle[currentView])"
       @navigate="navigate"
-      @open-command="commandOpen = true"
-      @open-tweaks="studioThemeOpen = true" />
+      @open-command="commandOpen = true" />
 
     <WorkspacePanel
       v-if="currentView === 'workspace'"
@@ -234,9 +231,6 @@ onUnmounted(() => {
     <TweaksPanel
       :open="editorTweaksOpen"
       @close="editorTweaksOpen = false" />
-    <StudioThemePanel
-      :open="studioThemeOpen"
-      @close="studioThemeOpen = false" />
     <ToastContainer />
     <WelcomeDialog v-if="showWelcome" @close="showWelcome = false" />
   </div>

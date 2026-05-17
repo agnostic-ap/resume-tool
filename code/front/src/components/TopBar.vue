@@ -11,7 +11,6 @@ defineProps<{ currentView: string }>()
 const emit = defineEmits<{
   navigate: ['workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings']
   openCommand: []
-  openTweaks: []
 }>()
 
 const store = useResumeStore()
@@ -139,11 +138,6 @@ function handleFileChange(e: Event) {
       <span>⌕</span>
       {{ t('command') }}
       <kbd>⌘K</kbd>
-    </button>
-
-    <button class="topbar-button" @click="emit('openTweaks')">
-      <span>⌘</span>
-      {{ t('tweaks') }}
     </button>
 
     <button @click="askConfirm('clearAll')"
