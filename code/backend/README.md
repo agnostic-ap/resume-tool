@@ -1,11 +1,19 @@
 # Resume Tool Backend
 
-Standalone local backend for Resume Studio. It uses only Node.js built-ins, stores data as JSON, and exposes the same domains the frontend already uses: resume documents, application pipeline, activity history, career update reminders, and local assistant suggestions.
+Standalone local backend for Resume Studio.
+
+Stack:
+
+- Fastify for the HTTP server and plugin ecosystem
+- TypeScript for API-layer type safety
+- Zod for request body validation
+- JSON file storage for the first local-first version
 
 ## Run
 
 ```bash
 cd code/backend
+npm install
 npm run dev
 ```
 
@@ -58,4 +66,5 @@ curl -s -X POST http://127.0.0.1:8787/api/applications \
 ```bash
 cd code/backend
 npm test
+npm run typecheck
 ```
