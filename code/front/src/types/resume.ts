@@ -109,6 +109,20 @@ export interface JobApplication {
   updatedAt: string
 }
 
+export type ActivityType = 'edit' | 'ai' | 'application' | 'resume' | 'export' | 'system'
+
+export interface ActivityEvent {
+  id: string
+  type: ActivityType
+  tag: string
+  message: string
+  messageZh?: string
+  messageEn?: string
+  meta: string
+  resumeId?: string
+  createdAt: string
+}
+
 export type TemplateId = 'classic' | 'modern' | 'sidebar'
 export type Locale = 'zh-CN' | 'en-US'
 

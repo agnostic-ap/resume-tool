@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent } from '../types/resume'
 import { showToast } from '../composables/toast'
 
 const DEFAULT_ORDER: SectionId[] = [
@@ -176,6 +176,23 @@ function defaultApplications(resumeId: string, resumeTitle: string): JobApplicat
   ]
 }
 
+function defaultActivityLog(resumeId: string, resumeTitle: string): ActivityEvent[] {
+  const now = new Date()
+  return [
+    {
+      id: 'activity-created',
+      type: 'resume',
+      tag: 'init',
+      message: `Workspace ready for ${resumeTitle}`,
+      messageZh: `${resumeTitle} 工作台已就绪`,
+      messageEn: `Workspace ready for ${resumeTitle}`,
+      meta: 'resume studio · local first',
+      resumeId,
+      createdAt: now.toISOString(),
+    },
+  ]
+}
+
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
@@ -220,6 +237,21 @@ function normalizeApplication(app: Partial<JobApplication>, fallbackResume: Resu
   }
 }
 
+function normalizeActivity(activity: Partial<ActivityEvent>, fallbackResume: ResumeDocument): ActivityEvent {
+  const now = new Date().toISOString()
+  return {
+    id: activity.id || newId('activity'),
+    type: activity.type || 'system',
+    tag: activity.tag || 'event',
+    message: activity.message || activity.messageEn || activity.messageZh || 'Workspace activity',
+    messageZh: activity.messageZh,
+    messageEn: activity.messageEn,
+    meta: activity.meta || fallbackResume.title,
+    resumeId: activity.resumeId ?? fallbackResume.id,
+    createdAt: activity.createdAt || now,
+  }
+}
+
 function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
   return {
     ...defaultConfig,
@@ -259,6 +291,10 @@ export const useResumeStore = defineStore('resume', () => {
   const applications = ref<JobApplication[]>(
     loadFromStorage<JobApplication[]>('resume-applications', defaultApplications(seedApplicationResume.id, seedApplicationResume.title))
       .map((app) => normalizeApplication(app, documents.value.find((doc) => doc.id === app.resumeId) ?? seedApplicationResume)),
+  )
+  const activityLog = ref<ActivityEvent[]>(
+    loadFromStorage<ActivityEvent[]>('resume-activity-log', defaultActivityLog(seedApplicationResume.id, seedApplicationResume.title))
+      .map((activity) => normalizeActivity(activity, documents.value.find((doc) => doc.id === activity.resumeId) ?? seedApplicationResume)),
   )
 
   if (!documents.value.some((doc) => doc.id === activeResumeId.value)) {
@@ -304,10 +340,26 @@ export const useResumeStore = defineStore('resume', () => {
   const persistApplications = useDebounceFn((v: JobApplication[]) => {
     try { localStorage.setItem('resume-applications', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const persistActivityLog = useDebounceFn((v: ActivityEvent[]) => {
+    try { localStorage.setItem('resume-activity-log', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 400)
 
   watch(documents, persistDocuments, { deep: true })
   watch(activeResumeId, persistActiveId)
   watch(applications, persistApplications, { deep: true })
+  watch(activityLog, persistActivityLog, { deep: true })
+
+  function logActivity(input: Omit<Partial<ActivityEvent>, 'id' | 'createdAt'> & { message?: string; messageZh?: string; messageEn?: string }) {
+    const event = normalizeActivity({
+      ...input,
+      message: input.message ?? input.messageEn ?? input.messageZh,
+      id: newId('activity'),
+      resumeId: input.resumeId ?? activeResumeId.value,
+      createdAt: new Date().toISOString(),
+    }, activeDocument.value)
+    activityLog.value = [event, ...activityLog.value].slice(0, 100)
+    return event
+  }
 
   function touchActive() {
     activeDocument.value.updatedAt = new Date().toISOString()
@@ -335,11 +387,27 @@ export const useResumeStore = defineStore('resume', () => {
   function setTemplate(id: TemplateId) {
     config.value.templateId = id
     touchActive()
+    logActivity({
+      type: 'edit',
+      tag: 'template',
+      message: `Changed template to ${id}`,
+      messageZh: `切换模板：${id}`,
+      messageEn: `Changed template to ${id}`,
+      meta: activeDocument.value.title,
+    })
   }
 
   function setLocale(locale: Locale) {
     config.value.locale = locale
     touchActive()
+    logActivity({
+      type: 'system',
+      tag: 'locale',
+      message: `Switched language to ${locale}`,
+      messageZh: `切换语言：${locale}`,
+      messageEn: `Switched language to ${locale}`,
+      meta: activeDocument.value.title,
+    })
   }
 
   function setThemeColor(color: string) {
@@ -391,10 +459,26 @@ export const useResumeStore = defineStore('resume', () => {
     } else if (direction === 'down' && idx < arr.length - 1) {
       ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
     }
+    logActivity({
+      type: 'edit',
+      tag: 'order',
+      message: `Moved ${id} ${direction}`,
+      messageZh: `调整章节顺序：${id}`,
+      messageEn: `Moved ${id} ${direction}`,
+      meta: 'section order',
+    })
   }
 
   function toggleSectionVisible(id: SectionId) {
     config.value.sectionVisible[id] = !config.value.sectionVisible[id]
+    logActivity({
+      type: 'edit',
+      tag: 'section',
+      message: `${config.value.sectionVisible[id] ? 'Showed' : 'Hid'} ${id}`,
+      messageZh: `${config.value.sectionVisible[id] ? '显示' : '隐藏'}章节：${id}`,
+      messageEn: `${config.value.sectionVisible[id] ? 'Showed' : 'Hid'} ${id}`,
+      meta: 'visibility changed',
+    })
   }
 
   function addExperience() {
@@ -408,9 +492,11 @@ export const useResumeStore = defineStore('resume', () => {
       current: false,
       description: '',
     })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added work experience', messageZh: '添加工作经历', messageEn: 'Added work experience', meta: activeDocument.value.title })
   }
   function removeExperience(id: string) {
     data.value.experience = data.value.experience.filter((e) => e.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed work experience', messageZh: '删除工作经历', messageEn: 'Removed work experience', meta: activeDocument.value.title })
   }
 
   function addEducation() {
@@ -424,16 +510,20 @@ export const useResumeStore = defineStore('resume', () => {
       gpa: '',
       description: '',
     })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added education', messageZh: '添加教育经历', messageEn: 'Added education', meta: activeDocument.value.title })
   }
   function removeEducation(id: string) {
     data.value.education = data.value.education.filter((e) => e.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed education', messageZh: '删除教育经历', messageEn: 'Removed education', meta: activeDocument.value.title })
   }
 
   function addSkill() {
     data.value.skills.push({ id: Date.now().toString(), category: '', items: '' })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added skill group', messageZh: '添加技能分类', messageEn: 'Added skill group', meta: activeDocument.value.title })
   }
   function removeSkill(id: string) {
     data.value.skills = data.value.skills.filter((s) => s.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed skill group', messageZh: '删除技能分类', messageEn: 'Removed skill group', meta: activeDocument.value.title })
   }
 
   function addProject() {
@@ -447,9 +537,11 @@ export const useResumeStore = defineStore('resume', () => {
       tech: '',
       description: '',
     })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added project', messageZh: '添加项目经历', messageEn: 'Added project', meta: activeDocument.value.title })
   }
   function removeProject(id: string) {
     data.value.projects = data.value.projects.filter((p) => p.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed project', messageZh: '删除项目经历', messageEn: 'Removed project', meta: activeDocument.value.title })
   }
 
   function addAward() {
@@ -460,16 +552,20 @@ export const useResumeStore = defineStore('resume', () => {
       date: '',
       description: '',
     })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added award', messageZh: '添加荣誉奖项', messageEn: 'Added award', meta: activeDocument.value.title })
   }
   function removeAward(id: string) {
     data.value.awards = data.value.awards.filter((a) => a.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed award', messageZh: '删除荣誉奖项', messageEn: 'Removed award', meta: activeDocument.value.title })
   }
 
   function addLanguage() {
     data.value.languages.push({ id: Date.now().toString(), language: '', level: '' })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added language', messageZh: '添加语言能力', messageEn: 'Added language', meta: activeDocument.value.title })
   }
   function removeLanguage(id: string) {
     data.value.languages = data.value.languages.filter((l) => l.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed language', messageZh: '删除语言能力', messageEn: 'Removed language', meta: activeDocument.value.title })
   }
 
   function addCertification() {
@@ -479,16 +575,19 @@ export const useResumeStore = defineStore('resume', () => {
       issuer: '',
       date: '',
     })
+    logActivity({ type: 'edit', tag: 'add', message: 'Added certification', messageZh: '添加证书资质', messageEn: 'Added certification', meta: activeDocument.value.title })
   }
   function removeCertification(id: string) {
     data.value.certifications = data.value.certifications.filter((c) => c.id !== id)
+    logActivity({ type: 'edit', tag: 'delete', message: 'Removed certification', messageZh: '删除证书资质', messageEn: 'Removed certification', meta: activeDocument.value.title })
   }
 
   function resetToDefault() {
     data.value = JSON.parse(JSON.stringify(defaultResume))
     config.value = JSON.parse(JSON.stringify(defaultConfig))
     activeDocument.value.title = data.value.personal.title || '主简历'
-    markCareerUpdated()
+    markCareerUpdated(activeResumeId.value, false)
+    logActivity({ type: 'system', tag: 'reset', message: 'Restored demo resume data', messageZh: '恢复示例简历数据', messageEn: 'Restored demo resume data', meta: activeDocument.value.title })
   }
 
   function clearAll() {
@@ -498,11 +597,13 @@ export const useResumeStore = defineStore('resume', () => {
     }
     config.value = JSON.parse(JSON.stringify(defaultConfig))
     activeDocument.value.title = 'Untitled resume'
-    markCareerUpdated()
+    markCareerUpdated(activeResumeId.value, false)
+    logActivity({ type: 'resume', tag: 'blank', message: 'Cleared current resume', messageZh: '清空当前简历', messageEn: 'Cleared current resume', meta: activeDocument.value.title })
   }
 
   function createResume(blank = false) {
     const created = new Date()
+    const sourceTitle = activeDocument.value.title
     const doc: ResumeDocument = {
       id: newId(),
       title: blank ? 'Untitled resume' : `${activeDocument.value.title} Copy`,
@@ -520,6 +621,15 @@ export const useResumeStore = defineStore('resume', () => {
     }
     documents.value.unshift(doc)
     activeResumeId.value = doc.id
+    logActivity({
+      type: 'resume',
+      tag: blank ? 'new' : 'copy',
+      message: blank ? 'Created blank resume' : `Created resume from ${sourceTitle}`,
+      messageZh: blank ? '新建空白简历' : `从 ${sourceTitle} 创建副本`,
+      messageEn: blank ? 'Created blank resume' : `Created resume from ${sourceTitle}`,
+      meta: doc.title,
+      resumeId: doc.id,
+    })
     return doc
   }
 
@@ -536,6 +646,7 @@ export const useResumeStore = defineStore('resume', () => {
     }
     documents.value.unshift(doc)
     activeResumeId.value = doc.id
+    logActivity({ type: 'resume', tag: 'copy', message: `Duplicated ${source.title}`, messageZh: `复制简历：${source.title}`, messageEn: `Duplicated ${source.title}`, meta: doc.title, resumeId: doc.id })
   }
 
   function deleteResume(id: string) {
@@ -545,8 +656,10 @@ export const useResumeStore = defineStore('resume', () => {
     }
     const index = documents.value.findIndex((doc) => doc.id === id)
     if (index < 0) return
+    const deletedTitle = documents.value[index].title
     documents.value.splice(index, 1)
     if (activeResumeId.value === id) activeResumeId.value = documents.value[0].id
+    logActivity({ type: 'resume', tag: 'delete', message: `Deleted ${deletedTitle}`, messageZh: `删除简历：${deletedTitle}`, messageEn: `Deleted ${deletedTitle}`, meta: 'document removed', resumeId: activeResumeId.value })
   }
 
   function selectResume(id: string) {
@@ -561,15 +674,19 @@ export const useResumeStore = defineStore('resume', () => {
     applications.value.forEach((app) => {
       if (app.resumeId === id) app.resumeTitle = doc.title
     })
+    logActivity({ type: 'resume', tag: 'rename', message: `Renamed resume to ${doc.title}`, messageZh: `重命名简历：${doc.title}`, messageEn: `Renamed resume to ${doc.title}`, meta: 'document title', resumeId: id })
   }
 
-  function markCareerUpdated(id = activeResumeId.value) {
+  function markCareerUpdated(id = activeResumeId.value, shouldLog = true) {
     const doc = documents.value.find((item) => item.id === id)
     if (!doc) return
     const updated = new Date()
     doc.lastCareerUpdateAt = updated.toISOString()
     doc.nextCareerUpdateAt = addDays(updated, 14).toISOString()
     doc.updatedAt = updated.toISOString()
+    if (shouldLog) {
+      logActivity({ type: 'resume', tag: 'career', message: 'Recorded biweekly career update', messageZh: '记录双周职业经历更新', messageEn: 'Recorded biweekly career update', meta: doc.title, resumeId: id })
+    }
   }
 
   function daysUntilCareerUpdate(id = activeResumeId.value) {
@@ -602,6 +719,12 @@ export const useResumeStore = defineStore('resume', () => {
         )
         imported = true
       }
+      if (Array.isArray(parsed.activityLog)) {
+        activityLog.value = parsed.activityLog.map((activity: Partial<ActivityEvent>) =>
+          normalizeActivity(activity, documents.value.find((doc) => doc.id === activity.resumeId) ?? activeDocument.value),
+        )
+        imported = true
+      }
       if (parsed.data && typeof parsed.data === 'object') {
         data.value = {
           ...JSON.parse(JSON.stringify(defaultResume)),
@@ -615,7 +738,10 @@ export const useResumeStore = defineStore('resume', () => {
         config.value = mergeConfig(parsed.config)
         imported = true
       }
-      if (imported) showToast('数据导入成功', 'success')
+      if (imported) {
+        logActivity({ type: 'system', tag: 'import', message: 'Imported backup data', messageZh: '导入备份数据', messageEn: 'Imported backup data', meta: 'JSON backup' })
+        showToast('数据导入成功', 'success')
+      }
       else showToast('导入失败：未识别的文件格式', 'error')
     } catch {
       showToast('导入失败：请确认 JSON 格式正确', 'error')
@@ -627,6 +753,7 @@ export const useResumeStore = defineStore('resume', () => {
       activeResumeId: activeResumeId.value,
       documents: documents.value,
       applications: applications.value,
+      activityLog: activityLog.value,
     }, null, 2)
   }
 
@@ -639,6 +766,7 @@ export const useResumeStore = defineStore('resume', () => {
       companyMono: input.companyMono || input.company?.slice(0, 1),
     }, doc)
     applications.value.unshift(app)
+    logActivity({ type: 'application', tag: 'apply', message: `Added application: ${app.company}`, messageZh: `新增投递：${app.company}`, messageEn: `Added application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
     return app
   }
 
@@ -653,15 +781,19 @@ export const useResumeStore = defineStore('resume', () => {
       match: Math.max(0, Math.min(100, Number(patch.match ?? app.match))),
       updatedAt: new Date().toISOString(),
     })
+    logActivity({ type: 'application', tag: 'update', message: `Updated application: ${app.company}`, messageZh: `更新投递：${app.company}`, messageEn: `Updated application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
   }
 
   function deleteApplication(id: string) {
+    const app = applications.value.find((item) => item.id === id)
     applications.value = applications.value.filter((app) => app.id !== id)
+    if (app) logActivity({ type: 'application', tag: 'delete', message: `Deleted application: ${app.company}`, messageZh: `删除投递：${app.company}`, messageEn: `Deleted application: ${app.company}`, meta: app.role, resumeId: app.resumeId })
   }
 
   return {
     documents,
     applications,
+    activityLog,
     activeResumeId,
     activeDocument,
     data,
@@ -677,6 +809,7 @@ export const useResumeStore = defineStore('resume', () => {
     addApplication,
     updateApplication,
     deleteApplication,
+    logActivity,
     setTemplate,
     setLocale,
     setThemeColor,

@@ -1420,6 +1420,21 @@ button:disabled {
   background: var(--vermillion);
 }
 
+.commit--application .commit__dot {
+  border-color: var(--gold);
+  background: var(--gold);
+}
+
+.commit--resume .commit__dot {
+  border-color: var(--moss);
+  background: var(--moss);
+}
+
+.commit--export .commit__dot {
+  border-color: var(--prussian);
+  background: var(--prussian);
+}
+
 .commit__msg {
   color: var(--ink);
   font-size: 12px;

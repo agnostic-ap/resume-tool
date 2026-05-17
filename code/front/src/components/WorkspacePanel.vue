@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ApplicationStage, JobApplication, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ActivityEvent, ApplicationStage, JobApplication, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
@@ -81,12 +81,7 @@ const pipelineStats = computed(() => {
   return { offer, active, closed }
 })
 
-const commits = computed(() => [
-  { type: 'ai', tag: 'AI', msg: '优化个人简介：突出 TypeScript、性能优化和组件体系', meta: 'auto-edit · accepted', hash: 'c4f2b1e', when: '4m' },
-  { type: 'normal', tag: 'edit', msg: `更新 ${store.data.projects.length || 1} 个项目经历`, meta: 'projects.mdx · +14 / −2', hash: 'd9012a3', when: '1h' },
-  { type: 'branch', tag: 'branch', msg: 'created stripe-tailor from main', meta: 'forked current resume', hash: '0f8d4cc', when: '6h' },
-  { type: 'normal', tag: 'export', msg: 'PDF · A4 · one page check', meta: 'downloaded locally', hash: '7e3aa9f', when: '1d' },
-])
+const activities = computed(() => store.activityLog)
 
 const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'classic', label: '经典', desc: '简洁·全页' },
@@ -117,6 +112,27 @@ const densities: TweakDensity[] = ['tight', 'cozy', 'loose']
 
 function label(zh: string, en: string) {
   return locale.value === 'zh-CN' ? zh : en
+}
+
+function activityMessage(event: ActivityEvent) {
+  return locale.value === 'zh-CN'
+    ? event.messageZh || event.message
+    : event.messageEn || event.message
+}
+
+function activityWhen(date: string) {
+  const diff = Math.max(0, Date.now() - new Date(date).getTime())
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return label('刚刚', 'now')
+  if (minutes < 60) return label(`${minutes} 分钟前`, `${minutes}m`)
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return label(`${hours} 小时前`, `${hours}h`)
+  const days = Math.floor(hours / 24)
+  return label(`${days} 天前`, `${days}d`)
+}
+
+function activityHash(id: string) {
+  return id.replace(/^activity-/, '').slice(-7)
 }
 
 function stageLabel(stage: ApplicationStage) {
@@ -266,6 +282,14 @@ function applySuggestion(text: string) {
   const current = store.data.personal.summary.trim()
   const prefix = current || '前端开发工程师，熟悉 Vue3、TypeScript 与工程化体系。'
   store.data.personal.summary = `${prefix} ${text.replace(/^把|^根据.+重写 Summary，并/, '').replace(/。$/, '')}。`
+  store.logActivity({
+    type: 'ai',
+    tag: 'AI',
+    message: 'Applied AI suggestion to summary',
+    messageZh: '采纳 AI 建议到个人简介',
+    messageEn: 'Applied AI suggestion to summary',
+    meta: 'summary.mdx',
+  })
   emit('navigate', 'editor')
   showToast(locale.value === 'zh-CN' ? '建议已写入个人简介' : 'Advice applied to the summary', 'success')
 }
@@ -575,17 +599,20 @@ function matchClass(score: number) {
         <div class="lower">
           <div v-if="props.mode !== 'assistant'" class="panel">
             <div class="panel__head">
-              <div class="ttl">{{ t('commits') }} · <em>main</em></div>
+              <div class="ttl">{{ t('commits') }} · <em>{{ store.activeDocument.title }}</em></div>
               <button @click="emit('navigate', 'history')">{{ t('fullLog') }} →</button>
             </div>
             <div class="timeline">
-              <div v-for="commit in commits" :key="commit.hash" class="commit" :class="`commit--${commit.type}`">
+              <div v-for="event in activities" :key="event.id" class="commit" :class="`commit--${event.type}`">
                 <div class="commit__graph"><span class="commit__dot"></span></div>
                 <div class="commit__body">
-                  <div class="commit__msg"><span class="tag" :class="`tag--${commit.type}`">{{ commit.tag }}</span>{{ commit.msg }}</div>
-                  <div class="commit__meta">{{ commit.meta }}</div>
+                  <div class="commit__msg"><span class="tag" :class="`tag--${event.type}`">{{ event.tag }}</span>{{ activityMessage(event) }}</div>
+                  <div class="commit__meta">{{ event.meta }}</div>
                 </div>
-                <div class="commit__sha"><div class="hash">{{ commit.hash }}</div><div>{{ commit.when }}</div></div>
+                <div class="commit__sha"><div class="hash">{{ activityHash(event.id) }}</div><div>{{ activityWhen(event.createdAt) }}</div></div>
+              </div>
+              <div v-if="!activities.length" class="empty-row">
+                {{ label('还没有历史记录。编辑简历、导出或记录投递后会自动出现。', 'No history yet. Edits, exports, and applications will appear here.') }}
               </div>
             </div>
           </div>

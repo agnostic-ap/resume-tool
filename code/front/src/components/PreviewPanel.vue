@@ -74,6 +74,14 @@ async function handleExport() {
   showToast(l('正在生成 PDF，请稍候…', 'Generating PDF, please wait...'), 'info', 10000)
   try {
     await exportToPDF('resume-preview', `${store.data.personal.name || l('我的简历', 'My resume')}-${l('简历', 'resume')}.pdf`)
+    store.logActivity({
+      type: 'export',
+      tag: 'PDF',
+      message: 'Exported resume PDF',
+      messageZh: '导出 PDF 简历',
+      messageEn: 'Exported resume PDF',
+      meta: `${store.config.templateId} · A4`,
+    })
     showToast(l('PDF 导出成功', 'PDF exported'), 'success')
   } catch {
     showToast(l('PDF 导出失败，请重试', 'PDF export failed. Please try again.'), 'error')
