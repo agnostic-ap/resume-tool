@@ -92,6 +92,27 @@ export interface ResumeDocument {
 
 export type ApplicationStage = 'applied' | 'screen' | 'onsite' | 'offer' | 'rejected'
 
+export interface JobDescriptionSnapshot {
+  company: string
+  title: string
+  location: string
+  description: string
+  requirements: string[]
+  url: string
+}
+
+export interface TailoringMetadata {
+  requestId: string
+  sourceResumeId: string
+  draftTitle: string
+  matchScore: number
+  matchedKeywords: string[]
+  selectedExperienceIds: string[]
+  strategy: string
+  generatedAt: string
+  appliedAt?: string
+}
+
 export interface JobApplication {
   id: string
   company: string
@@ -105,6 +126,8 @@ export interface JobApplication {
   match: number
   appliedAt: string
   notes: string
+  jobDescription?: JobDescriptionSnapshot
+  tailoring?: TailoringMetadata
   createdAt: string
   updatedAt: string
 }

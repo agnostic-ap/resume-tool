@@ -63,6 +63,7 @@ export interface PlatformResumeDraft {
     generatedAt: string
     persisted: boolean
     documentId?: string
+    appliedAt?: string
   }
 }
 

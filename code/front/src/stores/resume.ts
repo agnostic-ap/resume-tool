@@ -234,6 +234,29 @@ function normalizeApplication(app: Partial<JobApplication>, fallbackResume: Resu
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
     appliedAt: app.appliedAt || now.slice(0, 10),
     notes: app.notes || '',
+    jobDescription: app.jobDescription
+      ? {
+          company: app.jobDescription.company || company,
+          title: app.jobDescription.title || app.role || '',
+          location: app.jobDescription.location || app.location || '',
+          description: app.jobDescription.description || '',
+          requirements: Array.isArray(app.jobDescription.requirements) ? app.jobDescription.requirements : [],
+          url: app.jobDescription.url || '',
+        }
+      : undefined,
+    tailoring: app.tailoring
+      ? {
+          requestId: app.tailoring.requestId || '',
+          sourceResumeId: app.tailoring.sourceResumeId || fallbackResume.id,
+          draftTitle: app.tailoring.draftTitle || fallbackResume.title,
+          matchScore: Math.max(0, Math.min(100, Number(app.tailoring.matchScore ?? app.match ?? 70))),
+          matchedKeywords: Array.isArray(app.tailoring.matchedKeywords) ? app.tailoring.matchedKeywords : [],
+          selectedExperienceIds: Array.isArray(app.tailoring.selectedExperienceIds) ? app.tailoring.selectedExperienceIds : [],
+          strategy: app.tailoring.strategy || '',
+          generatedAt: app.tailoring.generatedAt || now,
+          appliedAt: app.tailoring.appliedAt,
+        }
+      : undefined,
     createdAt: app.createdAt || now,
     updatedAt: app.updatedAt || now,
   }

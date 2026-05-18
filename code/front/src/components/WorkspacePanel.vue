@@ -355,6 +355,17 @@ function splitBullets(value: string) {
     .filter(Boolean)
 }
 
+function currentJdSnapshot(role = jdRole.value.trim() || store.data.personal.title.trim()) {
+  return {
+    company: jdCompany.value.trim(),
+    title: role,
+    location: '',
+    description: jdText.value.trim(),
+    requirements: splitBullets(jdText.value),
+    url: '',
+  }
+}
+
 async function generateJdDraft() {
   const role = jdRole.value.trim() || store.data.personal.title.trim()
   const description = jdText.value.trim()
@@ -392,12 +403,7 @@ async function generateJdDraft() {
       education: store.data.education,
       skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
       projects: store.data.projects,
-      jobDescription: {
-        company: jdCompany.value.trim(),
-        title: role,
-        description,
-        requirements: splitBullets(description),
-      },
+      jobDescription: currentJdSnapshot(role),
     })
     jdDraft.value = draft
     store.logActivity({
@@ -428,6 +434,7 @@ function applyJdDraft() {
     tweaks: currentTweaks,
   }
   store.renameResume(store.activeResumeId, jdDraft.value.title)
+  jdDraft.value.generation.appliedAt = new Date().toISOString()
   store.logActivity({
     type: 'ai',
     tag: 'JD',
@@ -438,6 +445,45 @@ function applyJdDraft() {
   })
   emit('navigate', 'editor')
   showToast(label('草稿已应用到当前简历', 'Draft applied to the current resume'), 'success')
+}
+
+function createApplicationFromJdDraft() {
+  if (!jdDraft.value) return
+  const company = jdCompany.value.trim() || label('未填写公司', 'Untitled company')
+  const role = jdRole.value.trim() || jdDraft.value.data.personal.title || store.data.personal.title
+  const created = store.addApplication({
+    company,
+    role,
+    resumeId: store.activeResumeId,
+    match: jdDraft.value.match.score,
+    appliedAt: new Date().toISOString().slice(0, 10),
+    notes: label('由 JD 定制草稿创建。', 'Created from JD-tailored draft.'),
+    jobDescription: currentJdSnapshot(role),
+    tailoring: {
+      requestId: jdDraft.value.requestId || '',
+      sourceResumeId: store.activeResumeId,
+      draftTitle: jdDraft.value.title,
+      matchScore: jdDraft.value.match.score,
+      matchedKeywords: jdDraft.value.match.matchedKeywords,
+      selectedExperienceIds: jdDraft.value.match.selectedExperienceIds,
+      strategy: jdDraft.value.generation.strategy,
+      generatedAt: jdDraft.value.generation.generatedAt,
+      appliedAt: jdDraft.value.generation.appliedAt,
+    },
+  })
+  pipelineFilter.value = 'all'
+  pipelineSearch.value = created.company
+  store.logActivity({
+    type: 'application',
+    tag: 'JD',
+    message: 'Created application from JD-tailored draft',
+    messageZh: '从 JD 定制草稿创建投递记录',
+    messageEn: 'Created application from JD-tailored draft',
+    meta: `${created.company} · ${created.match}`,
+    resumeId: created.resumeId,
+  })
+  emit('navigate', 'pipeline')
+  showToast(label('已创建投递记录并保存 JD 信息', 'Application created with JD details'), 'success')
 }
 
 function runAssistant() {
@@ -770,7 +816,10 @@ function matchClass(score: number) {
                 </td>
                 <td><div class="role-cell">{{ app.role }}<small>{{ app.department || label('未填写团队', 'No team') }}</small></div></td>
                 <td><span class="mono">{{ app.resumeTitle }}</span></td>
-                <td><span class="stage" :class="`stage--${app.stage}`">{{ stageLabel(app.stage) }}</span></td>
+                <td>
+                  <span class="stage" :class="`stage--${app.stage}`">{{ stageLabel(app.stage) }}</span>
+                  <span v-if="app.tailoring" class="jd-chip">JD {{ app.tailoring.matchScore }}</span>
+                </td>
                 <td>
                   <div class="match-cell">
                     <div class="bar" :class="matchClass(app.match)"><i :style="{ width: `${app.match}%` }"></i></div>
@@ -857,7 +906,10 @@ function matchClass(score: number) {
                           <strong>{{ jdDraft.title }}</strong>
                           <span>{{ label('命中关键词', 'Matched keywords') }} · {{ jdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || label('暂无', 'none') }}</span>
                         </div>
-                        <button class="btn btn--primary" @click="applyJdDraft">{{ label('应用草稿', 'Apply draft') }}</button>
+                        <div class="jd-result__actions">
+                          <button class="btn btn--primary" @click="applyJdDraft">{{ label('应用草稿', 'Apply draft') }}</button>
+                          <button class="btn btn--ghost" @click="createApplicationFromJdDraft">{{ label('记录投递', 'Log application') }}</button>
+                        </div>
                       </div>
                       <button class="btn" :disabled="jdGenerating" @click="generateJdDraft">
                         {{ jdGenerating ? label('生成中...', 'Generating...') : label('根据 JD 生成草稿', 'Generate from JD') }}

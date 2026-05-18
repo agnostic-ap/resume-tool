@@ -26,10 +26,29 @@ test('fastify app exposes health and validates applications', async () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/applications',
-      payload: { company: 'Linear', role: 'Product Engineer', match: 94 },
+      payload: {
+        company: 'Linear',
+        role: 'Product Engineer',
+        match: 94,
+        jobDescription: {
+          company: 'Linear',
+          title: 'Product Engineer',
+          description: 'Build product engineering workflows.',
+        },
+        tailoring: {
+          requestId: 'jd-run-api',
+          draftTitle: 'Linear Draft',
+          matchScore: 94,
+          matchedKeywords: ['workflow'],
+          selectedExperienceIds: ['exp-1'],
+          strategy: 'rule-based-jd-tailoring-v1',
+        },
+      },
     })
     assert.equal(created.statusCode, 201)
     assert.equal(created.json().companyMono, 'L')
+    assert.equal(created.json().jobDescription.title, 'Product Engineer')
+    assert.equal(created.json().tailoring.requestId, 'jd-run-api')
 
     const stateOverwrite = await app.inject({
       method: 'PUT',

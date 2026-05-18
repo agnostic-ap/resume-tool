@@ -61,6 +61,21 @@ test('resume store imports and exports normalized workspace data', () => {
         role: 'AI Platform Engineer',
         resumeId: 'imported-resume',
         match: 150,
+        jobDescription: {
+          company: 'FutureHire',
+          title: 'AI Platform Engineer',
+          description: 'Build matching services.',
+          requirements: ['LLM', 'TypeScript'],
+        },
+        tailoring: {
+          requestId: 'jd-run-1',
+          draftTitle: 'Imported Draft',
+          matchScore: 150,
+          matchedKeywords: ['LLM'],
+          selectedExperienceIds: ['exp-1'],
+          strategy: 'rule-based-jd-tailoring-v1',
+          generatedAt: '2026-01-01T00:00:00.000Z',
+        },
       },
     ],
     activityLog: [
@@ -82,11 +97,15 @@ test('resume store imports and exports normalized workspace data', () => {
   assert.deepEqual(store.data.languages, [])
   assert.deepEqual(store.data.certifications, [])
   assert.equal(store.applications[0].match, 100)
+  assert.equal(store.applications[0].jobDescription?.title, 'AI Platform Engineer')
+  assert.equal(store.applications[0].tailoring?.matchScore, 100)
+  assert.deepEqual(store.applications[0].tailoring?.matchedKeywords, ['LLM'])
 
   const exported = JSON.parse(store.exportData())
   assert.equal(exported.activeResumeId, 'imported-resume')
   assert.equal(exported.documents[0].title, 'Imported Resume')
   assert.equal(exported.applications[0].companyMono, 'F')
+  assert.equal(exported.applications[0].tailoring.requestId, 'jd-run-1')
 })
 
 test('resume store connects to backend and applies remote state', async () => {

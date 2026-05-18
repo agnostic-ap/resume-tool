@@ -103,6 +103,44 @@ test('validates and persists applications', async () => {
   }
 })
 
+test('persists JD tailoring metadata on applications', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const app = await store.createApplication({
+      company: 'FutureHire',
+      role: 'AI Platform Engineer',
+      match: 91,
+      jobDescription: {
+        company: 'FutureHire',
+        title: 'AI Platform Engineer',
+        description: 'Build JD matching and resume generation services.',
+        requirements: ['LLM workflow APIs', 'TypeScript'],
+      },
+      tailoring: {
+        requestId: 'jd-run-1',
+        sourceResumeId: 'resume-main',
+        draftTitle: 'AI Platform Draft',
+        matchScore: 91,
+        matchedKeywords: ['LLM', 'TypeScript'],
+        selectedExperienceIds: ['exp-1'],
+        strategy: 'rule-based-jd-tailoring-v1',
+        generatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    })
+
+    assert.equal(app.jobDescription.title, 'AI Platform Engineer')
+    assert.deepEqual(app.jobDescription.requirements, ['LLM workflow APIs', 'TypeScript'])
+    assert.equal(app.tailoring.matchScore, 91)
+    assert.deepEqual(app.tailoring.matchedKeywords, ['LLM', 'TypeScript'])
+
+    const state = await store.readState()
+    assert.equal(state.applications[0].tailoring.requestId, 'jd-run-1')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('lists activity, deletes applications, and creates assistant suggestions', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   try {

@@ -4,7 +4,7 @@ This file tracks product and engineering work that should not get lost while ite
 
 ## P0 - Next
 
-- [ ] JD tailoring: save the pasted JD, target company, target role, match score, and generated draft metadata with an application or resume version.
+- [x] JD tailoring: save the pasted JD, target company, target role, match score, and generated draft metadata with an application or resume version.
 - [ ] JD tailoring: replace one-click overwrite with a review flow for summary, experience, skills, and projects so users can apply sections one by one.
 - [ ] Platform API: add `/api/v1` route shape and keep the current route as a compatibility alias or document it as local-only.
 - [ ] Platform API: make `requestId` idempotent when `persist: true` so repeated external calls do not create duplicate resumes.
@@ -14,7 +14,7 @@ This file tracks product and engineering work that should not get lost while ite
 ## P1 - Product Flow
 
 - [ ] Application pipeline: add next action, follow-up date, recruiter/contact, job post URL, and JD archive fields.
-- [ ] Application pipeline: add quick action from a generated JD draft to create or update an application record.
+- [x] Application pipeline: add quick action from a generated JD draft to create or update an application record.
 - [ ] Resume documents: add tags or folders for target role/company so multiple resumes remain manageable.
 - [ ] Resume documents: show generated-from relationship, for example `Base Resume -> Stripe JD Draft`.
 - [ ] Resume documents: add archive/favorite states instead of only delete/copy.

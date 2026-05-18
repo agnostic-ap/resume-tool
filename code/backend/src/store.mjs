@@ -380,8 +380,35 @@ export function normalizeApplication(app = {}, fallbackDoc) {
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
     appliedAt: app.appliedAt || now.slice(0, 10),
     notes: String(app.notes ?? ''),
+    jobDescription: app.jobDescription ? normalizeJobDescription(app.jobDescription, { company, role, location: app.location }) : undefined,
+    tailoring: app.tailoring ? normalizeTailoring(app.tailoring, fallbackDoc, app.match, now) : undefined,
     createdAt: app.createdAt || now,
     updatedAt: app.updatedAt || now,
+  }
+}
+
+function normalizeJobDescription(jobDescription = {}, fallback = {}) {
+  return {
+    company: String(jobDescription.company ?? fallback.company ?? ''),
+    title: String(jobDescription.title ?? fallback.role ?? ''),
+    location: String(jobDescription.location ?? fallback.location ?? ''),
+    description: String(jobDescription.description ?? ''),
+    requirements: Array.isArray(jobDescription.requirements) ? jobDescription.requirements.map(String) : [],
+    url: String(jobDescription.url ?? ''),
+  }
+}
+
+function normalizeTailoring(tailoring = {}, fallbackDoc, fallbackMatch, now) {
+  return {
+    requestId: String(tailoring.requestId ?? ''),
+    sourceResumeId: String(tailoring.sourceResumeId ?? fallbackDoc.id),
+    draftTitle: String(tailoring.draftTitle ?? fallbackDoc.title),
+    matchScore: Math.max(0, Math.min(100, Number(tailoring.matchScore ?? fallbackMatch ?? 70))),
+    matchedKeywords: Array.isArray(tailoring.matchedKeywords) ? tailoring.matchedKeywords.map(String) : [],
+    selectedExperienceIds: Array.isArray(tailoring.selectedExperienceIds) ? tailoring.selectedExperienceIds.map(String) : [],
+    strategy: String(tailoring.strategy ?? ''),
+    generatedAt: String(tailoring.generatedAt ?? now),
+    appliedAt: tailoring.appliedAt ? String(tailoring.appliedAt) : undefined,
   }
 }
 

@@ -22,6 +22,25 @@ export const createApplicationSchema = z.object({
   match: z.coerce.number().min(0).max(100).optional(),
   appliedAt: z.string().optional(),
   notes: z.string().optional(),
+  jobDescription: z.object({
+    company: z.string().optional(),
+    title: z.string().optional(),
+    location: z.string().optional(),
+    description: z.string().optional(),
+    requirements: z.array(z.string()).optional(),
+    url: z.string().optional(),
+  }).optional(),
+  tailoring: z.object({
+    requestId: z.string().optional(),
+    sourceResumeId: z.string().optional(),
+    draftTitle: z.string().optional(),
+    matchScore: z.coerce.number().min(0).max(100).optional(),
+    matchedKeywords: z.array(z.string()).optional(),
+    selectedExperienceIds: z.array(z.string()).optional(),
+    strategy: z.string().optional(),
+    generatedAt: z.string().optional(),
+    appliedAt: z.string().optional(),
+  }).optional(),
 })
 
 export const updateApplicationSchema = createApplicationSchema.partial()
