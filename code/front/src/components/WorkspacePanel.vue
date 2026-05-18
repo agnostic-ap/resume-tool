@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ActivityEvent, ApplicationStage, JobApplication, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ActivityEvent, ApplicationStage, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
@@ -9,6 +9,7 @@ import { useI18n } from '../i18n'
 import { backendApi, type PlatformResumeDraft } from '../api/backend'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
+type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
 
 const props = withDefaults(defineProps<{ mode?: AppView }>(), { mode: 'workspace' })
 const emit = defineEmits<{
@@ -28,6 +29,12 @@ const jdText = ref('')
 const jdGenerating = ref(false)
 const jdDraft = ref<PlatformResumeDraft | null>(null)
 const jdError = ref('')
+const jdApplySections = reactive<Record<JdReviewSection, boolean>>({
+  summary: true,
+  experience: true,
+  skills: true,
+  projects: true,
+})
 const renameId = ref('')
 const renameDraft = ref('')
 const applicationFormOpen = ref(false)
@@ -43,6 +50,12 @@ const applicationDraft = reactive({
   stage: 'applied' as ApplicationStage,
   match: 70,
   appliedAt: '',
+  nextAction: '',
+  followUpAt: '',
+  contactName: '',
+  contactEmail: '',
+  jobPostUrl: '',
+  jdArchive: '',
   notes: '',
 })
 type AssistantSuggestion = {
@@ -111,6 +124,11 @@ const filteredApplications = computed(() =>
         item.department,
         item.location,
         item.resumeTitle,
+        item.nextAction,
+        item.contactName,
+        item.contactEmail,
+        item.jobPostUrl,
+        item.jobDescription?.description ?? '',
         item.notes,
       ].some((value) => value.toLowerCase().includes(query))
     })
@@ -136,6 +154,41 @@ const pipelineStats = computed(() => {
 })
 
 const activities = computed(() => store.activityLog)
+
+const jdSectionReviews = computed(() => {
+  const draft = jdDraft.value
+  if (!draft) return []
+  return [
+    {
+      id: 'summary' as const,
+      label: label('个人简介', 'Summary'),
+      before: previewText(store.data.personal.summary),
+      after: previewText(draft.data.personal.summary),
+    },
+    {
+      id: 'experience' as const,
+      label: label('工作经历', 'Experience'),
+      before: previewExperience(store.data.experience),
+      after: previewExperience(draft.data.experience),
+    },
+    {
+      id: 'skills' as const,
+      label: label('技能', 'Skills'),
+      before: previewSkills(store.data.skills),
+      after: previewSkills(draft.data.skills),
+    },
+    {
+      id: 'projects' as const,
+      label: label('项目', 'Projects'),
+      before: previewProjects(store.data.projects),
+      after: previewProjects(draft.data.projects),
+    },
+  ]
+})
+
+const selectedJdSectionCount = computed(() =>
+  (Object.keys(jdApplySections) as JdReviewSection[]).filter((section) => jdApplySections[section]).length,
+)
 
 const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'classic', label: '经典', desc: '简洁·全页' },
@@ -204,6 +257,12 @@ function resetApplicationDraft(app?: JobApplication) {
   applicationDraft.stage = app?.stage ?? 'applied'
   applicationDraft.match = app?.match ?? Math.max(60, store.completeness)
   applicationDraft.appliedAt = app?.appliedAt ?? new Date().toISOString().slice(0, 10)
+  applicationDraft.nextAction = app?.nextAction ?? ''
+  applicationDraft.followUpAt = app?.followUpAt ?? ''
+  applicationDraft.contactName = app?.contactName ?? ''
+  applicationDraft.contactEmail = app?.contactEmail ?? ''
+  applicationDraft.jobPostUrl = app?.jobPostUrl ?? app?.jobDescription?.url ?? ''
+  applicationDraft.jdArchive = app?.jobDescription?.description ?? ''
   applicationDraft.notes = app?.notes ?? ''
 }
 
@@ -250,6 +309,22 @@ function saveApplication() {
     stage: applicationDraft.stage,
     match: applicationDraft.match,
     appliedAt: applicationDraft.appliedAt,
+    nextAction: applicationDraft.nextAction.trim(),
+    followUpAt: applicationDraft.followUpAt,
+    contactName: applicationDraft.contactName.trim(),
+    contactEmail: applicationDraft.contactEmail.trim(),
+    jobPostUrl: applicationDraft.jobPostUrl.trim(),
+    jobDescription: applicationDraft.jdArchive.trim() || applicationDraft.jobPostUrl.trim()
+      ? {
+          company: applicationDraft.company.trim(),
+          title: applicationDraft.role.trim(),
+          location: applicationDraft.location.trim(),
+          description: applicationDraft.jdArchive.trim(),
+          requirements: splitBullets(applicationDraft.jdArchive),
+          url: applicationDraft.jobPostUrl.trim(),
+          archivedAt: applicationDraft.jdArchive.trim() ? new Date().toISOString() : undefined,
+        }
+      : undefined,
     notes: applicationDraft.notes.trim(),
   }
   if (editingApplicationId.value) {
@@ -355,6 +430,35 @@ function splitBullets(value: string) {
     .filter(Boolean)
 }
 
+function previewText(value: string) {
+  const text = value.trim().replace(/\s+/g, ' ')
+  return text || label('暂无内容', 'No content yet')
+}
+
+function previewExperience(items: ResumeData['experience']) {
+  if (!items.length) return label('暂无工作经历', 'No experience yet')
+  return items
+    .slice(0, 2)
+    .map((item) => `${item.company || label('未填写公司', 'Untitled company')} · ${item.position || label('未填写岗位', 'Untitled role')}`)
+    .join('\n')
+}
+
+function previewSkills(items: ResumeData['skills']) {
+  if (!items.length) return label('暂无技能', 'No skills yet')
+  return items
+    .slice(0, 3)
+    .map((item) => `${item.category || label('技能', 'Skills')}: ${item.items}`)
+    .join('\n')
+}
+
+function previewProjects(items: ResumeData['projects']) {
+  if (!items.length) return label('暂无项目', 'No projects yet')
+  return items
+    .slice(0, 2)
+    .map((item) => `${item.name || label('未命名项目', 'Untitled project')} · ${item.tech || item.role}`)
+    .join('\n')
+}
+
 function currentJdSnapshot(role = jdRole.value.trim() || store.data.personal.title.trim()) {
   return {
     company: jdCompany.value.trim(),
@@ -382,7 +486,7 @@ async function generateJdDraft() {
   jdError.value = ''
   jdDraft.value = null
   try {
-    const draft = await backendApi.generateResumeDraft({
+    const draft = await backendApi.generateAssistantResumeDraft({
       requestId: `front-${Date.now()}`,
       persist: false,
       locale: store.config.locale,
@@ -406,6 +510,7 @@ async function generateJdDraft() {
       jobDescription: currentJdSnapshot(role),
     })
     jdDraft.value = draft
+    resetJdApplySections(true)
     store.logActivity({
       type: 'ai',
       tag: 'JD',
@@ -423,28 +528,40 @@ async function generateJdDraft() {
   }
 }
 
+function resetJdApplySections(value: boolean) {
+  ;(Object.keys(jdApplySections) as JdReviewSection[]).forEach((section) => {
+    jdApplySections[section] = value
+  })
+}
+
 function applyJdDraft() {
   if (!jdDraft.value) return
-  const currentStudioTheme = store.config.studioTheme
-  const currentTweaks = store.config.tweaks
-  store.data = jdDraft.value.data
-  store.config = {
-    ...jdDraft.value.config,
-    studioTheme: currentStudioTheme,
-    tweaks: currentTweaks,
+  if (!selectedJdSectionCount.value) {
+    showToast(label('请至少选择一个要应用的章节', 'Select at least one section to apply'), 'error')
+    return
   }
-  store.renameResume(store.activeResumeId, jdDraft.value.title)
+  const nextData = {
+    ...store.data,
+    personal: {
+      ...store.data.personal,
+      summary: jdApplySections.summary ? jdDraft.value.data.personal.summary : store.data.personal.summary,
+    },
+    experience: jdApplySections.experience ? jdDraft.value.data.experience : store.data.experience,
+    skills: jdApplySections.skills ? jdDraft.value.data.skills : store.data.skills,
+    projects: jdApplySections.projects ? jdDraft.value.data.projects : store.data.projects,
+  }
+  store.data = nextData
   jdDraft.value.generation.appliedAt = new Date().toISOString()
   store.logActivity({
     type: 'ai',
     tag: 'JD',
-    message: 'Applied JD-tailored resume draft',
-    messageZh: '采纳 JD 定制简历草稿',
-    messageEn: 'Applied JD-tailored resume draft',
-    meta: `${jdDraft.value.match.score}/100`,
+    message: 'Applied selected JD-tailored resume sections',
+    messageZh: '采纳 JD 定制草稿的所选章节',
+    messageEn: 'Applied selected JD-tailored resume sections',
+    meta: `${selectedJdSectionCount.value} · ${jdDraft.value.match.score}/100`,
   })
   emit('navigate', 'editor')
-  showToast(label('草稿已应用到当前简历', 'Draft applied to the current resume'), 'success')
+  showToast(label('已应用所选草稿章节', 'Selected draft sections applied'), 'success')
 }
 
 function createApplicationFromJdDraft() {
@@ -457,6 +574,11 @@ function createApplicationFromJdDraft() {
     resumeId: store.activeResumeId,
     match: jdDraft.value.match.score,
     appliedAt: new Date().toISOString().slice(0, 10),
+    nextAction: label('跟进 JD 定制投递结果', 'Follow up on the JD-tailored application'),
+    followUpAt: '',
+    contactName: '',
+    contactEmail: '',
+    jobPostUrl: '',
     notes: label('由 JD 定制草稿创建。', 'Created from JD-tailored draft.'),
     jobDescription: currentJdSnapshot(role),
     tailoring: {
@@ -780,6 +902,30 @@ function matchClass(score: number) {
                 <span>{{ t('applied') }}</span>
                 <input v-model="applicationDraft.appliedAt" type="date" />
               </label>
+              <label>
+                <span>{{ label('下一步', 'Next action') }}</span>
+                <input v-model="applicationDraft.nextAction" :placeholder="label('例如：周五前发送项目案例', 'Example: send project examples by Friday')" />
+              </label>
+              <label>
+                <span>{{ label('跟进日期', 'Follow-up') }}</span>
+                <input v-model="applicationDraft.followUpAt" type="date" />
+              </label>
+              <label>
+                <span>{{ label('联系人', 'Contact') }}</span>
+                <input v-model="applicationDraft.contactName" :placeholder="label('招聘负责人 / 内推人', 'Recruiter / referrer')" />
+              </label>
+              <label>
+                <span>{{ label('联系人邮箱', 'Contact email') }}</span>
+                <input v-model="applicationDraft.contactEmail" type="email" placeholder="name@example.com" />
+              </label>
+              <label class="application-form__wide">
+                <span>{{ label('招聘链接', 'Job post URL') }}</span>
+                <input v-model="applicationDraft.jobPostUrl" type="url" placeholder="https://..." />
+              </label>
+              <label class="application-form__wide">
+                <span>{{ label('JD 归档', 'JD archive') }}</span>
+                <textarea v-model="applicationDraft.jdArchive" rows="3" :placeholder="label('粘贴岗位职责、要求和关键词，后续可追溯每次投递依据。', 'Paste responsibilities, requirements, and keywords for traceability.')" />
+              </label>
               <label class="application-form__notes">
                 <span>{{ label('备注', 'Notes') }}</span>
                 <textarea v-model="applicationDraft.notes" rows="3" :placeholder="label('记录岗位重点、下一步动作或面试反馈', 'Track role focus, next step, or interview feedback')" />
@@ -814,7 +960,12 @@ function matchClass(score: number) {
                     </div>
                   </div>
                 </td>
-                <td><div class="role-cell">{{ app.role }}<small>{{ app.department || label('未填写团队', 'No team') }}</small></div></td>
+                <td>
+                  <div class="role-cell">
+                    {{ app.role }}
+                    <small>{{ app.nextAction || app.department || label('未填写下一步', 'No next action') }}</small>
+                  </div>
+                </td>
                 <td><span class="mono">{{ app.resumeTitle }}</span></td>
                 <td>
                   <span class="stage" :class="`stage--${app.stage}`">{{ stageLabel(app.stage) }}</span>
@@ -826,7 +977,12 @@ function matchClass(score: number) {
                     <span>{{ app.match }}</span>
                   </div>
                 </td>
-                <td><div class="applied-when">{{ formatAppliedDate(app.appliedAt) }}<small>{{ daysAgo(app.appliedAt) }}</small></div></td>
+                <td>
+                  <div class="applied-when">
+                    {{ formatAppliedDate(app.appliedAt) }}
+                    <small>{{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : daysAgo(app.appliedAt) }}</small>
+                  </div>
+                </td>
                 <td>
                   <div class="row-actions">
                     <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
@@ -906,8 +1062,27 @@ function matchClass(score: number) {
                           <strong>{{ jdDraft.title }}</strong>
                           <span>{{ label('命中关键词', 'Matched keywords') }} · {{ jdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || label('暂无', 'none') }}</span>
                         </div>
+                        <div class="jd-review">
+                          <div class="jd-review__head">
+                            <span>{{ label('选择要应用的章节', 'Choose sections to apply') }}</span>
+                            <div>
+                              <button class="mini-link" @click="resetJdApplySections(true)">{{ label('全选', 'All') }}</button>
+                              <button class="mini-link" @click="resetJdApplySections(false)">{{ label('清空', 'None') }}</button>
+                            </div>
+                          </div>
+                          <label v-for="section in jdSectionReviews" :key="section.id" class="jd-review__item">
+                            <input v-model="jdApplySections[section.id]" type="checkbox" />
+                            <span class="jd-review__label">{{ section.label }}</span>
+                            <span class="jd-review__preview">
+                              <em>{{ label('当前', 'Current') }}</em>{{ section.before }}
+                              <em>{{ label('草稿', 'Draft') }}</em>{{ section.after }}
+                            </span>
+                          </label>
+                        </div>
                         <div class="jd-result__actions">
-                          <button class="btn btn--primary" @click="applyJdDraft">{{ label('应用草稿', 'Apply draft') }}</button>
+                          <button class="btn btn--primary" @click="applyJdDraft">
+                            {{ label(`应用所选 (${selectedJdSectionCount})`, `Apply selected (${selectedJdSectionCount})`) }}
+                          </button>
                           <button class="btn btn--ghost" @click="createApplicationFromJdDraft">{{ label('记录投递', 'Log application') }}</button>
                         </div>
                       </div>

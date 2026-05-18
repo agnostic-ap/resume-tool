@@ -5,15 +5,15 @@ This file tracks product and engineering work that should not get lost while ite
 ## P0 - Next
 
 - [x] JD tailoring: save the pasted JD, target company, target role, match score, and generated draft metadata with an application or resume version.
-- [ ] JD tailoring: replace one-click overwrite with a review flow for summary, experience, skills, and projects so users can apply sections one by one.
-- [ ] Platform API: add `/api/v1` route shape and keep the current route as a compatibility alias or document it as local-only.
-- [ ] Platform API: make `requestId` idempotent when `persist: true` so repeated external calls do not create duplicate resumes.
-- [ ] Platform API: add call log metadata for request id, user id, generated document id, match score, and timestamp.
-- [ ] Frontend/backend auth: avoid calling the server-to-server platform endpoint directly from the browser when `RESUME_PLATFORM_API_KEY` is enabled. Add a user-facing assistant endpoint or proxy flow.
+- [x] JD tailoring: replace one-click overwrite with a review flow for summary, experience, skills, and projects so users can apply sections one by one.
+- [x] Platform API: add `/api/v1` route shape and keep the current route as a compatibility alias or document it as local-only.
+- [x] Platform API: make `requestId` idempotent when `persist: true` so repeated external calls do not create duplicate resumes.
+- [x] Platform API: add call log metadata for request id, user id, generated document id, match score, and timestamp.
+- [x] Frontend/backend auth: avoid calling the server-to-server platform endpoint directly from the browser when `RESUME_PLATFORM_API_KEY` is enabled. Add a user-facing assistant endpoint or proxy flow.
 
 ## P1 - Product Flow
 
-- [ ] Application pipeline: add next action, follow-up date, recruiter/contact, job post URL, and JD archive fields.
+- [x] Application pipeline: add next action, follow-up date, recruiter/contact, job post URL, and JD archive fields.
 - [x] Application pipeline: add quick action from a generated JD draft to create or update an application record.
 - [ ] Resume documents: add tags or folders for target role/company so multiple resumes remain manageable.
 - [ ] Resume documents: show generated-from relationship, for example `Base Resume -> Stripe JD Draft`.

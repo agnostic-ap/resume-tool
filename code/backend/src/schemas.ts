@@ -21,6 +21,11 @@ export const createApplicationSchema = z.object({
   stage: z.enum(['applied', 'screen', 'onsite', 'offer', 'rejected']).optional(),
   match: z.coerce.number().min(0).max(100).optional(),
   appliedAt: z.string().optional(),
+  nextAction: z.string().optional(),
+  followUpAt: z.string().optional(),
+  contactName: z.string().optional(),
+  contactEmail: z.string().optional(),
+  jobPostUrl: z.string().optional(),
   notes: z.string().optional(),
   jobDescription: z.object({
     company: z.string().optional(),
@@ -29,6 +34,7 @@ export const createApplicationSchema = z.object({
     description: z.string().optional(),
     requirements: z.array(z.string()).optional(),
     url: z.string().optional(),
+    archivedAt: z.string().optional(),
   }).optional(),
   tailoring: z.object({
     requestId: z.string().optional(),

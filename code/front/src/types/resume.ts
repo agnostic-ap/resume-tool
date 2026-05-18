@@ -99,6 +99,7 @@ export interface JobDescriptionSnapshot {
   description: string
   requirements: string[]
   url: string
+  archivedAt?: string
 }
 
 export interface TailoringMetadata {
@@ -125,6 +126,11 @@ export interface JobApplication {
   stage: ApplicationStage
   match: number
   appliedAt: string
+  nextAction: string
+  followUpAt: string
+  contactName: string
+  contactEmail: string
+  jobPostUrl: string
   notes: string
   jobDescription?: JobDescriptionSnapshot
   tailoring?: TailoringMetadata

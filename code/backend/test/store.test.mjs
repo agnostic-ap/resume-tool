@@ -87,10 +87,17 @@ test('validates and persists applications', async () => {
       role: 'Frontend Engineer',
       stage: 'screen',
       match: 92,
+      nextAction: 'Schedule screen',
+      followUpAt: '2026-05-23',
+      contactName: 'Taylor',
+      contactEmail: 'taylor@example.com',
+      jobPostUrl: 'https://jobs.example.com/vercel',
     })
     assert.equal(app.companyMono, 'V')
     assert.equal(app.stage, 'screen')
     assert.equal(app.match, 92)
+    assert.equal(app.nextAction, 'Schedule screen')
+    assert.equal(app.jobPostUrl, 'https://jobs.example.com/vercel')
 
     const updated = await store.updateApplication(app.id, { match: 120, stage: 'offer' })
     assert.equal(updated.match, 100)
@@ -136,6 +143,49 @@ test('persists JD tailoring metadata on applications', async () => {
 
     const state = await store.readState()
     assert.equal(state.applications[0].tailoring.requestId, 'jd-run-1')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('records platform requests and deduplicates persisted drafts by request id', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const draft = {
+      title: 'FutureHire Draft',
+      data: {
+        personal: { name: 'Lin', title: 'AI Engineer', summary: 'Builds AI hiring systems.' },
+        experience: [],
+        education: [],
+        skills: [],
+        projects: [],
+        awards: [],
+        languages: [],
+        certifications: [],
+      },
+      config: { templateId: 'modern' },
+      match: { score: 88 },
+      generation: { generatedAt: '2026-01-01T00:00:00.000Z' },
+    }
+
+    const request = await store.recordPlatformRequest({
+      requestId: 'preview-1',
+      userId: 'user-1',
+      matchScore: 77,
+      persisted: false,
+      route: 'assistant',
+    })
+    assert.equal(request.matchScore, 77)
+
+    const first = await store.persistPlatformDraft({ requestId: 'persist-1', userId: 'user-1' }, draft, { route: 'api-v1' })
+    const second = await store.persistPlatformDraft({ requestId: 'persist-1', userId: 'user-1' }, draft, { route: 'api-v1' })
+    assert.equal(second.documentId, first.documentId)
+    assert.equal(second.idempotent, true)
+
+    const state = await store.readState()
+    assert.equal(state.documents.filter((doc) => doc.title === 'FutureHire Draft').length, 1)
+    assert.ok(state.platformRequests.some((entry) => entry.requestId === 'persist-1' && entry.documentId === first.documentId))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -43,7 +43,7 @@ test('backendApi surfaces server error messages', async () => {
   }
 })
 
-test('backendApi calls platform resume draft generation', async () => {
+test('backendApi calls assistant resume draft generation from the browser flow', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -85,17 +85,74 @@ test('backendApi calls platform resume draft generation', async () => {
   }) as typeof fetch
 
   try {
-    const result = await backendApi.generateResumeDraft({
+    const result = await backendApi.generateAssistantResumeDraft({
       locale: 'en-US',
       templateId: 'classic',
       workHistory: [{ id: 'work-1', company: 'Analytical Engines', title: 'Engineer' }],
       jobDescription: { title: 'Platform Engineer', description: 'API platform work' },
     })
 
-    assert.equal(calls[0].url, 'http://127.0.0.1:8787/api/platform/resume-drafts')
+    assert.equal(calls[0].url, 'http://127.0.0.1:8787/api/assistant/resume-drafts')
     assert.equal(calls[0].init?.method, 'POST')
     assert.equal(JSON.parse(String(calls[0].init?.body)).jobDescription.title, 'Platform Engineer')
     assert.equal(result.match.score, 88)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('backendApi exposes the server-to-server v1 platform route separately', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init })
+    return jsonResponse({
+      title: 'Ada · Platform Engineer',
+      data: {
+        personal: { name: 'Ada', title: 'Platform Engineer', phone: '', email: '', location: '', website: '', summary: '' },
+        experience: [],
+        education: [],
+        skills: [],
+        projects: [],
+        awards: [],
+        languages: [],
+        certifications: [],
+      },
+      config: {
+        locale: 'en-US',
+        templateId: 'classic',
+        themeColor: '#B73E1B',
+        fontSize: 14,
+        sectionOrder: ['summary'],
+        sectionVisible: { summary: true },
+        studioTheme: {},
+        tweaks: {},
+      },
+      match: {
+        score: 88,
+        keywords: ['api'],
+        matchedKeywords: ['api'],
+        selectedExperienceIds: ['work-1'],
+      },
+      generation: {
+        strategy: 'test',
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        persisted: true,
+        documentId: 'resume-1',
+      },
+    })
+  }) as typeof fetch
+
+  try {
+    await backendApi.generateResumeDraft({
+      persist: true,
+      locale: 'en-US',
+      templateId: 'classic',
+      workHistory: [{ id: 'work-1', company: 'Analytical Engines', title: 'Engineer' }],
+      jobDescription: { title: 'Platform Engineer', description: 'API platform work' },
+    })
+
+    assert.equal(calls[0].url, 'http://127.0.0.1:8787/api/v1/resume-drafts')
   } finally {
     globalThis.fetch = originalFetch
   }

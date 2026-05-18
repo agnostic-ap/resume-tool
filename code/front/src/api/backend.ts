@@ -64,6 +64,7 @@ export interface PlatformResumeDraft {
     persisted: boolean
     documentId?: string
     appliedAt?: string
+    idempotent?: boolean
   }
 }
 
@@ -162,7 +163,14 @@ export const backendApi = {
   },
 
   generateResumeDraft(input: PlatformGenerateResumeInput) {
-    return request<PlatformResumeDraft>('/api/platform/resume-drafts', {
+    return request<PlatformResumeDraft>('/api/v1/resume-drafts', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  generateAssistantResumeDraft(input: PlatformGenerateResumeInput) {
+    return request<PlatformResumeDraft>('/api/assistant/resume-drafts', {
       method: 'POST',
       body: JSON.stringify(input),
     })

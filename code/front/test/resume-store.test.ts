@@ -61,11 +61,18 @@ test('resume store imports and exports normalized workspace data', () => {
         role: 'AI Platform Engineer',
         resumeId: 'imported-resume',
         match: 150,
+        nextAction: 'Send tailored draft',
+        followUpAt: '2026-05-23',
+        contactName: 'Jordan',
+        contactEmail: 'jordan@example.com',
+        jobPostUrl: 'https://jobs.example.com/futurehire-ai',
         jobDescription: {
           company: 'FutureHire',
           title: 'AI Platform Engineer',
           description: 'Build matching services.',
           requirements: ['LLM', 'TypeScript'],
+          url: 'https://jobs.example.com/futurehire-ai',
+          archivedAt: '2026-05-19T00:00:00.000Z',
         },
         tailoring: {
           requestId: 'jd-run-1',
@@ -97,7 +104,11 @@ test('resume store imports and exports normalized workspace data', () => {
   assert.deepEqual(store.data.languages, [])
   assert.deepEqual(store.data.certifications, [])
   assert.equal(store.applications[0].match, 100)
+  assert.equal(store.applications[0].nextAction, 'Send tailored draft')
+  assert.equal(store.applications[0].contactEmail, 'jordan@example.com')
+  assert.equal(store.applications[0].jobPostUrl, 'https://jobs.example.com/futurehire-ai')
   assert.equal(store.applications[0].jobDescription?.title, 'AI Platform Engineer')
+  assert.equal(store.applications[0].jobDescription?.archivedAt, '2026-05-19T00:00:00.000Z')
   assert.equal(store.applications[0].tailoring?.matchScore, 100)
   assert.deepEqual(store.applications[0].tailoring?.matchedKeywords, ['LLM'])
 

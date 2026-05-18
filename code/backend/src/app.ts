@@ -1,5 +1,5 @@
 import cors from '@fastify/cors'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
 import { ZodError, type ZodSchema } from 'zod'
 import {
   assistantSuggestionSchema,
@@ -94,34 +94,90 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     const suggestion = await store.createAssistantSuggestion(parseBody(assistantSuggestionSchema, request.body))
     return reply.status(201).send(suggestion)
   })
-  app.post('/api/platform/resume-drafts', async (request, reply) => {
+  app.post('/api/assistant/resume-drafts', async (request, reply) =>
+    handleResumeDraftRequest(store, request.body, reply, {
+      route: 'assistant',
+      allowPersist: false,
+      requirePlatformAuth: false,
+      headers: request.headers,
+    }),
+  )
+  app.get('/api/v1/platform/requests', async (request) => {
     assertPlatformAccess(request.headers)
-    const input = parseBody(platformGenerateResumeSchema, request.body)
-    const draft = generatePlatformResume(input)
+    return store.listPlatformRequests()
+  })
+  app.post('/api/v1/resume-drafts', async (request, reply) =>
+    handleResumeDraftRequest(store, request.body, reply, {
+      route: 'api-v1',
+      allowPersist: true,
+      requirePlatformAuth: true,
+      headers: request.headers,
+    }),
+  )
+  app.post('/api/v1/platform/resume-drafts', async (request, reply) =>
+    handleResumeDraftRequest(store, request.body, reply, {
+      route: 'api-v1-platform',
+      allowPersist: true,
+      requirePlatformAuth: true,
+      headers: request.headers,
+    }),
+  )
+  app.post('/api/platform/resume-drafts', async (request, reply) =>
+    handleResumeDraftRequest(store, request.body, reply, {
+      route: 'legacy-platform',
+      allowPersist: true,
+      requirePlatformAuth: true,
+      headers: request.headers,
+    }),
+  )
 
-    if (!input.persist) {
-      return reply.send(draft)
-    }
+  return app
+}
 
-    const created = await store.createDocument({ blank: true, title: draft.title })
-    const documentId = getObjectId(created)
-    await store.updateDocument(documentId, {
-      title: draft.title,
-      data: draft.data,
-      config: draft.config,
+async function handleResumeDraftRequest(
+  store: Store,
+  body: unknown,
+  reply: FastifyReply,
+  options: {
+    route: string
+    allowPersist: boolean
+    requirePlatformAuth: boolean
+    headers: Record<string, unknown>
+  },
+) {
+  if (options.requirePlatformAuth) assertPlatformAccess(options.headers)
+  const input = parseBody(platformGenerateResumeSchema, body)
+  const draft = generatePlatformResume(input)
+
+  if (!options.allowPersist || !input.persist) {
+    await store.recordPlatformRequest({
+      requestId: input.requestId,
+      userId: input.userId,
+      matchScore: draft.match.score,
+      persisted: false,
+      route: options.route,
+      generatedAt: draft.generation.generatedAt,
     })
-
-    return reply.status(201).send({
+    return reply.send({
       ...draft,
       generation: {
         ...draft.generation,
-        persisted: true,
-        documentId,
+        persisted: false,
       },
     })
-  })
+  }
 
-  return app
+  const persisted = await store.persistPlatformDraft(input, draft, { route: options.route })
+  const persistedMeta = asPersistedDraft(persisted)
+  return reply.status(persistedMeta.idempotent ? 200 : 201).send({
+    ...draft,
+    generation: {
+      ...draft.generation,
+      persisted: true,
+      documentId: persistedMeta.documentId,
+      idempotent: persistedMeta.idempotent,
+    },
+  })
 }
 
 function parseBody<T>(schema: ZodSchema<T>, body: unknown): T {
@@ -135,13 +191,6 @@ function getParam(params: unknown, key: string): string {
   return value
 }
 
-function getObjectId(value: unknown): string {
-  if (!value || typeof value !== 'object') throw httpError(500, 'Created resume is missing an id')
-  const id = (value as Record<string, unknown>).id
-  if (typeof id !== 'string' || !id) throw httpError(500, 'Created resume is missing an id')
-  return id
-}
-
 function assertPlatformAccess(headers: Record<string, unknown>) {
   const expected = process.env.RESUME_PLATFORM_API_KEY?.trim()
   if (!expected) return
@@ -152,6 +201,16 @@ function assertPlatformAccess(headers: Record<string, unknown>) {
 
   if (apiKey === expected || bearer === expected) return
   throw httpError(401, 'Platform API key is required')
+}
+
+function asPersistedDraft(value: unknown): { documentId: string; idempotent: boolean } {
+  if (!value || typeof value !== 'object') throw httpError(500, 'Persisted draft metadata is missing')
+  const documentId = (value as Record<string, unknown>).documentId
+  if (typeof documentId !== 'string' || !documentId) throw httpError(500, 'Persisted draft document id is missing')
+  return {
+    documentId,
+    idempotent: Boolean((value as Record<string, unknown>).idempotent),
+  }
 }
 
 function headerValue(value: unknown): string | undefined {

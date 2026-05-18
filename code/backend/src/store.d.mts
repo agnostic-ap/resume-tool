@@ -14,6 +14,9 @@ export type BackendStore = {
   createApplication(input?: unknown): Promise<unknown>
   updateApplication(id: string, patch?: unknown): Promise<unknown>
   deleteApplication(id: string): Promise<unknown>
+  listPlatformRequests(): Promise<unknown>
+  recordPlatformRequest(input?: unknown): Promise<unknown>
+  persistPlatformDraft(input?: unknown, draft?: unknown, meta?: unknown): Promise<unknown>
   listActivity(): Promise<unknown>
   createAssistantSuggestion(input?: unknown): Promise<unknown>
 }

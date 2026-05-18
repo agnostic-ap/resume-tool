@@ -258,6 +258,81 @@ export function createStore(options = {}) {
       })
     },
 
+    async listPlatformRequests() {
+      const state = await readState()
+      return state.platformRequests
+    },
+
+    async recordPlatformRequest(input = {}) {
+      return mutate((state) => {
+        const entry = normalizePlatformRequest(input)
+        state.platformRequests = [entry, ...state.platformRequests].slice(0, 500)
+        log(state, {
+          type: 'system',
+          tag: 'platform',
+          message: `Generated platform draft: ${entry.requestId || entry.userId || 'anonymous'}`,
+          messageZh: `生成平台草稿：${entry.requestId || entry.userId || '匿名请求'}`,
+          messageEn: `Generated platform draft: ${entry.requestId || entry.userId || 'anonymous'}`,
+          meta: `${entry.matchScore}/100`,
+          resumeId: entry.documentId,
+        })
+        return entry
+      })
+    },
+
+    async persistPlatformDraft(input = {}, draft = {}, meta = {}) {
+      return mutate((state) => {
+        const requestId = String(input.requestId ?? '').trim()
+        const existing = requestId
+          ? state.platformRequests.find((entry) => entry.requestId === requestId && entry.persisted && entry.documentId)
+          : undefined
+        const existingDoc = existing?.documentId
+          ? state.documents.find((doc) => doc.id === existing.documentId)
+          : undefined
+
+        if (existing && existingDoc) {
+          existing.replayedAt = new Date().toISOString()
+          existing.replayCount = Number(existing.replayCount ?? 0) + 1
+          return { documentId: existing.documentId, idempotent: true, request: existing }
+        }
+
+        const created = new Date()
+        const doc = {
+          id: newId('resume'),
+          title: draft.title?.trim() || 'Platform resume draft',
+          data: normalizeResumeData(draft.data),
+          config: normalizeConfig(draft.config),
+          createdAt: created.toISOString(),
+          updatedAt: created.toISOString(),
+          lastCareerUpdateAt: created.toISOString(),
+          nextCareerUpdateAt: addDays(created, 14).toISOString(),
+        }
+        state.documents.unshift(doc)
+        state.activeResumeId = doc.id
+
+        const entry = normalizePlatformRequest({
+          requestId,
+          userId: input.userId,
+          documentId: doc.id,
+          matchScore: draft.match?.score,
+          persisted: true,
+          route: meta.route,
+          generatedAt: draft.generation?.generatedAt,
+        })
+        state.platformRequests = [entry, ...state.platformRequests].slice(0, 500)
+        log(state, {
+          type: 'resume',
+          tag: 'platform',
+          message: `Persisted platform resume draft: ${doc.title}`,
+          messageZh: `保存平台简历草稿：${doc.title}`,
+          messageEn: `Persisted platform resume draft: ${doc.title}`,
+          meta: `${entry.matchScore}/100`,
+          resumeId: doc.id,
+        })
+        return { documentId: doc.id, idempotent: false, request: entry }
+      })
+    },
+
     async listActivity() {
       const state = await readState()
       return state.activityLog
@@ -306,6 +381,9 @@ export function normalizeState(value) {
     applications: Array.isArray(value?.applications)
       ? value.applications.map((app) => normalizeApplication(app, documents.find((doc) => doc.id === app.resumeId) ?? active))
       : [],
+    platformRequests: Array.isArray(value?.platformRequests)
+      ? value.platformRequests.map(normalizePlatformRequest)
+      : fallback.platformRequests,
     activityLog: Array.isArray(value?.activityLog)
       ? value.activityLog.map((event) => normalizeActivity(event, documents.find((doc) => doc.id === event.resumeId) ?? active))
       : fallback.activityLog,
@@ -379,6 +457,11 @@ export function normalizeApplication(app = {}, fallbackDoc) {
     stage: ['applied', 'screen', 'onsite', 'offer', 'rejected'].includes(app.stage) ? app.stage : 'applied',
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
     appliedAt: app.appliedAt || now.slice(0, 10),
+    nextAction: String(app.nextAction ?? ''),
+    followUpAt: String(app.followUpAt ?? ''),
+    contactName: String(app.contactName ?? ''),
+    contactEmail: String(app.contactEmail ?? ''),
+    jobPostUrl: String(app.jobPostUrl ?? app.jobDescription?.url ?? ''),
     notes: String(app.notes ?? ''),
     jobDescription: app.jobDescription ? normalizeJobDescription(app.jobDescription, { company, role, location: app.location }) : undefined,
     tailoring: app.tailoring ? normalizeTailoring(app.tailoring, fallbackDoc, app.match, now) : undefined,
@@ -395,6 +478,7 @@ function normalizeJobDescription(jobDescription = {}, fallback = {}) {
     description: String(jobDescription.description ?? ''),
     requirements: Array.isArray(jobDescription.requirements) ? jobDescription.requirements.map(String) : [],
     url: String(jobDescription.url ?? ''),
+    archivedAt: jobDescription.archivedAt ? String(jobDescription.archivedAt) : undefined,
   }
 }
 
@@ -409,6 +493,23 @@ function normalizeTailoring(tailoring = {}, fallbackDoc, fallbackMatch, now) {
     strategy: String(tailoring.strategy ?? ''),
     generatedAt: String(tailoring.generatedAt ?? now),
     appliedAt: tailoring.appliedAt ? String(tailoring.appliedAt) : undefined,
+  }
+}
+
+function normalizePlatformRequest(entry = {}) {
+  const now = new Date().toISOString()
+  return {
+    id: entry.id || newId('platform'),
+    requestId: String(entry.requestId ?? ''),
+    userId: String(entry.userId ?? ''),
+    documentId: entry.documentId ? String(entry.documentId) : undefined,
+    matchScore: Math.max(0, Math.min(100, Number(entry.matchScore ?? 0))),
+    persisted: Boolean(entry.persisted),
+    route: String(entry.route ?? 'platform'),
+    generatedAt: String(entry.generatedAt ?? now),
+    createdAt: String(entry.createdAt ?? now),
+    replayedAt: entry.replayedAt ? String(entry.replayedAt) : undefined,
+    replayCount: Number(entry.replayCount ?? 0),
   }
 }
 

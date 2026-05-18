@@ -1278,6 +1278,10 @@ button:disabled {
   padding: 9px;
 }
 
+.application-form__wide {
+  grid-column: span 2;
+}
+
 .application-form__notes {
   grid-column: 1 / -1;
 }
@@ -1701,6 +1705,8 @@ button:disabled {
 }
 
 .jd-result {
+  display: grid;
+  align-items: stretch;
   padding: 9px;
   border: 1px dashed var(--rule-soft);
   background: var(--paper);
@@ -1728,6 +1734,70 @@ button:disabled {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.jd-review {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.jd-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.mini-link {
+  border: 0;
+  background: transparent;
+  color: var(--vermillion);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.jd-review__item {
+  display: grid;
+  grid-template-columns: 16px minmax(64px, 92px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 7px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+}
+
+.jd-review__item input {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.jd-review__label {
+  margin-top: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.jd-review__preview {
+  display: grid;
+  gap: 3px;
+  margin-top: 0;
+  color: var(--ink-3);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.jd-review__preview em {
+  color: var(--ink-5);
+  font-family: var(--mono);
+  font-style: normal;
 }
 
 .ai__compose {

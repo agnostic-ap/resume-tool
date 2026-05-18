@@ -30,10 +30,16 @@ test('fastify app exposes health and validates applications', async () => {
         company: 'Linear',
         role: 'Product Engineer',
         match: 94,
+        nextAction: 'Send portfolio',
+        followUpAt: '2026-05-22',
+        contactName: 'Alex Recruiter',
+        contactEmail: 'alex@example.com',
+        jobPostUrl: 'https://jobs.example.com/linear-product-engineer',
         jobDescription: {
           company: 'Linear',
           title: 'Product Engineer',
           description: 'Build product engineering workflows.',
+          url: 'https://jobs.example.com/linear-product-engineer',
         },
         tailoring: {
           requestId: 'jd-run-api',
@@ -47,7 +53,10 @@ test('fastify app exposes health and validates applications', async () => {
     })
     assert.equal(created.statusCode, 201)
     assert.equal(created.json().companyMono, 'L')
+    assert.equal(created.json().nextAction, 'Send portfolio')
+    assert.equal(created.json().contactEmail, 'alex@example.com')
     assert.equal(created.json().jobDescription.title, 'Product Engineer')
+    assert.equal(created.json().jobDescription.url, 'https://jobs.example.com/linear-product-engineer')
     assert.equal(created.json().tailoring.requestId, 'jd-run-api')
 
     const stateOverwrite = await app.inject({
@@ -69,7 +78,7 @@ test('platform API generates JD-tailored resume drafts', async () => {
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/api/platform/resume-drafts',
+      url: '/api/assistant/resume-drafts',
       payload: platformPayload(),
     })
 
@@ -103,14 +112,14 @@ test('platform API supports API key auth and optional persistence', async () => 
   try {
     const unauthorized = await app.inject({
       method: 'POST',
-      url: '/api/platform/resume-drafts',
+      url: '/api/v1/resume-drafts',
       payload: platformPayload(),
     })
     assert.equal(unauthorized.statusCode, 401)
 
     const created = await app.inject({
       method: 'POST',
-      url: '/api/platform/resume-drafts',
+      url: '/api/v1/resume-drafts',
       headers: { 'x-resume-api-key': 'secret-platform-key' },
       payload: platformPayload({ persist: true }),
     })
@@ -125,6 +134,25 @@ test('platform API supports API key auth and optional persistence', async () => 
     })
     assert.equal(document.statusCode, 200)
     assert.equal(document.json().data.personal.title, 'Senior Product Engineer')
+
+    const replayed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      headers: { 'x-resume-api-key': 'secret-platform-key' },
+      payload: platformPayload({ persist: true }),
+    })
+    assert.equal(replayed.statusCode, 200)
+    assert.equal(replayed.json().generation.idempotent, true)
+    assert.equal(replayed.json().generation.documentId, draft.generation.documentId)
+
+    const requests = await app.inject({
+      method: 'GET',
+      url: '/api/v1/platform/requests',
+      headers: { authorization: 'Bearer secret-platform-key' },
+    })
+    assert.equal(requests.statusCode, 200)
+    assert.equal(requests.json()[0].requestId, 'req-platform-1')
+    assert.equal(requests.json()[0].documentId, draft.generation.documentId)
   } finally {
     if (previousApiKey === undefined) {
       delete process.env.RESUME_PLATFORM_API_KEY
@@ -145,7 +173,7 @@ test('platform API accepts bearer auth and rejects invalid payloads', async () =
   try {
     const invalid = await app.inject({
       method: 'POST',
-      url: '/api/platform/resume-drafts',
+      url: '/api/v1/platform/resume-drafts',
       headers: { authorization: 'Bearer bearer-secret' },
       payload: { jobDescription: { title: '' }, workHistory: [] },
     })
@@ -160,6 +188,14 @@ test('platform API accepts bearer auth and rejects invalid payloads', async () =
     })
     assert.equal(generated.statusCode, 200)
     assert.equal(generated.json().generation.persisted, false)
+
+    const assistant = await app.inject({
+      method: 'POST',
+      url: '/api/assistant/resume-drafts',
+      payload: platformPayload({ persist: true }),
+    })
+    assert.equal(assistant.statusCode, 200)
+    assert.equal(assistant.json().generation.persisted, false)
   } finally {
     if (previousApiKey === undefined) {
       delete process.env.RESUME_PLATFORM_API_KEY
