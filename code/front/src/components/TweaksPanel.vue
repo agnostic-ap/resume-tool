@@ -52,15 +52,15 @@ function reset() {
     <div v-if="open" class="tweaks-backdrop" @click="emit('close')"></div>
     <aside v-if="open" class="tweaks">
       <div class="tweaks__head">
-        <h3>{{ locale === 'zh-CN' ? '编辑器微调' : 'Editor Tweaks' }}<small>{{ locale === 'zh-CN' ? '编辑台 · 实时' : 'editor · live' }}</small></h3>
+        <h3>{{ locale === 'zh-CN' ? '编辑台微调' : 'Editor tweaks' }}<small>{{ locale === 'zh-CN' ? '只影响编辑界面，不影响 PDF 简历' : 'editor UI only, not the PDF resume' }}</small></h3>
         <button class="tweaks__close" @click="emit('close')">×</button>
       </div>
 
       <div class="tweaks__scroll">
         <div class="tweak-section">
-          <div class="tweak-section__label">— {{ locale === 'zh-CN' ? '配色' : 'Palette' }}</div>
+          <div class="tweak-section__label">— {{ locale === 'zh-CN' ? '编辑台配色' : 'Editor palette' }}</div>
           <div class="tweak-row">
-            <div class="lbl">{{ locale === 'zh-CN' ? '强调色' : 'Accent' }}<small>{{ locale === 'zh-CN' ? '批注 / 标记' : 'red-pen / annotations' }}</small></div>
+            <div class="lbl">{{ locale === 'zh-CN' ? '编辑强调色' : 'Editor accent' }}<small>{{ locale === 'zh-CN' ? '批注 / 标记，不改简历主题色' : 'annotations only, not resume color' }}</small></div>
             <div class="swatches">
               <button v-for="accent in accents" :key="accent.id"
                 class="sw"

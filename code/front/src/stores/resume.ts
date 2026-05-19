@@ -659,44 +659,24 @@ export const useResumeStore = defineStore('resume', () => {
 
   function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[K]) {
     config.value.studioTheme[key] = value
-    if (key === 'accent') {
-      const color = {
-        vermillion: '#C65A3A',
-        moss: '#6F7F45',
-        prussian: '#31566A',
-        'ink-only': '#3A2A22',
-      }[value as StudioTheme['accent']]
-      if (color) config.value.themeColor = color
-    }
     touchActive()
     syncActiveDocumentToBackend()
   }
 
   function resetStudioTheme() {
     config.value.studioTheme = { ...DEFAULT_STUDIO_THEME }
-    config.value.themeColor = '#C65A3A'
     touchActive()
     syncActiveDocumentToBackend()
   }
 
   function setTweak<K extends keyof ResumeTweaks>(key: K, value: ResumeTweaks[K]) {
     config.value.tweaks[key] = value
-    if (key === 'accent') {
-      const color = {
-        vermillion: '#C65A3A',
-        moss: '#6F7F45',
-        prussian: '#31566A',
-        'ink-only': '#3A2A22',
-      }[value as ResumeTweaks['accent']]
-      if (color) config.value.themeColor = color
-    }
     touchActive()
     syncActiveDocumentToBackend()
   }
 
   function resetTweaks() {
     config.value.tweaks = { ...DEFAULT_TWEAKS }
-    config.value.themeColor = '#C65A3A'
     touchActive()
     syncActiveDocumentToBackend()
   }

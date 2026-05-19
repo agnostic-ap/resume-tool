@@ -56,6 +56,20 @@ test('resume store manages multiple resumes and biweekly update dates', () => {
   assert.ok(store.daysUntilCareerUpdate(originalId) >= 13)
 })
 
+test('resume store keeps workspace and resume appearance colors separate', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  store.setThemeColor('#31566A')
+  store.setStudioTheme('accent', 'moss')
+  store.setTweak('accent', 'ink-only')
+  assert.equal(store.config.themeColor, '#31566A')
+
+  store.resetStudioTheme()
+  store.resetTweaks()
+  assert.equal(store.config.themeColor, '#31566A')
+})
+
 test('resume store imports and exports normalized workspace data', () => {
   setupStoreHarness()
   const store = useResumeStore()
