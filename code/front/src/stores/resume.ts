@@ -110,7 +110,7 @@ const defaultResume: ResumeData = {
 const defaultConfig: ResumeConfig = {
   locale: 'zh-CN',
   templateId: 'classic',
-  themeColor: '#B73E1B',
+  themeColor: '#C65A3A',
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },
@@ -661,10 +661,10 @@ export const useResumeStore = defineStore('resume', () => {
     config.value.studioTheme[key] = value
     if (key === 'accent') {
       const color = {
-        vermillion: '#B73E1B',
-        moss: '#4A5D2F',
-        prussian: '#1F4068',
-        'ink-only': '#0E0E0C',
+        vermillion: '#C65A3A',
+        moss: '#6F7F45',
+        prussian: '#31566A',
+        'ink-only': '#3A2A22',
       }[value as StudioTheme['accent']]
       if (color) config.value.themeColor = color
     }
@@ -674,7 +674,7 @@ export const useResumeStore = defineStore('resume', () => {
 
   function resetStudioTheme() {
     config.value.studioTheme = { ...DEFAULT_STUDIO_THEME }
-    config.value.themeColor = '#B73E1B'
+    config.value.themeColor = '#C65A3A'
     touchActive()
     syncActiveDocumentToBackend()
   }
@@ -683,10 +683,10 @@ export const useResumeStore = defineStore('resume', () => {
     config.value.tweaks[key] = value
     if (key === 'accent') {
       const color = {
-        vermillion: '#B73E1B',
-        moss: '#4A5D2F',
-        prussian: '#1F4068',
-        'ink-only': '#0E0E0C',
+        vermillion: '#C65A3A',
+        moss: '#6F7F45',
+        prussian: '#31566A',
+        'ink-only': '#3A2A22',
       }[value as ResumeTweaks['accent']]
       if (color) config.value.themeColor = color
     }
@@ -696,7 +696,7 @@ export const useResumeStore = defineStore('resume', () => {
 
   function resetTweaks() {
     config.value.tweaks = { ...DEFAULT_TWEAKS }
-    config.value.themeColor = '#B73E1B'
+    config.value.themeColor = '#C65A3A'
     touchActive()
     syncActiveDocumentToBackend()
   }

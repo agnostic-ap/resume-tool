@@ -232,16 +232,16 @@ const templates: { id: TemplateId; label: string; desc: string }[] = [
 ]
 
 const accents: { id: TweakAccent; hex: string; label: string }[] = [
-  { id: 'vermillion', hex: '#B73E1B', label: 'Vermillion' },
-  { id: 'moss', hex: '#4A5D2F', label: 'Moss' },
-  { id: 'prussian', hex: '#1F4068', label: 'Prussian' },
-  { id: 'ink-only', hex: '#0E0E0C', label: 'Ink only' },
+  { id: 'vermillion', hex: '#C65A3A', label: 'Terracotta' },
+  { id: 'moss', hex: '#6F7F45', label: 'Olive moss' },
+  { id: 'prussian', hex: '#31566A', label: 'Deep teal' },
+  { id: 'ink-only', hex: '#3A2A22', label: 'Walnut ink' },
 ]
 
 const papers: { id: TweakPaper; hex: string; label: string }[] = [
-  { id: 'cream', hex: '#FAF8F2', label: 'Cream' },
-  { id: 'snow', hex: '#FFFFFF', label: 'Snow' },
-  { id: 'newsprint', hex: '#F1ECDF', label: 'Newsprint' },
+  { id: 'cream', hex: '#FBF4EA', label: 'Warm cream' },
+  { id: 'snow', hex: '#FFFAF4', label: 'Soft white' },
+  { id: 'newsprint', hex: '#F3EADC', label: 'Newsprint' },
 ]
 
 const interfaceFonts: { id: TweakFont; name: string; meta: string; className: string }[] = [

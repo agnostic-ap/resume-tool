@@ -44,7 +44,7 @@ export const DEFAULT_STUDIO_THEME = {
 export const DEFAULT_CONFIG = {
   locale: 'zh-CN',
   templateId: 'classic',
-  themeColor: '#B73E1B',
+  themeColor: '#C65A3A',
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },

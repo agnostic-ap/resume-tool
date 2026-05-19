@@ -121,7 +121,7 @@ export function generatePlatformResume(input: PlatformGenerateResumeInput) {
   const config = {
     locale,
     templateId: input.templateId,
-    themeColor: '#B73E1B',
+    themeColor: '#C65A3A',
     fontSize: 14,
     sectionOrder: DEFAULT_SECTION_ORDER,
     sectionVisible: {

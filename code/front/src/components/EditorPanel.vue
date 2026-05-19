@@ -56,9 +56,9 @@ function toggle(id: string) {
 
 const completenessColor = computed(() => {
   const s = store.completeness
-  if (s < 40) return '#b73e1b'
-  if (s < 70) return '#9c7a29'
-  return '#4a5d2f'
+  if (s < 40) return '#C65A3A'
+  if (s < 70) return '#B58A44'
+  return '#6F7F45'
 })
 
 const completenessLabel = computed(() => {
