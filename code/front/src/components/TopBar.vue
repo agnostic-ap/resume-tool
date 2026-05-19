@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { TemplateId } from '../types/resume'
 import { showToast } from '../composables/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
-import TemplateThumbnail from './TemplateThumbnail.vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
 
@@ -45,32 +43,6 @@ async function reconnectBackend() {
     3200,
   )
 }
-
-// ── Template picker popover ──────────────────────────────────
-const showTemplatePicker = ref(false)
-const templatePickerRef = ref<HTMLElement>()
-
-const templates: { id: TemplateId; label: string; desc: string }[] = [
-  { id: 'classic',  label: '经典',   desc: '简洁·全页' },
-  { id: 'modern',   label: '现代',   desc: '双栏·标题色块' },
-  { id: 'sidebar',  label: '侧边栏', desc: '色彩·个性' },
-]
-
-function templateLabel(id: TemplateId) {
-  return t(id)
-}
-
-function templateDesc(id: TemplateId) {
-  return t(`${id}Desc` as 'classicDesc' | 'modernDesc' | 'sidebarDesc')
-}
-
-function closePicker(e: MouseEvent) {
-  if (!templatePickerRef.value?.contains(e.target as Node)) {
-    showTemplatePicker.value = false
-  }
-}
-onMounted(() => document.addEventListener('mousedown', closePicker))
-onUnmounted(() => document.removeEventListener('mousedown', closePicker))
 
 // ── Confirm dialog ────────────────────────────────────────────
 type ConfirmAction = 'clearAll' | 'resetDemo'
@@ -155,7 +127,7 @@ function handleFileChange(e: Event) {
       <button class="crumb-link" @click="emit('navigate', 'workspace')">{{ t('workspace') }}</button>
       <span class="sep">/</span>
       <strong>{{ store.data.personal.name || l('未命名简历', 'Untitled resume') }}</strong>
-      <span class="status-badge">{{ templateLabel(store.config.templateId) }}</span>
+      <span class="status-badge">{{ t(store.config.templateId) }}</span>
       <span class="status-badge">{{ currentView }}</span>
       <span class="status-badge">v1.0</span>
     </nav>
@@ -171,31 +143,6 @@ function handleFileChange(e: Event) {
       <span>＋</span>
       {{ t('newResume') }}
     </button>
-
-    <div ref="templatePickerRef" class="template-menu">
-      <button @click="showTemplatePicker = !showTemplatePicker"
-        class="topbar-button">
-        <span>▦</span>
-        <span class="font-semibold">{{ templateLabel(store.config.templateId) }}</span>
-        <span class="caret">▾</span>
-      </button>
-
-      <Transition name="fade">
-        <div v-if="showTemplatePicker"
-          class="template-popover">
-          <button v-for="t in templates" :key="t.id"
-            @click="store.setTemplate(t.id); showTemplatePicker = false"
-            class="template-option"
-            :class="{ active: store.config.templateId === t.id }">
-            <TemplateThumbnail :type="t.id" :color="store.config.themeColor" />
-            <div>
-              <strong>{{ templateLabel(t.id) }}</strong>
-              <small>{{ templateDesc(t.id) }}</small>
-            </div>
-          </button>
-        </div>
-      </Transition>
-    </div>
 
     <div class="save-state" :class="{ pending: !saved }">
       <i />

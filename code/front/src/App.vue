@@ -8,10 +8,12 @@ import WelcomeDialog from './components/WelcomeDialog.vue'
 import WorkspacePanel from './components/WorkspacePanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TweaksPanel from './components/TweaksPanel.vue'
+import TemplateThumbnail from './components/TemplateThumbnail.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 import { useI18n } from './i18n'
 import { useLocaleText } from './composables/useLocaleText'
+import type { TemplateId } from './types/resume'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
 
@@ -30,6 +32,12 @@ const resumeColorPresets = [
   { hex: '#31566A', label: 'Deep teal' },
   { hex: '#8F4F3F', label: 'Cedar' },
   { hex: '#3A2A22', label: 'Walnut' },
+]
+
+const templates: { id: TemplateId; label: string; desc: string }[] = [
+  { id: 'classic', label: '经典', desc: '简洁·全页' },
+  { id: 'modern', label: '现代', desc: '双栏·标题色块' },
+  { id: 'sidebar', label: '侧边栏', desc: '色彩·个性' },
 ]
 
 const activeSections = computed(() =>
@@ -85,7 +93,7 @@ const editorGridStyle = computed(() => ({
   gridTemplateColumns: [
     store.config.tweaks.showTree ? 'minmax(520px, 0.9fr)' : 'minmax(320px, 0.7fr)',
     'minmax(420px, 1.1fr)',
-    store.config.tweaks.showAI ? '280px' : '0px',
+    '280px',
   ].join(' '),
   fontSize: `${store.config.tweaks.fontScale / 100}rem`,
 }))
@@ -127,6 +135,11 @@ function resetResumeAppearance() {
   store.setThemeColor('#C65A3A')
   store.config.fontSize = 14
   showToast(l('简历外观已恢复默认', 'Resume appearance reset'), 'success')
+}
+
+function setEditorTemplate(id: TemplateId) {
+  store.setTemplate(id)
+  showToast(l(`已切换到${t(id)}模板`, `Switched to ${t(id)} template`), 'success')
 }
 
 function syncHash() {
@@ -195,14 +208,33 @@ onUnmounted(() => {
     <main v-else-if="currentView === 'editor'" id="main-content" :class="editorClasses" :style="editorGridStyle">
       <EditorPanel :show-tree="store.config.tweaks.showTree" />
       <PreviewPanel />
-      <aside v-if="store.config.tweaks.showAI" class="inspector-panel">
-        <div class="inspector-card score-card">
+      <aside class="inspector-panel">
+        <div v-if="store.config.tweaks.showAI" class="inspector-card score-card">
           <span class="inspector-eyebrow">{{ t('matchScore') }}</span>
           <strong>{{ store.completeness }}<small>/100</small></strong>
           <div class="score-track">
             <i :style="{ width: `${store.completeness}%` }" />
           </div>
           <p>{{ primaryAdvice }}</p>
+        </div>
+
+        <div class="inspector-card resume-template-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ t('templates') }}</span>
+            <button @click="navigate('templates')">{{ l('查看全部', 'All') }}</button>
+          </div>
+          <div class="inspector-template-list">
+            <button v-for="template in templates" :key="template.id"
+              class="inspector-template-option"
+              :class="{ on: store.config.templateId === template.id }"
+              @click="setEditorTemplate(template.id)">
+              <TemplateThumbnail :type="template.id" :color="store.config.themeColor" />
+              <span>
+                <b>{{ t(template.id) }}</b>
+                <small>{{ t(`${template.id}Desc` as 'classicDesc' | 'modernDesc' | 'sidebarDesc') }}</small>
+              </span>
+            </button>
+          </div>
         </div>
 
         <div class="inspector-card resume-style-card">
@@ -255,7 +287,7 @@ onUnmounted(() => {
           </dl>
         </div>
 
-        <div class="inspector-card note-card">
+        <div v-if="store.config.tweaks.showAI" class="inspector-card note-card">
           <span class="inspector-eyebrow">{{ t('beforeExport') }}</span>
           <ul>
             <li>{{ t('noteVerb') }}</li>

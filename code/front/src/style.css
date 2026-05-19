@@ -3169,6 +3169,55 @@ button:disabled {
     var(--surface);
 }
 
+.inspector-template-list {
+  display: grid;
+  gap: 8px;
+}
+
+.inspector-template-option {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.inspector-template-option:hover,
+.inspector-template-option.on {
+  border-color: var(--ink);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+
+.inspector-template-option.on {
+  box-shadow: inset 0 0 0 2px var(--vermillion);
+}
+
+.inspector-template-option span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.inspector-template-option b {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.inspector-template-option small {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
 .inspector-field {
   display: grid;
   gap: 7px;

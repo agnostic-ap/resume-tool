@@ -847,10 +847,10 @@ function matchClass(score: number) {
         </div>
       </section>
 
-      <section v-if="props.mode === 'workspace' || props.mode === 'templates'" class="section">
+      <section v-if="props.mode === 'templates'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">{{ props.mode === 'templates' ? '01' : '02' }} · {{ t('templates') }}</div>
+            <div class="num">01 · {{ t('templates') }}</div>
             <h2>{{ t('chooseLayout') }}</h2>
           </div>
           <div class="meta">
@@ -873,7 +873,7 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'workspace'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">03 · {{ t('documents') }}</div>
+            <div class="num">02 · {{ t('documents') }}</div>
             <h2>{{ t('documents') }}</h2>
           </div>
           <div class="meta">
@@ -965,7 +965,7 @@ function matchClass(score: number) {
       <section v-if="props.mode === 'workspace' || props.mode === 'pipeline'" class="section">
         <div class="section__head section__head--double">
           <div>
-            <div class="num">{{ props.mode === 'pipeline' ? '01' : '04' }} · {{ t('pipeline') }}</div>
+            <div class="num">{{ props.mode === 'pipeline' ? '01' : '03' }} · {{ t('pipeline') }}</div>
             <h2>{{ t('pipelineTitle') }}</h2>
           </div>
           <div class="meta">
