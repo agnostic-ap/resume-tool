@@ -15,17 +15,44 @@ test('resume store manages multiple resumes and biweekly update dates', () => {
   assert.equal(store.activeResumeId, blank.id)
   assert.equal(store.data.personal.name, '')
   assert.equal(store.data.experience.length, 0)
+  assert.equal(blank.folder, 'General')
 
   store.renameResume(blank.id, 'Platform Resume')
   assert.equal(store.activeDocument.title, 'Platform Resume')
 
-  store.deleteResume(blank.id)
-  assert.equal(store.documents.length, 1)
-  assert.equal(store.activeResumeId, originalId)
+  store.updateResumeMetadata(blank.id, {
+    folder: 'AI Platform',
+    targetRole: 'Staff Engineer',
+    targetCompany: 'FutureHire',
+    tags: ['AI', 'Platform', 'AI'],
+    favorite: true,
+  })
+  assert.equal(store.activeDocument.folder, 'AI Platform')
+  assert.deepEqual(store.activeDocument.tags, ['AI', 'Platform'])
+  assert.equal(store.activeDocument.favorite, true)
 
-  const before = store.activeDocument.nextCareerUpdateAt
+  const copy = store.duplicateResume(blank.id)
+  assert.equal(store.activeDocument.sourceResumeId, blank.id)
+  assert.equal(store.activeDocument.sourceResumeTitle, 'Platform Resume')
+  assert.equal(copy?.archived, false)
+  store.toggleResumeArchive(copy!.id)
+  assert.equal(store.activeDocument.archived, true)
+
+  store.deleteResume(blank.id)
+  assert.equal(store.documents.length, 2)
+
+  const before = store.documents.find((doc) => doc.id === originalId)!.nextCareerUpdateAt
+  store.setCareerChecklistItem(originalId, 'projects', true)
+  store.setCareerChecklistItem(originalId, 'metrics', true)
+  store.setCareerChecklistItem(originalId, 'roleChanges', true)
+  store.setCareerChecklistItem(originalId, 'interviewFeedback', true)
+  store.setCareerChecklistItem(originalId, 'skills', true)
+  store.updateCareerChecklist(originalId, { notes: 'Added platform metrics.' })
+  assert.equal(store.documents.find((doc) => doc.id === originalId)?.careerUpdateChecklist.notes, 'Added platform metrics.')
   store.markCareerUpdated(originalId)
-  assert.notEqual(store.activeDocument.nextCareerUpdateAt, before)
+  const original = store.documents.find((doc) => doc.id === originalId)!
+  assert.notEqual(original.nextCareerUpdateAt, before)
+  assert.equal(original.careerUpdateChecklist.projects, false)
   assert.ok(store.daysUntilCareerUpdate(originalId) >= 13)
 })
 
@@ -181,6 +208,21 @@ test('resume store connects to backend and applies remote state', async () => {
             aiTone: 'editor',
           },
         },
+        folder: 'Backend',
+        targetRole: 'Compiler Engineer',
+        targetCompany: 'Navy',
+        tags: ['systems'],
+        favorite: true,
+        archived: false,
+        careerUpdateChecklist: {
+          projects: true,
+          metrics: false,
+          roleChanges: false,
+          interviewFeedback: false,
+          skills: false,
+          notes: 'Remote note',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-02T00:00:00.000Z',
         lastCareerUpdateAt: '2026-01-02T00:00:00.000Z',
@@ -206,6 +248,9 @@ test('resume store connects to backend and applies remote state', async () => {
     assert.equal(store.activeResumeId, 'remote-resume')
     assert.equal(store.data.personal.name, 'Grace Hopper')
     assert.equal(store.config.templateId, 'modern')
+    assert.equal(store.activeDocument.folder, 'Backend')
+    assert.equal(store.activeDocument.favorite, true)
+    assert.equal(store.activeDocument.careerUpdateChecklist.notes, 'Remote note')
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState } from '../api/backend'
@@ -233,6 +233,37 @@ function newId(prefix = 'resume') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 
+function normalizeTags(tags: unknown) {
+  if (!Array.isArray(tags)) return []
+  return [...new Set(tags.map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 12)
+}
+
+function defaultCareerUpdateChecklist(date = new Date()): CareerUpdateChecklist {
+  return {
+    projects: false,
+    metrics: false,
+    roleChanges: false,
+    interviewFeedback: false,
+    skills: false,
+    notes: '',
+    updatedAt: date.toISOString(),
+  }
+}
+
+function normalizeCareerUpdateChecklist(checklist: Partial<CareerUpdateChecklist> = {}, fallback: Partial<CareerUpdateChecklist> = {}): CareerUpdateChecklist {
+  return {
+    ...defaultCareerUpdateChecklist(),
+    ...fallback,
+    projects: Boolean(checklist.projects ?? fallback.projects),
+    metrics: Boolean(checklist.metrics ?? fallback.metrics),
+    roleChanges: Boolean(checklist.roleChanges ?? fallback.roleChanges),
+    interviewFeedback: Boolean(checklist.interviewFeedback ?? fallback.interviewFeedback),
+    skills: Boolean(checklist.skills ?? fallback.skills),
+    notes: checklist.notes ?? fallback.notes ?? '',
+    updatedAt: checklist.updatedAt ?? fallback.updatedAt ?? new Date().toISOString(),
+  }
+}
+
 function normalizeApplication(app: Partial<JobApplication>, fallbackResume: ResumeDocument): JobApplication {
   const now = new Date().toISOString()
   const company = app.company?.trim() || 'Untitled company'
@@ -311,6 +342,15 @@ function normalizeDocument(doc: Partial<ResumeDocument>): ResumeDocument {
     title: doc.title?.trim() || data.personal.title || data.personal.name || 'Untitled resume',
     data,
     config: mergeConfig(doc.config ?? {}),
+    folder: doc.folder?.trim() || 'General',
+    targetRole: doc.targetRole?.trim() || '',
+    targetCompany: doc.targetCompany?.trim() || '',
+    tags: normalizeTags(doc.tags),
+    sourceResumeId: doc.sourceResumeId,
+    sourceResumeTitle: doc.sourceResumeTitle,
+    favorite: Boolean(doc.favorite),
+    archived: Boolean(doc.archived),
+    careerUpdateChecklist: normalizeCareerUpdateChecklist(doc.careerUpdateChecklist),
     createdAt: doc.createdAt ?? now,
     updatedAt: doc.updatedAt ?? now,
     lastCareerUpdateAt: doc.lastCareerUpdateAt ?? doc.updatedAt ?? now,
@@ -338,6 +378,13 @@ export const useResumeStore = defineStore('resume', () => {
     title: legacyData.personal.title || legacyData.personal.name || '主简历',
     data: clone(legacyData),
     config: clone(legacyConfig),
+    folder: 'General',
+    targetRole: legacyData.personal.title || '',
+    targetCompany: '',
+    tags: [],
+    favorite: false,
+    archived: false,
+    careerUpdateChecklist: defaultCareerUpdateChecklist(now),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     lastCareerUpdateAt: now.toISOString(),
@@ -824,6 +871,15 @@ export const useResumeStore = defineStore('resume', () => {
           }
         : clone(data.value),
       config: blank ? clone(defaultConfig) : clone(config.value),
+      folder: blank ? 'General' : activeDocument.value.folder,
+      targetRole: blank ? '' : activeDocument.value.targetRole,
+      targetCompany: '',
+      tags: blank ? [] : [...activeDocument.value.tags],
+      sourceResumeId: blank ? undefined : sourceId,
+      sourceResumeTitle: blank ? undefined : sourceTitle,
+      favorite: false,
+      archived: false,
+      careerUpdateChecklist: defaultCareerUpdateChecklist(created),
       createdAt: created.toISOString(),
       updatedAt: created.toISOString(),
       lastCareerUpdateAt: created.toISOString(),
@@ -845,6 +901,10 @@ export const useResumeStore = defineStore('resume', () => {
         blank,
         sourceId: blank ? undefined : sourceId,
         title: doc.title,
+        folder: doc.folder,
+        targetRole: doc.targetRole,
+        targetCompany: doc.targetCompany,
+        tags: doc.tags,
       })).then((serverDoc) => {
         if (serverDoc) replaceDocument(doc.id, serverDoc)
       }).finally(() => {
@@ -864,6 +924,11 @@ export const useResumeStore = defineStore('resume', () => {
       ...clone(source),
       id: newId(),
       title: `${source.title} Copy`,
+      sourceResumeId: source.id,
+      sourceResumeTitle: source.title,
+      favorite: false,
+      archived: false,
+      careerUpdateChecklist: defaultCareerUpdateChecklist(created),
       createdAt: created.toISOString(),
       updatedAt: created.toISOString(),
     }
@@ -877,6 +942,7 @@ export const useResumeStore = defineStore('resume', () => {
         suppressBackendSync = false
       })
     }
+    return doc
   }
 
   function deleteResume(id: string) {
@@ -920,12 +986,52 @@ export const useResumeStore = defineStore('resume', () => {
     void runBackendSync(() => backendApi.updateResume(id, { title: doc.title }))
   }
 
+  function updateResumeMetadata(id: string, patch: Partial<Pick<ResumeDocument, 'folder' | 'targetRole' | 'targetCompany' | 'tags' | 'favorite' | 'archived'>>) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (!doc) return
+    if (patch.folder !== undefined) doc.folder = patch.folder.trim() || 'General'
+    if (patch.targetRole !== undefined) doc.targetRole = patch.targetRole.trim()
+    if (patch.targetCompany !== undefined) doc.targetCompany = patch.targetCompany.trim()
+    if (patch.tags !== undefined) doc.tags = normalizeTags(patch.tags)
+    if (patch.favorite !== undefined) doc.favorite = patch.favorite
+    if (patch.archived !== undefined) doc.archived = patch.archived
+    doc.updatedAt = new Date().toISOString()
+    logActivity({
+      type: 'resume',
+      tag: 'meta',
+      message: `Updated resume metadata: ${doc.title}`,
+      messageZh: `更新简历管理信息：${doc.title}`,
+      messageEn: `Updated resume metadata: ${doc.title}`,
+      meta: doc.folder || doc.title,
+      resumeId: doc.id,
+    })
+    void runBackendSync(() => backendApi.updateResume(id, {
+      folder: doc.folder,
+      targetRole: doc.targetRole,
+      targetCompany: doc.targetCompany,
+      tags: doc.tags,
+      favorite: doc.favorite,
+      archived: doc.archived,
+    }))
+  }
+
+  function toggleResumeFavorite(id: string) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (doc) updateResumeMetadata(id, { favorite: !doc.favorite })
+  }
+
+  function toggleResumeArchive(id: string) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (doc) updateResumeMetadata(id, { archived: !doc.archived })
+  }
+
   function markCareerUpdated(id = activeResumeId.value, shouldLog = true) {
     const doc = documents.value.find((item) => item.id === id)
     if (!doc) return
     const updated = new Date()
     doc.lastCareerUpdateAt = updated.toISOString()
     doc.nextCareerUpdateAt = addDays(updated, 14).toISOString()
+    doc.careerUpdateChecklist = defaultCareerUpdateChecklist(updated)
     doc.updatedAt = updated.toISOString()
     if (shouldLog) {
       logActivity({ type: 'resume', tag: 'career', message: 'Recorded biweekly career update', messageZh: '记录双周职业经历更新', messageEn: 'Recorded biweekly career update', meta: doc.title, resumeId: id })
@@ -933,6 +1039,24 @@ export const useResumeStore = defineStore('resume', () => {
     void runBackendSync(() => backendApi.markCareerUpdated(id)).then((serverDoc) => {
       if (serverDoc) replaceDocument(id, serverDoc)
     })
+  }
+
+  function updateCareerChecklist(id: string, patch: Partial<CareerUpdateChecklist>) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (!doc) return
+    doc.careerUpdateChecklist = normalizeCareerUpdateChecklist({
+      ...doc.careerUpdateChecklist,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    }, doc.careerUpdateChecklist)
+    doc.updatedAt = new Date().toISOString()
+    void runBackendSync(() => backendApi.updateResume(id, {
+      careerUpdateChecklist: doc.careerUpdateChecklist,
+    }))
+  }
+
+  function setCareerChecklistItem(id: string, key: CareerUpdateKey, value: boolean) {
+    updateCareerChecklist(id, { [key]: value } as Partial<CareerUpdateChecklist>)
   }
 
   function daysUntilCareerUpdate(id = activeResumeId.value) {
@@ -951,6 +1075,15 @@ export const useResumeStore = defineStore('resume', () => {
           ...doc,
           data: { ...clone(defaultResume), ...doc.data },
           config: mergeConfig(doc.config ?? {}),
+          folder: doc.folder?.trim() || 'General',
+          targetRole: doc.targetRole?.trim() || '',
+          targetCompany: doc.targetCompany?.trim() || '',
+          tags: normalizeTags(doc.tags),
+          sourceResumeId: doc.sourceResumeId,
+          sourceResumeTitle: doc.sourceResumeTitle,
+          favorite: Boolean(doc.favorite),
+          archived: Boolean(doc.archived),
+          careerUpdateChecklist: normalizeCareerUpdateChecklist(doc.careerUpdateChecklist),
           lastCareerUpdateAt: doc.lastCareerUpdateAt ?? doc.updatedAt ?? new Date().toISOString(),
           nextCareerUpdateAt: doc.nextCareerUpdateAt ?? addDays(new Date(doc.updatedAt ?? new Date()), 14).toISOString(),
         }))
@@ -1058,7 +1191,12 @@ export const useResumeStore = defineStore('resume', () => {
     deleteResume,
     selectResume,
     renameResume,
+    updateResumeMetadata,
+    toggleResumeFavorite,
+    toggleResumeArchive,
     markCareerUpdated,
+    updateCareerChecklist,
+    setCareerChecklistItem,
     daysUntilCareerUpdate,
     addApplication,
     updateApplication,

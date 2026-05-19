@@ -94,6 +94,15 @@ export function createStore(options = {}) {
           title: input.title?.trim() || (blank ? 'Untitled resume' : `${source.title} Copy`),
           data: blank ? structuredClone(BLANK_RESUME_DATA) : structuredClone(source.data),
           config: blank ? structuredClone(DEFAULT_CONFIG) : structuredClone(source.config),
+          folder: String(input.folder ?? (blank ? 'General' : source.folder ?? 'General')),
+          targetRole: String(input.targetRole ?? (blank ? '' : source.targetRole ?? '')),
+          targetCompany: String(input.targetCompany ?? ''),
+          tags: normalizeTags(input.tags ?? (blank ? [] : source.tags)),
+          sourceResumeId: blank ? undefined : source.id,
+          sourceResumeTitle: blank ? undefined : source.title,
+          favorite: Boolean(input.favorite ?? false),
+          archived: Boolean(input.archived ?? false),
+          careerUpdateChecklist: defaultCareerUpdateChecklist(),
           createdAt: created.toISOString(),
           updatedAt: created.toISOString(),
           lastCareerUpdateAt: created.toISOString(),
@@ -120,6 +129,17 @@ export function createStore(options = {}) {
         if (patch.title !== undefined) doc.title = patch.title.trim() || doc.title
         if (patch.data !== undefined) doc.data = normalizeResumeData(patch.data)
         if (patch.config !== undefined) doc.config = normalizeConfig(patch.config)
+        if (patch.folder !== undefined) doc.folder = String(patch.folder).trim()
+        if (patch.targetRole !== undefined) doc.targetRole = String(patch.targetRole).trim()
+        if (patch.targetCompany !== undefined) doc.targetCompany = String(patch.targetCompany).trim()
+        if (patch.tags !== undefined) doc.tags = normalizeTags(patch.tags)
+        if (patch.sourceResumeId !== undefined) doc.sourceResumeId = String(patch.sourceResumeId).trim() || undefined
+        if (patch.sourceResumeTitle !== undefined) doc.sourceResumeTitle = String(patch.sourceResumeTitle).trim() || undefined
+        if (patch.favorite !== undefined) doc.favorite = Boolean(patch.favorite)
+        if (patch.archived !== undefined) doc.archived = Boolean(patch.archived)
+        if (patch.careerUpdateChecklist !== undefined) {
+          doc.careerUpdateChecklist = normalizeCareerUpdateChecklist(patch.careerUpdateChecklist, doc.careerUpdateChecklist)
+        }
         doc.updatedAt = new Date().toISOString()
         syncApplicationResumeTitles(state, doc)
         log(state, {
@@ -176,6 +196,7 @@ export function createStore(options = {}) {
         const now = new Date()
         doc.lastCareerUpdateAt = now.toISOString()
         doc.nextCareerUpdateAt = addDays(now, 14).toISOString()
+        doc.careerUpdateChecklist = defaultCareerUpdateChecklist(now)
         doc.updatedAt = now.toISOString()
         log(state, {
           type: 'resume',
@@ -302,6 +323,15 @@ export function createStore(options = {}) {
           title: draft.title?.trim() || 'Platform resume draft',
           data: normalizeResumeData(draft.data),
           config: normalizeConfig(draft.config),
+          folder: 'Generated',
+          targetRole: String(input.jobDescription?.title ?? ''),
+          targetCompany: String(input.jobDescription?.company ?? ''),
+          tags: normalizeTags([input.jobDescription?.title, input.jobDescription?.company, 'platform'].filter(Boolean)),
+          sourceResumeId: undefined,
+          sourceResumeTitle: undefined,
+          favorite: false,
+          archived: false,
+          careerUpdateChecklist: defaultCareerUpdateChecklist(),
           createdAt: created.toISOString(),
           updatedAt: created.toISOString(),
           lastCareerUpdateAt: created.toISOString(),
@@ -398,10 +428,50 @@ export function normalizeDocument(doc = {}) {
     title: doc.title?.trim() || data.personal.title || data.personal.name || 'Untitled resume',
     data,
     config: normalizeConfig(doc.config),
+    folder: String(doc.folder ?? 'General'),
+    targetRole: String(doc.targetRole ?? ''),
+    targetCompany: String(doc.targetCompany ?? ''),
+    tags: normalizeTags(doc.tags),
+    sourceResumeId: doc.sourceResumeId ? String(doc.sourceResumeId) : undefined,
+    sourceResumeTitle: doc.sourceResumeTitle ? String(doc.sourceResumeTitle) : undefined,
+    favorite: Boolean(doc.favorite),
+    archived: Boolean(doc.archived),
+    careerUpdateChecklist: normalizeCareerUpdateChecklist(doc.careerUpdateChecklist),
     createdAt: doc.createdAt || now,
     updatedAt: doc.updatedAt || now,
     lastCareerUpdateAt: doc.lastCareerUpdateAt || doc.updatedAt || now,
     nextCareerUpdateAt: doc.nextCareerUpdateAt || addDays(new Date(doc.updatedAt || now), 14).toISOString(),
+  }
+}
+
+function normalizeTags(tags = []) {
+  if (!Array.isArray(tags)) return []
+  return [...new Set(tags.map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 12)
+}
+
+function defaultCareerUpdateChecklist(date = new Date()) {
+  return {
+    projects: false,
+    metrics: false,
+    roleChanges: false,
+    interviewFeedback: false,
+    skills: false,
+    notes: '',
+    updatedAt: date.toISOString(),
+  }
+}
+
+function normalizeCareerUpdateChecklist(checklist = {}, fallback = {}) {
+  return {
+    ...defaultCareerUpdateChecklist(),
+    ...fallback,
+    projects: Boolean(checklist.projects ?? fallback.projects),
+    metrics: Boolean(checklist.metrics ?? fallback.metrics),
+    roleChanges: Boolean(checklist.roleChanges ?? fallback.roleChanges),
+    interviewFeedback: Boolean(checklist.interviewFeedback ?? fallback.interviewFeedback),
+    skills: Boolean(checklist.skills ?? fallback.skills),
+    notes: String(checklist.notes ?? fallback.notes ?? ''),
+    updatedAt: String(checklist.updatedAt ?? fallback.updatedAt ?? new Date().toISOString()),
   }
 }
 
@@ -558,6 +628,14 @@ function toDocumentSummary(doc) {
     locale: doc.config.locale,
     personalName: doc.data.personal.name,
     personalTitle: doc.data.personal.title,
+    folder: doc.folder,
+    targetRole: doc.targetRole,
+    targetCompany: doc.targetCompany,
+    tags: doc.tags,
+    sourceResumeId: doc.sourceResumeId,
+    sourceResumeTitle: doc.sourceResumeTitle,
+    favorite: doc.favorite,
+    archived: doc.archived,
     experienceCount: doc.data.experience.length,
     projectCount: doc.data.projects.length,
     updatedAt: doc.updatedAt,

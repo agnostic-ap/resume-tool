@@ -4,12 +4,35 @@ export const createResumeSchema = z.object({
   title: z.string().trim().min(1).optional(),
   blank: z.boolean().optional(),
   sourceId: z.string().optional(),
+  folder: z.string().optional(),
+  targetRole: z.string().optional(),
+  targetCompany: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  favorite: z.boolean().optional(),
+  archived: z.boolean().optional(),
 })
 
 export const updateResumeSchema = z.object({
   title: z.string().trim().min(1).optional(),
   data: z.record(z.string(), z.unknown()).optional(),
   config: z.record(z.string(), z.unknown()).optional(),
+  folder: z.string().optional(),
+  targetRole: z.string().optional(),
+  targetCompany: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  sourceResumeId: z.string().optional(),
+  sourceResumeTitle: z.string().optional(),
+  favorite: z.boolean().optional(),
+  archived: z.boolean().optional(),
+  careerUpdateChecklist: z.object({
+    projects: z.boolean().optional(),
+    metrics: z.boolean().optional(),
+    roleChanges: z.boolean().optional(),
+    interviewFeedback: z.boolean().optional(),
+    skills: z.boolean().optional(),
+    notes: z.string().optional(),
+    updatedAt: z.string().optional(),
+  }).optional(),
 })
 
 export const createApplicationSchema = z.object({

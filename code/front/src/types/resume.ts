@@ -79,11 +79,32 @@ export interface ResumeData {
   certifications: Certification[]
 }
 
+export type CareerUpdateKey = 'projects' | 'metrics' | 'roleChanges' | 'interviewFeedback' | 'skills'
+
+export interface CareerUpdateChecklist {
+  projects: boolean
+  metrics: boolean
+  roleChanges: boolean
+  interviewFeedback: boolean
+  skills: boolean
+  notes: string
+  updatedAt?: string
+}
+
 export interface ResumeDocument {
   id: string
   title: string
   data: ResumeData
   config: ResumeConfig
+  folder: string
+  targetRole: string
+  targetCompany: string
+  tags: string[]
+  sourceResumeId?: string
+  sourceResumeTitle?: string
+  favorite: boolean
+  archived: boolean
+  careerUpdateChecklist: CareerUpdateChecklist
   createdAt: string
   updatedAt: string
   lastCareerUpdateAt: string

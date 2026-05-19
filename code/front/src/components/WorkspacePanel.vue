@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ActivityEvent, ApplicationStage, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ActivityEvent, ApplicationStage, CareerUpdateKey, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
@@ -10,6 +10,7 @@ import { backendApi, type PlatformResumeDraft } from '../api/backend'
 
 type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
 type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
+type DocumentFilter = 'active' | 'favorites' | 'archived' | 'all'
 
 const props = withDefaults(defineProps<{ mode?: AppView }>(), { mode: 'workspace' })
 const emit = defineEmits<{
@@ -83,6 +84,40 @@ const assistantSuggestions = ref<AssistantSuggestion[]>([
 ])
 
 const documents = computed(() => store.documents)
+const documentFilter = ref<DocumentFilter>('active')
+const metaEditId = ref('')
+const metaDraft = reactive({
+  folder: '',
+  targetRole: '',
+  targetCompany: '',
+  tags: '',
+})
+
+const visibleDocuments = computed(() => {
+  if (documentFilter.value === 'favorites') return documents.value.filter((doc) => doc.favorite && !doc.archived)
+  if (documentFilter.value === 'archived') return documents.value.filter((doc) => doc.archived)
+  if (documentFilter.value === 'all') return documents.value
+  return documents.value.filter((doc) => !doc.archived)
+})
+
+const documentFilters = computed<Array<{ id: DocumentFilter; label: string; count: number }>>(() => [
+  { id: 'active', label: label('活跃', 'Active'), count: documents.value.filter((doc) => !doc.archived).length },
+  { id: 'favorites', label: label('收藏', 'Favorites'), count: documents.value.filter((doc) => doc.favorite && !doc.archived).length },
+  { id: 'archived', label: label('归档', 'Archived'), count: documents.value.filter((doc) => doc.archived).length },
+  { id: 'all', label: label('全部', 'All'), count: documents.value.length },
+])
+
+const careerChecklistItems: { key: CareerUpdateKey; zh: string; en: string }[] = [
+  { key: 'projects', zh: '新增项目 / 交付物', en: 'New projects / shipped work' },
+  { key: 'metrics', zh: '补充量化结果', en: 'Add measurable outcomes' },
+  { key: 'roleChanges', zh: '职责或职级变化', en: 'Role or scope changes' },
+  { key: 'interviewFeedback', zh: '面试反馈沉淀', en: 'Interview feedback notes' },
+  { key: 'skills', zh: '新增技能关键词', en: 'New skill keywords' },
+]
+
+const careerChecklistDone = computed(() =>
+  careerChecklistItems.every((item) => store.activeDocument.careerUpdateChecklist[item.key]),
+)
 
 const careerUpdateDays = computed(() => store.daysUntilCareerUpdate())
 const careerUpdateLabel = computed(() => {
@@ -375,9 +410,54 @@ function finishRename() {
   renameDraft.value = ''
 }
 
+function startMetadataEdit(id: string) {
+  const doc = store.documents.find((item) => item.id === id)
+  if (!doc) return
+  metaEditId.value = id
+  metaDraft.folder = doc.folder
+  metaDraft.targetRole = doc.targetRole
+  metaDraft.targetCompany = doc.targetCompany
+  metaDraft.tags = doc.tags.join(', ')
+}
+
+function cancelMetadataEdit() {
+  metaEditId.value = ''
+  metaDraft.folder = ''
+  metaDraft.targetRole = ''
+  metaDraft.targetCompany = ''
+  metaDraft.tags = ''
+}
+
+function saveMetadataEdit() {
+  if (!metaEditId.value) return
+  store.updateResumeMetadata(metaEditId.value, {
+    folder: metaDraft.folder,
+    targetRole: metaDraft.targetRole,
+    targetCompany: metaDraft.targetCompany,
+    tags: splitItems(metaDraft.tags),
+  })
+  cancelMetadataEdit()
+  showToast(label('简历标签已更新', 'Resume metadata updated'), 'success')
+}
+
 function duplicateDocument(id: string) {
   store.duplicateResume(id)
   showToast(locale.value === 'zh-CN' ? '已复制一份简历' : 'Resume duplicated', 'success')
+}
+
+function toggleFavoriteDocument(id: string) {
+  store.toggleResumeFavorite(id)
+}
+
+function toggleArchiveDocument(id: string) {
+  const doc = store.documents.find((item) => item.id === id)
+  const wasArchived = Boolean(doc?.archived)
+  store.toggleResumeArchive(id)
+  if (doc?.id === store.activeResumeId && !wasArchived) {
+    const fallback = store.documents.find((item) => item.id !== id && !item.archived)
+    if (fallback) store.selectResume(fallback.id)
+  }
+  showToast(wasArchived ? label('已恢复简历', 'Resume restored') : label('已归档简历', 'Resume archived'), 'success')
 }
 
 function deleteDocument(id: string) {
@@ -398,8 +478,22 @@ function confirmDeleteDocument() {
 }
 
 function recordCareerUpdate() {
+  if (!careerChecklistDone.value) {
+    showToast(label('先完成职业更新清单，再记录本次更新', 'Complete the career checklist before recording this update'), 'error', 4200)
+    return
+  }
   store.markCareerUpdated()
   showToast(locale.value === 'zh-CN' ? '已记录本次职业经历更新，两周后再次提醒' : 'Career update recorded. Next reminder is in two weeks.', 'success', 4000)
+}
+
+function setCareerChecklistItem(key: CareerUpdateKey, value: Event) {
+  const checked = value.target instanceof HTMLInputElement ? value.target.checked : false
+  store.setCareerChecklistItem(store.activeResumeId, key, checked)
+}
+
+function setCareerChecklistNotes(value: Event) {
+  const notes = value.target instanceof HTMLTextAreaElement ? value.target.value : ''
+  store.updateCareerChecklist(store.activeResumeId, { notes })
 }
 
 function setTemplate(id: TemplateId) {
@@ -792,19 +886,56 @@ function matchClass(score: number) {
             <span>{{ locale === 'zh-CN' ? '职业经历双周更新' : 'Biweekly career update' }}</span>
             <strong>{{ careerUpdateLabel }}</strong>
             <p>{{ locale === 'zh-CN' ? '建议每两周补充一次新项目、职责变化、成果数字或面试反馈。' : 'Every two weeks, add new projects, responsibility changes, measurable outcomes, or interview feedback.' }}</p>
+            <div class="career-checklist">
+              <label v-for="item in careerChecklistItems" :key="item.key">
+                <input
+                  type="checkbox"
+                  :checked="store.activeDocument.careerUpdateChecklist[item.key]"
+                  @change="setCareerChecklistItem(item.key, $event)" />
+                <span>{{ label(item.zh, item.en) }}</span>
+              </label>
+              <textarea
+                :value="store.activeDocument.careerUpdateChecklist.notes"
+                rows="2"
+                :placeholder="label('本轮更新备注：新增项目、面试反馈或技能变化', 'Update notes: projects, feedback, or skill changes')"
+                @input="setCareerChecklistNotes" />
+            </div>
           </div>
-          <button @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '我已更新' : 'I updated it' }}</button>
+          <button :class="{ ready: careerChecklistDone }" @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '我已更新' : 'I updated it' }}</button>
+        </div>
+        <div class="doc-filter">
+          <button
+            v-for="filter in documentFilters"
+            :key="filter.id"
+            :class="{ on: documentFilter === filter.id }"
+            @click="documentFilter = filter.id">
+            {{ filter.label }}<span>{{ filter.count }}</span>
+          </button>
         </div>
         <div class="docs">
-          <article v-for="doc in documents" :key="doc.id" class="doc" :class="{ active: doc.id === store.activeResumeId }" @click="openDocument(doc.id)">
+          <article v-for="doc in visibleDocuments" :key="doc.id" class="doc" :class="{ active: doc.id === store.activeResumeId, archived: doc.archived }" @click="openDocument(doc.id)">
             <div class="doc__head">
-              <span class="lang">{{ doc.config.locale === 'zh-CN' ? 'ZH' : 'EN' }}</span>
+              <span class="lang">{{ doc.favorite ? '★' : doc.config.locale === 'zh-CN' ? 'ZH' : 'EN' }}</span>
               <span class="menu">{{ doc.id === store.activeResumeId ? 'LIVE' : '···' }}</span>
             </div>
             <div>
               <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @keydown.esc="cancelRename" @blur="finishRename" />
               <div v-else class="doc__title">{{ doc.title }}</div>
-              <div class="doc__role">{{ t(doc.config.templateId) }} · {{ doc.data.personal.title || doc.data.personal.name || label('未命名', 'Untitled') }}</div>
+              <div class="doc__role">{{ doc.folder }} · {{ doc.targetCompany || doc.targetRole || doc.data.personal.title || label('未命名', 'Untitled') }}</div>
+              <div v-if="doc.sourceResumeTitle" class="doc__source">{{ label('来源', 'From') }} · {{ doc.sourceResumeTitle }}</div>
+              <div v-if="doc.tags.length" class="doc-tags">
+                <span v-for="tag in doc.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
+            <div v-if="metaEditId === doc.id" class="doc-meta-edit" @click.stop>
+              <input v-model="metaDraft.folder" :placeholder="label('文件夹', 'Folder')" />
+              <input v-model="metaDraft.targetCompany" :placeholder="label('目标公司', 'Target company')" />
+              <input v-model="metaDraft.targetRole" :placeholder="label('目标岗位', 'Target role')" />
+              <input v-model="metaDraft.tags" :placeholder="label('标签，用逗号分隔', 'Tags, comma-separated')" />
+              <div>
+                <button @click="saveMetadataEdit">{{ label('保存', 'Save') }}</button>
+                <button @click="cancelMetadataEdit">{{ label('取消', 'Cancel') }}</button>
+              </div>
             </div>
             <div class="doc__sig">{{ (doc.data.personal.name || doc.title || 'R').slice(0, 1) }}</div>
             <div class="doc__meta">
@@ -815,8 +946,11 @@ function matchClass(score: number) {
               <span class="push">{{ locale === 'zh-CN' ? '更新' : 'due' }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}{{ locale === 'zh-CN' ? '天' : 'd' }}</span>
             </div>
             <div class="doc-actions" @click.stop>
+              <button @click="toggleFavoriteDocument(doc.id)">{{ doc.favorite ? label('取消收藏', 'Unstar') : label('收藏', 'Star') }}</button>
               <button @click="startRename(doc.id, doc.title)">{{ locale === 'zh-CN' ? '重命名' : 'Rename' }}</button>
+              <button @click="startMetadataEdit(doc.id)">{{ label('标签', 'Meta') }}</button>
               <button @click="duplicateDocument(doc.id)">{{ locale === 'zh-CN' ? '复制' : 'Copy' }}</button>
+              <button @click="toggleArchiveDocument(doc.id)">{{ doc.archived ? label('恢复', 'Restore') : label('归档', 'Archive') }}</button>
               <button class="danger-link" @click="deleteDocument(doc.id)">{{ locale === 'zh-CN' ? '删除' : 'Delete' }}</button>
             </div>
           </article>

@@ -15,10 +15,10 @@ This file tracks product and engineering work that should not get lost while ite
 
 - [x] Application pipeline: add next action, follow-up date, recruiter/contact, job post URL, and JD archive fields.
 - [x] Application pipeline: add quick action from a generated JD draft to create or update an application record.
-- [ ] Resume documents: add tags or folders for target role/company so multiple resumes remain manageable.
-- [ ] Resume documents: show generated-from relationship, for example `Base Resume -> Stripe JD Draft`.
-- [ ] Resume documents: add archive/favorite states instead of only delete/copy.
-- [ ] Career update: turn the biweekly update into an actionable checklist for new projects, metrics, role changes, interview feedback, and skills.
+- [x] Resume documents: add tags or folders for target role/company so multiple resumes remain manageable.
+- [x] Resume documents: show generated-from relationship, for example `Base Resume -> Stripe JD Draft`.
+- [x] Resume documents: add archive/favorite states instead of only delete/copy.
+- [x] Career update: turn the biweekly update into an actionable checklist for new projects, metrics, role changes, interview feedback, and skills.
 - [ ] Export: improve page-break warnings and overflow detection before PDF export.
 
 ## P1 - UX Polish

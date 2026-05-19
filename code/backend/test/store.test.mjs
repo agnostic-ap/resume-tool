@@ -22,15 +22,37 @@ test('creates, updates, selects, and deletes resume documents', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   try {
     const store = createStore({ dataDir: dir })
-    const created = await store.createDocument({ blank: true, title: 'Backend Resume' })
+    const created = await store.createDocument({
+      blank: true,
+      title: 'Backend Resume',
+      folder: 'Backend',
+      targetRole: 'Platform Engineer',
+      targetCompany: 'FutureHire',
+      tags: ['api', 'backend', 'api'],
+    })
     assert.equal(created.title, 'Backend Resume')
+    assert.equal(created.folder, 'Backend')
+    assert.deepEqual(created.tags, ['api', 'backend'])
 
     const updated = await store.updateDocument(created.id, {
       title: 'Backend Resume v2',
       data: { personal: { name: 'Alex', title: 'Platform Engineer' } },
+      favorite: true,
+      archived: true,
+      careerUpdateChecklist: {
+        projects: true,
+        metrics: true,
+        roleChanges: true,
+        interviewFeedback: true,
+        skills: true,
+        notes: 'Added backend metrics.',
+      },
     })
     assert.equal(updated.title, 'Backend Resume v2')
     assert.equal(updated.data.personal.name, 'Alex')
+    assert.equal(updated.favorite, true)
+    assert.equal(updated.archived, true)
+    assert.equal(updated.careerUpdateChecklist.notes, 'Added backend metrics.')
 
     const selected = await store.selectDocument(created.id)
     assert.equal(selected.id, created.id)
@@ -60,6 +82,8 @@ test('protects resume deletion edges and relinks applications', async () => {
     })
     const copy = await store.createDocument({ sourceId: source.id, title: 'Source Copy' })
     assert.equal(copy.data.personal.name, source.data.personal.name)
+    assert.equal(copy.sourceResumeId, source.id)
+    assert.equal(copy.sourceResumeTitle, source.title)
 
     await assert.rejects(
       () => store.deleteDocument('missing-resume'),
