@@ -24,6 +24,14 @@ const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
 const editorTweaksOpen = ref(false)
 
+const resumeColorPresets = [
+  { hex: '#C65A3A', label: 'Terracotta' },
+  { hex: '#6F7F45', label: 'Olive' },
+  { hex: '#31566A', label: 'Deep teal' },
+  { hex: '#8F4F3F', label: 'Cedar' },
+  { hex: '#3A2A22', label: 'Walnut' },
+]
+
 const activeSections = computed(() =>
   store.config.sectionOrder.filter((id) => store.config.sectionVisible[id]).length,
 )
@@ -115,6 +123,12 @@ function runCommand(command: string) {
   }
 }
 
+function resetResumeAppearance() {
+  store.setThemeColor('#C65A3A')
+  store.config.fontSize = 14
+  showToast(l('简历外观已恢复默认', 'Resume appearance reset'), 'success')
+}
+
 function syncHash() {
   const hash = window.location.hash.replace('#', '') as AppView
   if (hash && viewTitle[hash]) currentView.value = hash
@@ -189,6 +203,35 @@ onUnmounted(() => {
             <i :style="{ width: `${store.completeness}%` }" />
           </div>
           <p>{{ primaryAdvice }}</p>
+        </div>
+
+        <div class="inspector-card resume-style-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('简历风格', 'Resume style') }}</span>
+            <button @click="resetResumeAppearance">{{ l('重置', 'Reset') }}</button>
+          </div>
+          <label class="inspector-field">
+            <span>{{ t('themeColor') }}</span>
+            <input type="color" :value="store.config.themeColor" @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)" />
+          </label>
+          <div class="inspector-swatches">
+            <button v-for="color in resumeColorPresets" :key="color.hex"
+              :class="{ on: store.config.themeColor.toLowerCase() === color.hex.toLowerCase() }"
+              :style="{ background: color.hex }"
+              :title="color.label"
+              @click="store.setThemeColor(color.hex)"></button>
+          </div>
+          <label class="inspector-field">
+            <span>{{ t('fontSize') }}</span>
+            <input type="range" min="12" max="18" :value="store.config.fontSize"
+              @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
+            <small>{{ store.config.fontSize }}px</small>
+          </label>
+          <div class="resume-mini-preview">
+            <b :style="{ color: store.config.themeColor }">{{ store.data.personal.name || l('你的姓名', 'Your name') }}</b>
+            <i :style="{ background: store.config.themeColor }"></i>
+            <span>{{ l('影响预览和 PDF', 'Preview and PDF only') }}</span>
+          </div>
         </div>
 
         <div class="inspector-card">

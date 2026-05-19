@@ -244,14 +244,6 @@ const papers: { id: TweakPaper; hex: string; label: string }[] = [
   { id: 'newsprint', hex: '#F3EADC', label: 'Newsprint' },
 ]
 
-const resumeColorPresets = [
-  { hex: '#C65A3A', label: 'Terracotta' },
-  { hex: '#6F7F45', label: 'Olive' },
-  { hex: '#31566A', label: 'Deep teal' },
-  { hex: '#8F4F3F', label: 'Cedar' },
-  { hex: '#3A2A22', label: 'Walnut' },
-]
-
 const interfaceFonts: { id: TweakFont; name: string; meta: string; className: string }[] = [
   { id: 'serif', name: 'Serif', meta: 'editorial · warm', className: 'serif-stack' },
   { id: 'sans', name: 'Sans', meta: 'neutral · crisp', className: 'sans-stack' },
@@ -516,12 +508,6 @@ function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[
 function resetStudioTheme() {
   store.resetStudioTheme()
   showToast(locale.value === 'zh-CN' ? '页面主题已恢复默认' : 'Page theme reset to defaults', 'success')
-}
-
-function resetResumeAppearance() {
-  store.setThemeColor('#C65A3A')
-  store.config.fontSize = 14
-  showToast(label('简历外观已恢复默认', 'Resume appearance reset'), 'success')
 }
 
 function splitItems(value: string) {
@@ -1343,45 +1329,6 @@ function matchClass(score: number) {
                     :class="{ on: store.config.studioTheme.density === density }"
                     @click="setStudioTheme('density', density)">{{ density }}</button>
                 </div>
-              </div>
-            </div>
-          </section>
-
-          <section class="settings-card settings-card--resume">
-            <div class="settings-card__head">
-              <div>
-                <em>{{ label('简历风格', 'Resume style') }}</em>
-                <span>{{ label('简历模板外观', 'Resume template appearance') }}</span>
-                <strong>{{ label('只影响当前简历预览和 PDF，不会改变网站界面', 'Only affects the active resume preview and PDF. It will not change the website UI.') }}</strong>
-              </div>
-              <button class="btn btn--ghost" @click="resetResumeAppearance">{{ label('恢复默认', 'Reset') }}</button>
-            </div>
-            <label class="settings-field">
-              <span>{{ t('themeColor') }}</span>
-              <small>{{ label('用于简历标题、分割线和模板色块', 'Used by resume headings, rules, and template color blocks') }}</small>
-              <div class="resume-color-control">
-                <input type="color" :value="store.config.themeColor" @input="(e) => store.setThemeColor((e.target as HTMLInputElement).value)" />
-                <div class="settings-swatches">
-                  <button v-for="color in resumeColorPresets" :key="color.hex"
-                    class="settings-swatch"
-                    :class="{ on: store.config.themeColor.toLowerCase() === color.hex.toLowerCase() }"
-                    :style="{ background: color.hex }"
-                    :title="color.label"
-                    @click="store.setThemeColor(color.hex)"></button>
-                </div>
-              </div>
-            </label>
-            <label class="settings-field">
-              <span>{{ t('fontSize') }}</span>
-              <input type="range" min="12" max="18" :value="store.config.fontSize"
-                @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
-              <small>{{ store.config.fontSize }}px</small>
-            </label>
-            <div class="resume-style-preview">
-              <div class="resume-style-preview__paper">
-                <b :style="{ color: store.config.themeColor }">{{ store.data.personal.name || label('你的姓名', 'Your name') }}</b>
-                <i :style="{ background: store.config.themeColor }"></i>
-                <span>{{ label('简历模板预览', 'Resume template preview') }}</span>
               </div>
             </div>
           </section>

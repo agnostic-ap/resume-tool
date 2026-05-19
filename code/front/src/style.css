@@ -2212,56 +2212,6 @@ button:disabled {
     var(--surface);
 }
 
-.settings-card--resume {
-  background:
-    linear-gradient(135deg, rgba(58, 42, 34, 0.04), transparent 44%),
-    var(--surface);
-}
-
-.resume-color-control {
-  display: grid;
-  gap: 10px;
-}
-
-.resume-color-control .settings-swatches {
-  justify-content: flex-start;
-}
-
-.resume-style-preview {
-  padding: 12px;
-  border: 1px solid var(--rule-soft);
-  background: var(--paper-2);
-}
-
-.resume-style-preview__paper {
-  display: grid;
-  gap: 8px;
-  min-height: 120px;
-  padding: 16px;
-  border: 1px solid var(--rule-softer);
-  background: #fff;
-  color: #2a2925;
-  box-shadow: 0 10px 26px rgba(74, 51, 40, 0.10);
-}
-
-.resume-style-preview__paper b {
-  font-family: var(--display);
-  font-size: 19px;
-  font-weight: 600;
-}
-
-.resume-style-preview__paper i {
-  display: block;
-  width: 100%;
-  height: 3px;
-}
-
-.resume-style-preview__paper span {
-  color: #6f6a60;
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
 .settings-danger {
   justify-self: start;
 }
@@ -3164,6 +3114,26 @@ button:disabled {
   border: 1px solid var(--rule-soft);
 }
 
+.inspector-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.inspector-card__head .inspector-eyebrow {
+  margin-bottom: 0;
+}
+
+.inspector-card__head button {
+  border: 0;
+  background: transparent;
+  color: var(--vermillion);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 .inspector-eyebrow {
   display: block;
   margin-bottom: 8px;
@@ -3191,6 +3161,90 @@ button:disabled {
 
 .score-track i {
   background: var(--moss);
+}
+
+.resume-style-card {
+  background:
+    linear-gradient(135deg, rgba(198, 90, 58, 0.07), transparent 46%),
+    var(--surface);
+}
+
+.inspector-field {
+  display: grid;
+  gap: 7px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--rule-softer);
+}
+
+.inspector-field span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.inspector-field small {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.inspector-field input[type="color"] {
+  width: 100%;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.inspector-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--vermillion);
+}
+
+.inspector-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin: 2px 0 8px;
+}
+
+.inspector-swatches button {
+  height: 26px;
+  border: 1px solid var(--rule-soft);
+  box-shadow: inset 0 0 0 3px var(--paper);
+}
+
+.inspector-swatches button.on {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 3px var(--paper), 0 0 0 2px var(--vermillion);
+}
+
+.resume-mini-preview {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--rule-softer);
+  background: #fff;
+  color: #2a2925;
+}
+
+.resume-mini-preview b {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.resume-mini-preview i {
+  display: block;
+  width: 100%;
+  height: 3px;
+}
+
+.resume-mini-preview span {
+  color: #6f6a60;
+  font-family: var(--mono);
+  font-size: 10px;
 }
 
 .score-card p,
