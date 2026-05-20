@@ -22,10 +22,10 @@ const DEFAULT_VISIBLE: Record<SectionId, boolean> = {
 }
 
 export const DEFAULT_TWEAKS: ResumeTweaks = {
-  accent: 'vermillion',
-  paper: 'cream',
+  accent: 'coral',
+  paper: 'stone',
   density: 'cozy',
-  font: 'serif',
+  font: 'sans',
   fontScale: 100,
   showAI: true,
   showTree: true,
@@ -35,10 +35,10 @@ export const DEFAULT_TWEAKS: ResumeTweaks = {
 }
 
 export const DEFAULT_STUDIO_THEME: StudioTheme = {
-  accent: 'vermillion',
-  paper: 'cream',
+  accent: 'coral',
+  paper: 'stone',
   density: 'cozy',
-  font: 'serif',
+  font: 'sans',
   ruleLines: false,
 }
 
@@ -116,6 +116,14 @@ const defaultConfig: ResumeConfig = {
   sectionVisible: { ...DEFAULT_VISIBLE },
   studioTheme: { ...DEFAULT_STUDIO_THEME },
   tweaks: { ...DEFAULT_TWEAKS },
+}
+
+const LEGACY_STUDIO_THEME: StudioTheme = {
+  accent: 'vermillion',
+  paper: 'cream',
+  density: 'cozy',
+  font: 'serif',
+  ruleLines: false,
 }
 
 function isoDateDaysAgo(days: number) {
@@ -405,12 +413,19 @@ function normalizeDocument(doc: Partial<ResumeDocument>): ResumeDocument {
 }
 
 function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
+  const studioTheme = { ...DEFAULT_STUDIO_THEME, ...(saved.studioTheme ?? {}) }
+  const isLegacyStudioTheme = Boolean(saved.studioTheme)
+    && studioTheme.accent === LEGACY_STUDIO_THEME.accent
+    && studioTheme.paper === LEGACY_STUDIO_THEME.paper
+    && studioTheme.density === LEGACY_STUDIO_THEME.density
+    && studioTheme.font === LEGACY_STUDIO_THEME.font
+    && studioTheme.ruleLines === LEGACY_STUDIO_THEME.ruleLines
   return {
     ...defaultConfig,
     ...saved,
     sectionOrder: saved.sectionOrder?.length ? saved.sectionOrder : [...DEFAULT_ORDER],
     sectionVisible: { ...DEFAULT_VISIBLE, ...(saved.sectionVisible ?? {}) },
-    studioTheme: { ...DEFAULT_STUDIO_THEME, ...(saved.studioTheme ?? {}) },
+    studioTheme: isLegacyStudioTheme ? { ...DEFAULT_STUDIO_THEME } : studioTheme,
     tweaks: { ...DEFAULT_TWEAKS, ...(saved.tweaks ?? {}) },
   }
 }

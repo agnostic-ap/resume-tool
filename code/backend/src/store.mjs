@@ -497,6 +497,13 @@ export function normalizeResumeData(data = {}) {
 }
 
 export function normalizeConfig(config = {}) {
+  const studioTheme = { ...DEFAULT_CONFIG.studioTheme, ...(config.studioTheme ?? {}) }
+  const isLegacyStudioTheme = Boolean(config.studioTheme)
+    && studioTheme.accent === 'vermillion'
+    && studioTheme.paper === 'cream'
+    && studioTheme.density === 'cozy'
+    && studioTheme.font === 'serif'
+    && studioTheme.ruleLines === false
   return {
     ...structuredClone(DEFAULT_CONFIG),
     ...config,
@@ -504,7 +511,7 @@ export function normalizeConfig(config = {}) {
       ? config.sectionOrder
       : [...DEFAULT_CONFIG.sectionOrder],
     sectionVisible: { ...DEFAULT_CONFIG.sectionVisible, ...(config.sectionVisible ?? {}) },
-    studioTheme: { ...DEFAULT_CONFIG.studioTheme, ...(config.studioTheme ?? {}) },
+    studioTheme: isLegacyStudioTheme ? { ...DEFAULT_CONFIG.studioTheme } : studioTheme,
     tweaks: { ...DEFAULT_CONFIG.tweaks, ...(config.tweaks ?? {}) },
   }
 }

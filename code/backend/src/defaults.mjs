@@ -21,10 +21,10 @@ export const DEFAULT_VISIBLE = {
 }
 
 export const DEFAULT_TWEAKS = {
-  accent: 'vermillion',
-  paper: 'cream',
+  accent: 'coral',
+  paper: 'stone',
   density: 'cozy',
-  font: 'serif',
+  font: 'sans',
   fontScale: 100,
   showAI: true,
   showTree: true,
@@ -34,10 +34,10 @@ export const DEFAULT_TWEAKS = {
 }
 
 export const DEFAULT_STUDIO_THEME = {
-  accent: 'vermillion',
-  paper: 'cream',
+  accent: 'coral',
+  paper: 'stone',
   density: 'cozy',
-  font: 'serif',
+  font: 'sans',
   ruleLines: false,
 }
 
