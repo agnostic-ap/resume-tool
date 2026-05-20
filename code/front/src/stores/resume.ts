@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState } from '../api/backend'
@@ -145,6 +145,7 @@ function defaultApplications(resumeId: string, resumeTitle: string): JobApplicat
       contactName: 'Recruiting team',
       contactEmail: '',
       jobPostUrl: '',
+      progressLog: normalizeProgressLog(undefined, 'onsite', 'Prepare architecture walkthrough', isoDateDaysAgo(2), now),
       createdAt: now,
       updatedAt: now,
     },
@@ -166,6 +167,7 @@ function defaultApplications(resumeId: string, resumeTitle: string): JobApplicat
       contactName: '',
       contactEmail: '',
       jobPostUrl: '',
+      progressLog: normalizeProgressLog(undefined, 'screen', 'Send backend project examples', isoDateDaysAgo(4), now),
       createdAt: now,
       updatedAt: now,
     },
@@ -187,6 +189,7 @@ function defaultApplications(resumeId: string, resumeTitle: string): JobApplicat
       contactName: '',
       contactEmail: '',
       jobPostUrl: '',
+      progressLog: normalizeProgressLog(undefined, 'offer', 'Review offer details', isoDateDaysAgo(10), now),
       createdAt: now,
       updatedAt: now,
     },
@@ -268,6 +271,8 @@ function normalizeApplication(app: Partial<JobApplication>, fallbackResume: Resu
   const now = new Date().toISOString()
   const company = app.company?.trim() || 'Untitled company'
   const stage = (app.stage || 'saved') as ApplicationStage
+  const appliedAt = app.appliedAt || (stage === 'saved' ? '' : now.slice(0, 10))
+  const progressLog = normalizeProgressLog(app.progressLog, stage, app.nextAction || '', appliedAt || now.slice(0, 10), app.createdAt || now)
   return {
     id: app.id || newId('app'),
     company,
@@ -279,7 +284,7 @@ function normalizeApplication(app: Partial<JobApplication>, fallbackResume: Resu
     resumeTitle: app.resumeTitle || fallbackResume.title,
     stage,
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
-    appliedAt: app.appliedAt || (stage === 'saved' ? '' : now.slice(0, 10)),
+    appliedAt,
     nextAction: app.nextAction || '',
     followUpAt: app.followUpAt || '',
     contactName: app.contactName || '',
@@ -310,9 +315,49 @@ function normalizeApplication(app: Partial<JobApplication>, fallbackResume: Resu
           appliedAt: app.tailoring.appliedAt,
         }
       : undefined,
+    progressLog,
     createdAt: app.createdAt || now,
     updatedAt: app.updatedAt || now,
   }
+}
+
+function stageProgressTitle(stage: ApplicationStage) {
+  const titles: Record<ApplicationStage, string> = {
+    saved: 'Saved role for review',
+    applied: 'Application submitted',
+    screen: 'Screening started',
+    onsite: 'Interview stage',
+    offer: 'Offer received',
+    rejected: 'Closed',
+  }
+  return titles[stage]
+}
+
+function normalizeProgressLog(
+  events: Partial<ApplicationProgressEvent>[] | undefined,
+  stage: ApplicationStage,
+  note: string,
+  happenedAt: string,
+  createdAt: string,
+): ApplicationProgressEvent[] {
+  if (Array.isArray(events) && events.length) {
+    return events.map((event) => ({
+      id: event.id || newId('progress'),
+      stage: (event.stage || stage) as ApplicationStage,
+      title: event.title || stageProgressTitle((event.stage || stage) as ApplicationStage),
+      note: event.note || '',
+      happenedAt: event.happenedAt || happenedAt,
+      createdAt: event.createdAt || createdAt,
+    }))
+  }
+  return [{
+    id: newId('progress'),
+    stage,
+    title: stageProgressTitle(stage),
+    note,
+    happenedAt,
+    createdAt,
+  }]
 }
 
 function normalizeActivity(activity: Partial<ActivityEvent>, fallbackResume: ResumeDocument): ActivityEvent {
@@ -1138,11 +1183,29 @@ export const useResumeStore = defineStore('resume', () => {
     const app = applications.value.find((item) => item.id === id)
     if (!app) return
     const doc = documents.value.find((item) => item.id === (patch.resumeId ?? app.resumeId))
+    const previousStage = app.stage
+    const nextStage = patch.stage ?? app.stage
+    const nextProgressLog = patch.progressLog
+      ? normalizeProgressLog(patch.progressLog, nextStage, patch.nextAction ?? app.nextAction, patch.appliedAt ?? app.appliedAt, new Date().toISOString())
+      : previousStage !== nextStage
+        ? [
+            ...app.progressLog,
+            {
+              id: newId('progress'),
+              stage: nextStage,
+              title: stageProgressTitle(nextStage),
+              note: patch.nextAction ?? app.nextAction,
+              happenedAt: patch.appliedAt || new Date().toISOString().slice(0, 10),
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        : app.progressLog
     Object.assign(app, patch, {
       resumeId: doc?.id ?? patch.resumeId ?? app.resumeId,
       resumeTitle: doc?.title ?? patch.resumeTitle ?? app.resumeTitle,
       companyMono: (patch.companyMono || patch.company?.slice(0, 1) || app.companyMono || 'A').slice(0, 2).toUpperCase(),
       match: Math.max(0, Math.min(100, Number(patch.match ?? app.match))),
+      progressLog: nextProgressLog,
       updatedAt: new Date().toISOString(),
     })
     logActivity({ type: 'application', tag: 'update', message: `Updated application: ${app.company}`, messageZh: `更新投递：${app.company}`, messageEn: `Updated application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })

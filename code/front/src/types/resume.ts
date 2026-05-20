@@ -135,6 +135,15 @@ export interface TailoringMetadata {
   appliedAt?: string
 }
 
+export interface ApplicationProgressEvent {
+  id: string
+  stage: ApplicationStage
+  title: string
+  note: string
+  happenedAt: string
+  createdAt: string
+}
+
 export interface JobApplication {
   id: string
   company: string
@@ -155,6 +164,7 @@ export interface JobApplication {
   notes: string
   jobDescription?: JobDescriptionSnapshot
   tailoring?: TailoringMetadata
+  progressLog: ApplicationProgressEvent[]
   createdAt: string
   updatedAt: string
 }

@@ -285,6 +285,26 @@ onUnmounted(() => {
           <p>{{ primaryAdvice }}</p>
         </div>
 
+        <div class="inspector-card editor-ai-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('AI 编辑助手', 'AI editing assistant') }}</span>
+            <button @click="generateEditorAiAdvice">{{ l('生成', 'Generate') }}</button>
+          </div>
+          <textarea
+            v-model="editorAiPrompt"
+            rows="4"
+            :placeholder="t('aiPlaceholder')"
+            @keydown.meta.enter.prevent="generateEditorAiAdvice"
+            @keydown.ctrl.enter.prevent="generateEditorAiAdvice"></textarea>
+          <div class="editor-ai-suggestions">
+            <button v-for="suggestion in editorAiSuggestions.slice(0, 3)" :key="suggestion.id" @click="applyEditorAiAdvice(suggestion.body)">
+              <b>{{ suggestion.title }}</b>
+              <span>{{ suggestion.body }}</span>
+            </button>
+            <p v-if="!editorAiSuggestions.length">{{ l('输入目标岗位、JD 或想加强的经历，AI 会帮你生成可采纳的编辑建议。', 'Enter a target role, JD, or experience to strengthen. AI will generate advice you can apply.') }}</p>
+          </div>
+        </div>
+
         <div class="inspector-card resume-template-card">
           <div class="inspector-card__head">
             <span class="inspector-eyebrow">{{ t('templates') }}</span>
@@ -317,26 +337,6 @@ onUnmounted(() => {
               </option>
             </select>
           </label>
-        </div>
-
-        <div class="inspector-card editor-ai-card">
-          <div class="inspector-card__head">
-            <span class="inspector-eyebrow">{{ t('coEditor') }}</span>
-            <button @click="generateEditorAiAdvice">{{ l('生成', 'Generate') }}</button>
-          </div>
-          <textarea
-            v-model="editorAiPrompt"
-            rows="4"
-            :placeholder="t('aiPlaceholder')"
-            @keydown.meta.enter.prevent="generateEditorAiAdvice"
-            @keydown.ctrl.enter.prevent="generateEditorAiAdvice"></textarea>
-          <div class="editor-ai-suggestions">
-            <button v-for="suggestion in editorAiSuggestions.slice(0, 3)" :key="suggestion.id" @click="applyEditorAiAdvice(suggestion.body)">
-              <b>{{ suggestion.title }}</b>
-              <span>{{ suggestion.body }}</span>
-            </button>
-            <p v-if="!editorAiSuggestions.length">{{ l('AI 协作现在就在编辑器里：输入目标岗位、JD 或想加强的经历。', 'AI co-editing now lives in the editor: enter a target role, JD, or experience to strengthen.') }}</p>
-          </div>
         </div>
 
         <div class="inspector-card resume-style-card">

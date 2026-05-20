@@ -83,6 +83,8 @@ test('resume store supports saved opportunities before applying', () => {
 
   assert.equal(opportunity.stage, 'saved')
   assert.equal(opportunity.appliedAt, '')
+  assert.equal(opportunity.progressLog.length, 1)
+  assert.equal(opportunity.progressLog[0].stage, 'saved')
 
   store.updateApplication(opportunity.id, {
     stage: 'applied',
@@ -92,6 +94,25 @@ test('resume store supports saved opportunities before applying', () => {
   const updated = store.applications.find((item) => item.id === opportunity.id)!
   assert.equal(updated.stage, 'applied')
   assert.equal(updated.appliedAt, '2026-05-20')
+  assert.equal(updated.progressLog.length, 2)
+  assert.equal(updated.progressLog[1].stage, 'applied')
+
+  store.updateApplication(opportunity.id, {
+    progressLog: [
+      ...updated.progressLog,
+      {
+        id: 'progress-manual',
+        stage: 'applied',
+        title: 'Manual note',
+        note: 'Recruiter replied.',
+        happenedAt: '2026-05-21',
+        createdAt: '2026-05-21T00:00:00.000Z',
+      },
+    ],
+  })
+
+  const withNote = store.applications.find((item) => item.id === opportunity.id)!
+  assert.equal(withNote.progressLog.at(-1)?.note, 'Recruiter replied.')
 })
 
 test('resume store imports and exports normalized workspace data', () => {

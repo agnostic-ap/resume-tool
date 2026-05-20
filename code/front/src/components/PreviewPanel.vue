@@ -5,6 +5,7 @@ import { showToast } from '../composables/toast'
 import TemplateClassic from './templates/TemplateClassic.vue'
 import TemplateModern from './templates/TemplateModern.vue'
 import TemplateSidebar from './templates/TemplateSidebar.vue'
+import TemplateAdaptive from './templates/TemplateAdaptive.vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
 
@@ -30,13 +31,13 @@ const templateComponents: Record<string, any> = {
   classic: TemplateClassic,
   modern:  TemplateModern,
   sidebar: TemplateSidebar,
-  compact: TemplateClassic,
-  executive: TemplateSidebar,
-  creative: TemplateSidebar,
-  academic: TemplateClassic,
-  technical: TemplateModern,
-  product: TemplateModern,
-  minimal: TemplateClassic,
+  compact: TemplateAdaptive,
+  executive: TemplateAdaptive,
+  creative: TemplateAdaptive,
+  academic: TemplateAdaptive,
+  technical: TemplateAdaptive,
+  product: TemplateAdaptive,
+  minimal: TemplateAdaptive,
 }
 const currentTemplate = computed(() => templateComponents[store.config.templateId] ?? TemplateClassic)
 

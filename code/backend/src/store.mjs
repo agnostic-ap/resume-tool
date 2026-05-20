@@ -516,6 +516,7 @@ export function normalizeApplication(app = {}, fallbackDoc) {
   const role = String(app.role ?? '').trim()
   if (!role) throw httpError(400, 'Role is required')
   const stage = ['saved', 'applied', 'screen', 'onsite', 'offer', 'rejected'].includes(app.stage) ? app.stage : 'saved'
+  const appliedAt = app.appliedAt || (stage === 'saved' ? '' : now.slice(0, 10))
   return {
     id: app.id || newId('app'),
     company,
@@ -527,7 +528,7 @@ export function normalizeApplication(app = {}, fallbackDoc) {
     resumeTitle: app.resumeTitle || fallbackDoc.title,
     stage,
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
-    appliedAt: app.appliedAt || (stage === 'saved' ? '' : now.slice(0, 10)),
+    appliedAt,
     nextAction: String(app.nextAction ?? ''),
     followUpAt: String(app.followUpAt ?? ''),
     contactName: String(app.contactName ?? ''),
@@ -536,9 +537,45 @@ export function normalizeApplication(app = {}, fallbackDoc) {
     notes: String(app.notes ?? ''),
     jobDescription: app.jobDescription ? normalizeJobDescription(app.jobDescription, { company, role, location: app.location }) : undefined,
     tailoring: app.tailoring ? normalizeTailoring(app.tailoring, fallbackDoc, app.match, now) : undefined,
+    progressLog: normalizeProgressLog(app.progressLog, stage, app.nextAction, appliedAt || now.slice(0, 10), app.createdAt || now),
     createdAt: app.createdAt || now,
     updatedAt: app.updatedAt || now,
   }
+}
+
+function stageProgressTitle(stage) {
+  return {
+    saved: 'Saved role for review',
+    applied: 'Application submitted',
+    screen: 'Screening started',
+    onsite: 'Interview stage',
+    offer: 'Offer received',
+    rejected: 'Closed',
+  }[stage] || 'Progress updated'
+}
+
+function normalizeProgressLog(events = [], stage, note = '', happenedAt, createdAt) {
+  if (Array.isArray(events) && events.length) {
+    return events.map((event) => {
+      const eventStage = ['saved', 'applied', 'screen', 'onsite', 'offer', 'rejected'].includes(event.stage) ? event.stage : stage
+      return {
+        id: event.id || newId('progress'),
+        stage: eventStage,
+        title: String(event.title ?? stageProgressTitle(eventStage)),
+        note: String(event.note ?? ''),
+        happenedAt: String(event.happenedAt ?? happenedAt),
+        createdAt: String(event.createdAt ?? createdAt),
+      }
+    })
+  }
+  return [{
+    id: newId('progress'),
+    stage,
+    title: stageProgressTitle(stage),
+    note: String(note ?? ''),
+    happenedAt,
+    createdAt,
+  }]
 }
 
 function normalizeJobDescription(jobDescription = {}, fallback = {}) {

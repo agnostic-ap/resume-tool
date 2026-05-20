@@ -41,6 +41,7 @@ const renameDraft = ref('')
 const applicationFormOpen = ref(false)
 const editingApplicationId = ref('')
 const applicationError = ref('')
+const progressDrafts = reactive<Record<string, string>>({})
 const pendingDeleteResume = ref<{ id: string; title: string } | null>(null)
 const applicationDraft = reactive({
   company: '',
@@ -341,6 +342,15 @@ function daysAgo(date: string) {
   return `${diff}d ago`
 }
 
+function latestProgress(app: JobApplication) {
+  return app.progressLog?.[app.progressLog.length - 1]
+}
+
+function progressWhen(date: string) {
+  if (!date) return label('未记录日期', 'No date')
+  return formatAppliedDate(date)
+}
+
 function openApplicationForm(app?: JobApplication) {
   resetApplicationDraft(app)
   applicationFormOpen.value = true
@@ -403,9 +413,10 @@ function removeApplication(id: string) {
 }
 
 function markApplicationApplied(app: JobApplication) {
+  const appliedAt = new Date().toISOString().slice(0, 10)
   store.updateApplication(app.id, {
     stage: 'applied',
-    appliedAt: new Date().toISOString().slice(0, 10),
+    appliedAt,
     nextAction: app.nextAction || label('等待 HR 初筛反馈', 'Wait for recruiter screening'),
   })
   showToast(label('已标记为已投递', 'Marked as applied'), 'success')
@@ -419,6 +430,30 @@ function advanceApplication(app: JobApplication) {
     appliedAt: app.appliedAt || (next === 'saved' ? '' : new Date().toISOString().slice(0, 10)),
   })
   showToast(label('进度已推进', 'Stage advanced'), 'success')
+}
+
+function addProgressNote(app: JobApplication) {
+  const note = (progressDrafts[app.id] || '').trim()
+  if (!note) {
+    showToast(label('先写一条进度备注', 'Write a progress note first'), 'info')
+    return
+  }
+  store.updateApplication(app.id, {
+    progressLog: [
+      ...app.progressLog,
+      {
+        id: `progress-${Date.now()}`,
+        stage: app.stage,
+        title: label('手动记录', 'Manual note'),
+        note,
+        happenedAt: new Date().toISOString().slice(0, 10),
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    nextAction: note,
+  })
+  progressDrafts[app.id] = ''
+  showToast(label('进度已记录', 'Progress recorded'), 'success')
 }
 
 function openEditor() {
@@ -1140,48 +1175,72 @@ function matchClass(score: number) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="app in filteredApplications" :key="app.id">
-                <td>
-                  <div class="co">
-                    <div class="co__logo">{{ app.companyMono }}</div>
-                    <div>
-                      <div class="co__name">{{ app.company }}</div>
-                      <div class="co__loc">{{ app.location || label('未填写地点', 'No location') }}</div>
+              <template v-for="app in filteredApplications" :key="app.id">
+                <tr>
+                  <td>
+                    <div class="co">
+                      <div class="co__logo">{{ app.companyMono }}</div>
+                      <div>
+                        <div class="co__name">{{ app.company }}</div>
+                        <div class="co__loc">{{ app.location || label('未填写地点', 'No location') }}</div>
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td>
-                  <div class="role-cell">
-                    {{ app.role || label('未填写岗位', 'Untitled role') }}
-                    <small>{{ app.nextAction || app.department || label('未填写下一步', 'No next action') }}</small>
-                  </div>
-                </td>
-                <td><span class="mono">{{ app.resumeTitle }}</span></td>
-                <td>
-                  <span class="stage" :class="`stage--${app.stage}`">{{ stageLabel(app.stage) }}</span>
-                  <span v-if="app.tailoring" class="jd-chip">JD {{ app.tailoring.matchScore }}</span>
-                </td>
-                <td>
-                  <div class="match-cell">
-                    <div class="bar" :class="matchClass(app.match)"><i :style="{ width: `${app.match}%` }"></i></div>
-                    <span>{{ app.match }}</span>
-                  </div>
-                </td>
-                <td>
-                  <div class="applied-when">
-                    {{ app.stage === 'saved' ? label('待投递', 'Not applied') : formatAppliedDate(app.appliedAt) }}
-                    <small>{{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : app.stage === 'saved' ? (app.nextAction || label('评估岗位', 'Review role')) : daysAgo(app.appliedAt) }}</small>
-                  </div>
-                </td>
-                <td>
-                  <div class="row-actions">
-                    <button v-if="app.stage === 'saved'" @click="markApplicationApplied(app)">{{ label('标记投递', 'Mark applied') }}</button>
-                    <button v-else-if="app.stage !== 'offer' && app.stage !== 'rejected'" @click="advanceApplication(app)">{{ label('推进', 'Advance') }}</button>
-                    <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
-                    <button @click="removeApplication(app.id)">{{ label('删除', 'Delete') }}</button>
-                  </div>
-                </td>
-              </tr>
+                  </td>
+                  <td>
+                    <div class="role-cell">
+                      {{ app.role || label('未填写岗位', 'Untitled role') }}
+                      <small>{{ app.nextAction || app.department || label('未填写下一步', 'No next action') }}</small>
+                    </div>
+                  </td>
+                  <td><span class="mono">{{ app.resumeTitle }}</span></td>
+                  <td>
+                    <span class="stage" :class="`stage--${app.stage}`">{{ stageLabel(app.stage) }}</span>
+                    <span v-if="app.tailoring" class="jd-chip">JD {{ app.tailoring.matchScore }}</span>
+                  </td>
+                  <td>
+                    <div class="match-cell">
+                      <div class="bar" :class="matchClass(app.match)"><i :style="{ width: `${app.match}%` }"></i></div>
+                      <span>{{ app.match }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="applied-when">
+                      {{ app.stage === 'saved' ? label('待投递', 'Not applied') : formatAppliedDate(app.appliedAt) }}
+                      <small>{{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : app.stage === 'saved' ? (app.nextAction || label('评估岗位', 'Review role')) : daysAgo(app.appliedAt) }}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="row-actions">
+                      <button v-if="app.stage === 'saved'" @click="markApplicationApplied(app)">{{ label('标记投递', 'Mark applied') }}</button>
+                      <button v-else-if="app.stage !== 'offer' && app.stage !== 'rejected'" @click="advanceApplication(app)">{{ label('推进', 'Advance') }}</button>
+                      <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
+                      <button @click="removeApplication(app.id)">{{ label('删除', 'Delete') }}</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr class="progress-row">
+                  <td colspan="7">
+                    <div class="progress-log">
+                      <div class="progress-log__head">
+                        <strong>{{ label('进度记录', 'Progress log') }}</strong>
+                        <span v-if="latestProgress(app)">{{ progressWhen(latestProgress(app)!.happenedAt) }} · {{ latestProgress(app)!.title }}</span>
+                      </div>
+                      <div class="progress-log__events">
+                        <div v-for="event in app.progressLog.slice(-4)" :key="event.id" class="progress-event">
+                          <i :class="`stage--${event.stage}`"></i>
+                          <span>{{ progressWhen(event.happenedAt) }}</span>
+                          <b>{{ event.title }}</b>
+                          <em>{{ event.note || stageLabel(event.stage) }}</em>
+                        </div>
+                      </div>
+                      <div class="progress-compose">
+                        <input v-model="progressDrafts[app.id]" :placeholder="label('记录一次跟进、沟通、面试反馈或待办', 'Log a follow-up, conversation, interview note, or todo')" @keydown.enter="addProgressNote(app)" />
+                        <button @click="addProgressNote(app)">{{ label('记录', 'Log') }}</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!filteredApplications.length">
                 <td colspan="7">
                   <div class="empty-row">

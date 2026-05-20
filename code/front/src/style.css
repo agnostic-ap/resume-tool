@@ -1454,6 +1454,15 @@ button:disabled {
   background: var(--paper);
 }
 
+.apps__table .progress-row td {
+  padding-top: 0;
+  background: var(--surface);
+}
+
+.apps__table .progress-row:hover td {
+  background: var(--surface);
+}
+
 .co {
   display: flex;
   align-items: center;
@@ -1523,6 +1532,106 @@ button:disabled {
 
 .stage--rejected::before {
   background: var(--ink-5);
+}
+
+.progress-log {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--rule-softer);
+  background: var(--paper);
+}
+
+.progress-log__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-log__head strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.progress-log__head span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.progress-log__events {
+  display: grid;
+  gap: 7px;
+}
+
+.progress-event {
+  display: grid;
+  grid-template-columns: 10px 72px 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.progress-event i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-5);
+}
+
+.progress-event i.stage--offer,
+.progress-event i.stage--onsite {
+  background: var(--moss);
+}
+
+.progress-event i.stage--saved {
+  background: var(--vermillion);
+}
+
+.progress-event i.stage--applied,
+.progress-event i.stage--screen {
+  background: var(--gold);
+}
+
+.progress-event span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.progress-event b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.progress-event em {
+  min-width: 0;
+  color: var(--ink-3);
+  font-style: normal;
+}
+
+.progress-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.progress-compose input {
+  min-width: 0;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.progress-compose button {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 10px;
 }
 
 .jd-chip {

@@ -70,6 +70,14 @@ export const createApplicationSchema = z.object({
     generatedAt: z.string().optional(),
     appliedAt: z.string().optional(),
   }).optional(),
+  progressLog: z.array(z.object({
+    id: z.string().optional(),
+    stage: z.enum(['saved', 'applied', 'screen', 'onsite', 'offer', 'rejected']).optional(),
+    title: z.string().optional(),
+    note: z.string().optional(),
+    happenedAt: z.string().optional(),
+    createdAt: z.string().optional(),
+  })).optional(),
 })
 
 export const updateApplicationSchema = createApplicationSchema.partial()
