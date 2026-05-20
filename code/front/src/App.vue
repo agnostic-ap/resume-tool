@@ -29,6 +29,8 @@ const editorAiPrompt = ref('')
 const editorAiSuggestions = ref<{ id: string; title: string; body: string }[]>([])
 
 const resumeColorPresets = [
+  { hex: '#3E7891', label: 'Ocean' },
+  { hex: '#6F8A78', label: 'Sage' },
   { hex: '#C65A3A', label: 'Terracotta' },
   { hex: '#6F7F45', label: 'Olive' },
   { hex: '#31566A', label: 'Deep teal' },
@@ -161,7 +163,7 @@ function templateDescKey(id: TemplateId) {
 }
 
 function resetResumeAppearance() {
-  store.setThemeColor('#C65A3A')
+  store.setThemeColor('#3E7891')
   store.config.fontSize = 14
   showToast(l('简历外观已恢复默认', 'Resume appearance reset'), 'success')
 }

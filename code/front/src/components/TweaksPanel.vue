@@ -18,25 +18,25 @@ const store = useResumeStore()
 const { locale } = useI18n()
 
 const accents: { id: TweakAccent; hex: string; label: string }[] = [
-  { id: 'vermillion', hex: '#C65A3A', label: 'Terracotta' },
-  { id: 'coral', hex: '#D96B5C', label: 'Warm coral' },
-  { id: 'rosewood', hex: '#9B4D5C', label: 'Rosewood' },
-  { id: 'amber', hex: '#B9812F', label: 'Amber' },
-  { id: 'moss', hex: '#6F7F45', label: 'Olive moss' },
+  { id: 'ocean', hex: '#3E7891', label: 'Clear ocean' },
   { id: 'sage', hex: '#7D8F73', label: 'Soft sage' },
   { id: 'prussian', hex: '#31566A', label: 'Deep teal' },
-  { id: 'ocean', hex: '#3E7891', label: 'Clear ocean' },
+  { id: 'amber', hex: '#B9812F', label: 'Amber' },
+  { id: 'coral', hex: '#D96B5C', label: 'Warm coral' },
+  { id: 'rosewood', hex: '#9B4D5C', label: 'Rosewood' },
+  { id: 'moss', hex: '#6F7F45', label: 'Olive moss' },
+  { id: 'vermillion', hex: '#C65A3A', label: 'Terracotta' },
   { id: 'lilac', hex: '#7B6A9B', label: 'Dusty lilac' },
   { id: 'ink-only', hex: '#3A2A22', label: 'Walnut ink' },
 ]
 
 const papers: { id: TweakPaper; hex: string; label: string }[] = [
-  { id: 'cream', hex: '#FBF4EA', label: 'Warm cream' },
+  { id: 'mist', hex: '#EEF3EF', label: 'Sage mist' },
   { id: 'snow', hex: '#FFFAF4', label: 'Soft white' },
+  { id: 'stone', hex: '#F2F0EC', label: 'Warm stone' },
+  { id: 'cream', hex: '#FBF4EA', label: 'Warm cream' },
   { id: 'newsprint', hex: '#F3EADC', label: 'Newsprint' },
   { id: 'blush', hex: '#FBEDEA', label: 'Blush paper' },
-  { id: 'mist', hex: '#EEF3EF', label: 'Sage mist' },
-  { id: 'stone', hex: '#F2F0EC', label: 'Warm stone' },
 ]
 
 const fonts: { id: TweakFont; name: string; meta: string; className: string }[] = [

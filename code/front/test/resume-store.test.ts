@@ -70,6 +70,56 @@ test('resume store keeps workspace and resume appearance colors separate', () =>
   assert.equal(store.config.themeColor, '#31566A')
 })
 
+test('resume store migrates previous default app palettes to the refreshed style', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  store.importData(JSON.stringify({
+    activeResumeId: 'legacy-theme-resume',
+    documents: [
+      {
+        id: 'legacy-theme-resume',
+        title: 'Legacy Theme Resume',
+        data: {
+          personal: { name: 'Lin', title: 'Designer' },
+          experience: [],
+          education: [],
+          skills: [],
+          projects: [],
+          awards: [],
+        },
+        config: {
+          studioTheme: {
+            accent: 'coral',
+            paper: 'stone',
+            density: 'cozy',
+            font: 'sans',
+            ruleLines: false,
+          },
+          tweaks: {
+            accent: 'coral',
+            paper: 'stone',
+            density: 'cozy',
+            font: 'sans',
+            fontScale: 100,
+            showAI: false,
+            showTree: true,
+            ruleLines: false,
+            marginaliaMode: 'notes',
+            aiTone: 'editor',
+          },
+        },
+      },
+    ],
+  }))
+
+  assert.equal(store.config.studioTheme.accent, 'ocean')
+  assert.equal(store.config.studioTheme.paper, 'mist')
+  assert.equal(store.config.tweaks.accent, 'ocean')
+  assert.equal(store.config.tweaks.paper, 'mist')
+  assert.equal(store.config.tweaks.showAI, false)
+})
+
 test('resume store supports saved opportunities before applying', () => {
   setupStoreHarness()
   const store = useResumeStore()

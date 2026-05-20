@@ -498,12 +498,21 @@ export function normalizeResumeData(data = {}) {
 
 export function normalizeConfig(config = {}) {
   const studioTheme = { ...DEFAULT_CONFIG.studioTheme, ...(config.studioTheme ?? {}) }
+  const tweaks = { ...DEFAULT_CONFIG.tweaks, ...(config.tweaks ?? {}) }
   const isLegacyStudioTheme = Boolean(config.studioTheme)
-    && studioTheme.accent === 'vermillion'
-    && studioTheme.paper === 'cream'
     && studioTheme.density === 'cozy'
-    && studioTheme.font === 'serif'
     && studioTheme.ruleLines === false
+    && (
+      (studioTheme.accent === 'vermillion' && studioTheme.paper === 'cream' && studioTheme.font === 'serif')
+      || (studioTheme.accent === 'coral' && studioTheme.paper === 'stone' && studioTheme.font === 'sans')
+    )
+  const isLegacyTweaks = Boolean(config.tweaks)
+    && tweaks.density === 'cozy'
+    && tweaks.ruleLines === false
+    && (
+      (tweaks.accent === 'vermillion' && tweaks.paper === 'cream' && tweaks.font === 'serif')
+      || (tweaks.accent === 'coral' && tweaks.paper === 'stone' && tweaks.font === 'sans')
+    )
   return {
     ...structuredClone(DEFAULT_CONFIG),
     ...config,
@@ -512,7 +521,15 @@ export function normalizeConfig(config = {}) {
       : [...DEFAULT_CONFIG.sectionOrder],
     sectionVisible: { ...DEFAULT_CONFIG.sectionVisible, ...(config.sectionVisible ?? {}) },
     studioTheme: isLegacyStudioTheme ? { ...DEFAULT_CONFIG.studioTheme } : studioTheme,
-    tweaks: { ...DEFAULT_CONFIG.tweaks, ...(config.tweaks ?? {}) },
+    tweaks: isLegacyTweaks
+      ? {
+        ...tweaks,
+        accent: DEFAULT_CONFIG.tweaks.accent,
+        paper: DEFAULT_CONFIG.tweaks.paper,
+        font: DEFAULT_CONFIG.tweaks.font,
+        ruleLines: DEFAULT_CONFIG.tweaks.ruleLines,
+      }
+      : tweaks,
   }
 }
 

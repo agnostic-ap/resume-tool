@@ -121,7 +121,7 @@ export function generatePlatformResume(input: PlatformGenerateResumeInput) {
   const config = {
     locale,
     templateId: input.templateId,
-    themeColor: '#C65A3A',
+    themeColor: '#3E7891',
     fontSize: 14,
     sectionOrder: DEFAULT_SECTION_ORDER,
     sectionVisible: {
@@ -135,15 +135,15 @@ export function generatePlatformResume(input: PlatformGenerateResumeInput) {
       certifications: false,
     },
     studioTheme: {
-      accent: 'coral',
-      paper: 'stone',
+      accent: 'ocean',
+      paper: 'mist',
       density: 'cozy',
       font: 'sans',
       ruleLines: false,
     },
     tweaks: {
-      accent: 'coral',
-      paper: 'stone',
+      accent: 'ocean',
+      paper: 'mist',
       density: 'cozy',
       font: 'sans',
       fontScale: 100,

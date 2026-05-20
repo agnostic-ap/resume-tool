@@ -1,23 +1,23 @@
 @import "tailwindcss";
 
 :root {
-  --paper: #f2f0ec;
-  --paper-2: #e2ddd5;
-  --paper-3: #cfc5b8;
-  --surface: #fffdf8;
-  --surface-sunk: #e9e4dc;
-  --ink: #24211d;
-  --ink-2: #38332d;
-  --ink-3: #645e56;
-  --ink-4: #8e867c;
-  --ink-5: #c6beb3;
-  --rule: #3d3832;
-  --rule-soft: #c8baab;
-  --rule-softer: #ded4c8;
-  --vermillion: #d96b5c;
-  --moss: #7d8f73;
-  --gold: #b9812f;
-  --prussian: #3e7891;
+  --paper: #eef3ef;
+  --paper-2: #dfe9e3;
+  --paper-3: #c7d5cd;
+  --surface: #fbfefd;
+  --surface-sunk: #e6efea;
+  --ink: #1f2930;
+  --ink-2: #334047;
+  --ink-3: #617079;
+  --ink-4: #8b9aa2;
+  --ink-5: #c3cfd3;
+  --rule: #263840;
+  --rule-soft: #b9c8cd;
+  --rule-softer: #d6e1e4;
+  --vermillion: #3e7891;
+  --moss: #6f8a78;
+  --gold: #b8904d;
+  --prussian: #2f6075;
   --sans: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --display: Georgia, "Times New Roman", serif;
@@ -37,9 +37,9 @@ body {
   font-family: var(--sans);
   color: var(--ink);
   background:
-    radial-gradient(circle at 16% 8%, rgba(217, 107, 92, 0.10), transparent 32%),
-    radial-gradient(circle at 88% 12%, rgba(125, 143, 115, 0.12), transparent 30%),
-    linear-gradient(135deg, rgba(61, 56, 50, 0.025) 25%, transparent 25%) 0 0 / 20px 20px,
+    radial-gradient(circle at 12% 8%, rgba(62, 120, 145, 0.12), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(184, 144, 77, 0.10), transparent 28%),
+    linear-gradient(135deg, rgba(31, 41, 48, 0.018) 25%, transparent 25%) 0 0 / 22px 22px,
     var(--paper);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -574,12 +574,12 @@ button:disabled {
 
 .paper-mist {
   --paper: #eef3ef;
-  --paper-2: #dbe7dd;
-  --paper-3: #c1d0c5;
-  --surface: #fbfffb;
-  --surface-sunk: #e2ebe4;
-  --rule-soft: #b8c8bc;
-  --rule-softer: #d3dfd6;
+  --paper-2: #dfe9e3;
+  --paper-3: #c7d5cd;
+  --surface: #fbfefd;
+  --surface-sunk: #e6efea;
+  --rule-soft: #b9c8cd;
+  --rule-softer: #d6e1e4;
 }
 
 .paper-stone {

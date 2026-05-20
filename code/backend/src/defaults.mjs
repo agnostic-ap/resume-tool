@@ -21,8 +21,8 @@ export const DEFAULT_VISIBLE = {
 }
 
 export const DEFAULT_TWEAKS = {
-  accent: 'coral',
-  paper: 'stone',
+  accent: 'ocean',
+  paper: 'mist',
   density: 'cozy',
   font: 'sans',
   fontScale: 100,
@@ -34,8 +34,8 @@ export const DEFAULT_TWEAKS = {
 }
 
 export const DEFAULT_STUDIO_THEME = {
-  accent: 'coral',
-  paper: 'stone',
+  accent: 'ocean',
+  paper: 'mist',
   density: 'cozy',
   font: 'sans',
   ruleLines: false,
@@ -44,7 +44,7 @@ export const DEFAULT_STUDIO_THEME = {
 export const DEFAULT_CONFIG = {
   locale: 'zh-CN',
   templateId: 'classic',
-  themeColor: '#C65A3A',
+  themeColor: '#3E7891',
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },

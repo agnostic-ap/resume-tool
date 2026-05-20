@@ -22,8 +22,8 @@ const DEFAULT_VISIBLE: Record<SectionId, boolean> = {
 }
 
 export const DEFAULT_TWEAKS: ResumeTweaks = {
-  accent: 'coral',
-  paper: 'stone',
+  accent: 'ocean',
+  paper: 'mist',
   density: 'cozy',
   font: 'sans',
   fontScale: 100,
@@ -35,8 +35,8 @@ export const DEFAULT_TWEAKS: ResumeTweaks = {
 }
 
 export const DEFAULT_STUDIO_THEME: StudioTheme = {
-  accent: 'coral',
-  paper: 'stone',
+  accent: 'ocean',
+  paper: 'mist',
   density: 'cozy',
   font: 'sans',
   ruleLines: false,
@@ -110,7 +110,7 @@ const defaultResume: ResumeData = {
 const defaultConfig: ResumeConfig = {
   locale: 'zh-CN',
   templateId: 'classic',
-  themeColor: '#C65A3A',
+  themeColor: '#3E7891',
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },
@@ -124,6 +124,36 @@ const LEGACY_STUDIO_THEME: StudioTheme = {
   density: 'cozy',
   font: 'serif',
   ruleLines: false,
+}
+
+const SOFTENED_STUDIO_THEME: StudioTheme = {
+  accent: 'coral',
+  paper: 'stone',
+  density: 'cozy',
+  font: 'sans',
+  ruleLines: false,
+}
+
+function isSameStudioTheme(theme: StudioTheme, target: StudioTheme) {
+  return theme.accent === target.accent
+    && theme.paper === target.paper
+    && theme.density === target.density
+    && theme.font === target.font
+    && theme.ruleLines === target.ruleLines
+}
+
+function isLegacyVisualTweaks(tweaks: ResumeTweaks) {
+  const matchesLegacy = tweaks.accent === LEGACY_STUDIO_THEME.accent
+    && tweaks.paper === LEGACY_STUDIO_THEME.paper
+    && tweaks.density === LEGACY_STUDIO_THEME.density
+    && tweaks.font === LEGACY_STUDIO_THEME.font
+    && tweaks.ruleLines === LEGACY_STUDIO_THEME.ruleLines
+  const matchesSoftened = tweaks.accent === SOFTENED_STUDIO_THEME.accent
+    && tweaks.paper === SOFTENED_STUDIO_THEME.paper
+    && tweaks.density === SOFTENED_STUDIO_THEME.density
+    && tweaks.font === SOFTENED_STUDIO_THEME.font
+    && tweaks.ruleLines === SOFTENED_STUDIO_THEME.ruleLines
+  return matchesLegacy || matchesSoftened
 }
 
 function isoDateDaysAgo(days: number) {
@@ -414,19 +444,28 @@ function normalizeDocument(doc: Partial<ResumeDocument>): ResumeDocument {
 
 function mergeConfig(saved: Partial<ResumeConfig>): ResumeConfig {
   const studioTheme = { ...DEFAULT_STUDIO_THEME, ...(saved.studioTheme ?? {}) }
+  const tweaks = { ...DEFAULT_TWEAKS, ...(saved.tweaks ?? {}) }
   const isLegacyStudioTheme = Boolean(saved.studioTheme)
-    && studioTheme.accent === LEGACY_STUDIO_THEME.accent
-    && studioTheme.paper === LEGACY_STUDIO_THEME.paper
-    && studioTheme.density === LEGACY_STUDIO_THEME.density
-    && studioTheme.font === LEGACY_STUDIO_THEME.font
-    && studioTheme.ruleLines === LEGACY_STUDIO_THEME.ruleLines
+    && (
+      isSameStudioTheme(studioTheme, LEGACY_STUDIO_THEME)
+      || isSameStudioTheme(studioTheme, SOFTENED_STUDIO_THEME)
+    )
+  const isLegacyTweaks = Boolean(saved.tweaks) && isLegacyVisualTweaks(tweaks)
   return {
     ...defaultConfig,
     ...saved,
     sectionOrder: saved.sectionOrder?.length ? saved.sectionOrder : [...DEFAULT_ORDER],
     sectionVisible: { ...DEFAULT_VISIBLE, ...(saved.sectionVisible ?? {}) },
     studioTheme: isLegacyStudioTheme ? { ...DEFAULT_STUDIO_THEME } : studioTheme,
-    tweaks: { ...DEFAULT_TWEAKS, ...(saved.tweaks ?? {}) },
+    tweaks: isLegacyTweaks
+      ? {
+        ...tweaks,
+        accent: DEFAULT_TWEAKS.accent,
+        paper: DEFAULT_TWEAKS.paper,
+        font: DEFAULT_TWEAKS.font,
+        ruleLines: DEFAULT_TWEAKS.ruleLines,
+      }
+      : tweaks,
   }
 }
 
