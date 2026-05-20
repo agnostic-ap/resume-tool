@@ -487,14 +487,56 @@ button:disabled {
   --vermillion: #c65a3a;
 }
 
+.theme-coral {
+  --vermillion: #d96b5c;
+  --moss: #8b7a52;
+  --gold: #c49347;
+  --prussian: #426a75;
+}
+
+.theme-rosewood {
+  --vermillion: #9b4d5c;
+  --moss: #7c6e55;
+  --gold: #b88758;
+  --prussian: #4d6074;
+}
+
+.theme-amber {
+  --vermillion: #b9812f;
+  --moss: #6f7f45;
+  --gold: #c09034;
+  --prussian: #3c6170;
+}
+
 .theme-moss {
   --vermillion: #6f7f45;
   --moss: #6f7f45;
 }
 
+.theme-sage {
+  --vermillion: #7d8f73;
+  --moss: #718468;
+  --gold: #b28b4c;
+  --prussian: #476b69;
+}
+
 .theme-prussian {
   --vermillion: #31566a;
   --moss: #5d7568;
+}
+
+.theme-ocean {
+  --vermillion: #3e7891;
+  --moss: #5c8272;
+  --gold: #b48a49;
+  --prussian: #2f5f75;
+}
+
+.theme-lilac {
+  --vermillion: #7b6a9b;
+  --moss: #6f7f68;
+  --gold: #aa8455;
+  --prussian: #4b5f7f;
 }
 
 .theme-ink-only {
@@ -518,6 +560,36 @@ button:disabled {
   --paper: #f3eadc;
   --paper-2: #e7d6c1;
   --paper-3: #d8bea4;
+}
+
+.paper-blush {
+  --paper: #fbedea;
+  --paper-2: #f1d7d1;
+  --paper-3: #dfbbb3;
+  --surface: #fff8f4;
+  --surface-sunk: #f6dfd9;
+  --rule-soft: #d7b7ae;
+  --rule-softer: #ead2cb;
+}
+
+.paper-mist {
+  --paper: #eef3ef;
+  --paper-2: #dbe7dd;
+  --paper-3: #c1d0c5;
+  --surface: #fbfffb;
+  --surface-sunk: #e2ebe4;
+  --rule-soft: #b8c8bc;
+  --rule-softer: #d3dfd6;
+}
+
+.paper-stone {
+  --paper: #f2f0ec;
+  --paper-2: #e2ddd5;
+  --paper-3: #cfc5b8;
+  --surface: #fffdf8;
+  --surface-sunk: #e9e4dc;
+  --rule-soft: #c8baab;
+  --rule-softer: #ded4c8;
 }
 
 .font-serif {

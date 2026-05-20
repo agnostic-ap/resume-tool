@@ -217,8 +217,18 @@ export interface ResumeConfig {
   tweaks: ResumeTweaks
 }
 
-export type TweakAccent = 'vermillion' | 'moss' | 'prussian' | 'ink-only'
-export type TweakPaper = 'cream' | 'snow' | 'newsprint'
+export type TweakAccent =
+  | 'vermillion'
+  | 'coral'
+  | 'rosewood'
+  | 'amber'
+  | 'moss'
+  | 'sage'
+  | 'prussian'
+  | 'ocean'
+  | 'lilac'
+  | 'ink-only'
+export type TweakPaper = 'cream' | 'snow' | 'newsprint' | 'blush' | 'mist' | 'stone'
 export type TweakDensity = 'tight' | 'cozy' | 'loose'
 export type TweakFont = 'serif' | 'sans' | 'mono'
 export type TweakMarginalia = 'notes' | 'inline' | 'off'
