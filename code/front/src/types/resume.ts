@@ -111,7 +111,7 @@ export interface ResumeDocument {
   nextCareerUpdateAt: string
 }
 
-export type ApplicationStage = 'applied' | 'screen' | 'onsite' | 'offer' | 'rejected'
+export type ApplicationStage = 'saved' | 'applied' | 'screen' | 'onsite' | 'offer' | 'rejected'
 
 export interface JobDescriptionSnapshot {
   company: string
@@ -173,7 +173,17 @@ export interface ActivityEvent {
   createdAt: string
 }
 
-export type TemplateId = 'classic' | 'modern' | 'sidebar'
+export type TemplateId =
+  | 'classic'
+  | 'modern'
+  | 'sidebar'
+  | 'compact'
+  | 'executive'
+  | 'creative'
+  | 'academic'
+  | 'technical'
+  | 'product'
+  | 'minimal'
 export type Locale = 'zh-CN' | 'en-US'
 
 export type SectionId =

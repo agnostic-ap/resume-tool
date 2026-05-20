@@ -515,6 +515,7 @@ export function normalizeApplication(app = {}, fallbackDoc) {
   if (!company) throw httpError(400, 'Company is required')
   const role = String(app.role ?? '').trim()
   if (!role) throw httpError(400, 'Role is required')
+  const stage = ['saved', 'applied', 'screen', 'onsite', 'offer', 'rejected'].includes(app.stage) ? app.stage : 'saved'
   return {
     id: app.id || newId('app'),
     company,
@@ -524,9 +525,9 @@ export function normalizeApplication(app = {}, fallbackDoc) {
     department: String(app.department ?? ''),
     resumeId: app.resumeId || fallbackDoc.id,
     resumeTitle: app.resumeTitle || fallbackDoc.title,
-    stage: ['applied', 'screen', 'onsite', 'offer', 'rejected'].includes(app.stage) ? app.stage : 'applied',
+    stage,
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
-    appliedAt: app.appliedAt || now.slice(0, 10),
+    appliedAt: app.appliedAt || (stage === 'saved' ? '' : now.slice(0, 10)),
     nextAction: String(app.nextAction ?? ''),
     followUpAt: String(app.followUpAt ?? ''),
     contactName: String(app.contactName ?? ''),

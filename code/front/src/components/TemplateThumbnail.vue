@@ -1,12 +1,28 @@
 <script setup lang="ts">
-defineProps<{ type: 'classic' | 'modern' | 'sidebar'; color: string }>()
+import { computed } from 'vue'
+import type { TemplateId } from '../types/resume'
+
+const props = defineProps<{ type: TemplateId; color: string }>()
+
+const family = computed(() => {
+  if (['modern', 'technical', 'product'].includes(props.type)) return 'modern'
+  if (['sidebar', 'creative', 'executive'].includes(props.type)) return 'sidebar'
+  return 'classic'
+})
+
+const accentOpacity = computed(() => {
+  if (props.type === 'minimal') return 0.35
+  if (props.type === 'creative') return 0.95
+  if (props.type === 'executive') return 0.78
+  return 0.7
+})
 </script>
 
 <template>
   <!-- Classic: centered header + vertical sections -->
-  <svg v-if="type === 'classic'" viewBox="0 0 44 60" width="44" height="60" xmlns="http://www.w3.org/2000/svg">
+  <svg v-if="family === 'classic'" viewBox="0 0 44 60" width="44" height="60" xmlns="http://www.w3.org/2000/svg">
     <rect width="44" height="60" rx="2" fill="white" stroke="#e5e7eb" stroke-width="0.8"/>
-    <rect x="11" y="5" width="22" height="2.5" rx="1.25" fill="#374151"/>
+    <rect x="11" y="5" width="22" height="2.5" rx="1.25" :fill="type === 'academic' ? color : '#374151'" :opacity="accentOpacity"/>
     <rect x="7"  y="9" width="30" height="1.5" rx="0.75" fill="#9ca3af"/>
     <rect x="4"  y="13.5" width="36" height="1.5" rx="0.5" :fill="color"/>
     <!-- s1 -->
@@ -20,19 +36,23 @@ defineProps<{ type: 'classic' | 'modern' | 'sidebar'; color: string }>()
     <rect x="4"  y="34.5" width="24" height="1" rx="0.5" fill="#d1d5db"/>
     <!-- s3 -->
     <rect x="4"  y="38" width="12" height="1.5" rx="0.75" :fill="color" opacity="0.75"/>
-    <rect x="4"  y="41" width="36" height="1" rx="0.5" fill="#d1d5db"/>
-    <rect x="4"  y="43.5" width="20" height="1" rx="0.5" fill="#d1d5db"/>
+    <rect x="4"  y="41" :width="type === 'compact' ? 38 : 36" height="1" rx="0.5" fill="#d1d5db"/>
+    <rect x="4"  y="43.5" :width="type === 'minimal' ? 16 : 20" height="1" rx="0.5" fill="#d1d5db"/>
+    <template v-if="type === 'compact' || type === 'academic'">
+      <rect x="4" y="47" width="36" height="1" rx="0.5" fill="#d1d5db"/>
+      <rect x="4" y="49.5" width="28" height="1" rx="0.5" fill="#d1d5db"/>
+    </template>
   </svg>
 
   <!-- Modern: colored header + sidebar left + main right -->
-  <svg v-else-if="type === 'modern'" viewBox="0 0 44 60" width="44" height="60" xmlns="http://www.w3.org/2000/svg">
+  <svg v-else-if="family === 'modern'" viewBox="0 0 44 60" width="44" height="60" xmlns="http://www.w3.org/2000/svg">
     <rect width="44" height="60" rx="2" fill="white" stroke="#e5e7eb" stroke-width="0.8"/>
     <!-- Header bar -->
-    <rect width="44" height="16" rx="2" :fill="color"/>
+    <rect width="44" :height="type === 'technical' ? 11 : 16" rx="2" :fill="color"/>
     <rect x="4"  y="5" width="18" height="2" rx="1" fill="white" opacity="0.9"/>
     <rect x="4"  y="9" width="26" height="1.5" rx="0.75" fill="white" opacity="0.6"/>
     <!-- Sidebar -->
-    <rect x="0" y="16" width="14" height="44" fill="#f1f5f9"/>
+    <rect x="0" :y="type === 'technical' ? 11 : 16" :width="type === 'product' ? 10 : 14" height="49" fill="#f1f5f9"/>
     <rect x="2"  y="19" width="9" height="1.2" rx="0.6" :fill="color" opacity="0.7"/>
     <rect x="2"  y="21.5" width="10" height="1" rx="0.5" fill="#cbd5e1"/>
     <rect x="2"  y="23.5" width="8"  height="1" rx="0.5" fill="#cbd5e1"/>
@@ -40,7 +60,7 @@ defineProps<{ type: 'classic' | 'modern' | 'sidebar'; color: string }>()
     <rect x="2"  y="29.5" width="10" height="1" rx="0.5" fill="#cbd5e1"/>
     <rect x="2"  y="31.5" width="7"  height="1" rx="0.5" fill="#cbd5e1"/>
     <!-- Main -->
-    <rect x="16" y="19" width="14" height="1.5" rx="0.75" :fill="color" opacity="0.75"/>
+    <rect :x="type === 'product' ? 13 : 16" y="19" width="14" height="1.5" rx="0.75" :fill="color" opacity="0.75"/>
     <rect x="16" y="22" width="26" height="1" rx="0.5" fill="#d1d5db"/>
     <rect x="16" y="24.5" width="20" height="1" rx="0.5" fill="#d1d5db"/>
     <rect x="16" y="27" width="22" height="1" rx="0.5" fill="#d1d5db"/>
@@ -53,9 +73,9 @@ defineProps<{ type: 'classic' | 'modern' | 'sidebar'; color: string }>()
   <svg v-else viewBox="0 0 44 60" width="44" height="60" xmlns="http://www.w3.org/2000/svg">
     <rect width="44" height="60" rx="2" fill="white" stroke="#e5e7eb" stroke-width="0.8"/>
     <!-- Sidebar bg -->
-    <rect width="15" height="60" rx="2" :fill="color"/>
+    <rect :width="type === 'executive' ? 10 : 15" height="60" rx="2" :fill="color"/>
     <!-- Avatar -->
-    <circle cx="7.5" cy="9" r="4.5" fill="white" opacity="0.25"/>
+    <circle :cx="type === 'executive' ? 5 : 7.5" cy="9" :r="type === 'creative' ? 5.5 : 4.5" fill="white" opacity="0.25"/>
     <rect x="2"  y="16" width="11" height="1.2" rx="0.6" fill="white" opacity="0.8"/>
     <rect x="2"  y="18.5" width="9"  height="1" rx="0.5" fill="white" opacity="0.5"/>
     <rect x="2"  y="22"   width="11" height="1.2" rx="0.6" fill="white" opacity="0.8"/>

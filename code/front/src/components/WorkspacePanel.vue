@@ -8,7 +8,7 @@ import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
 import { backendApi, type PlatformResumeDraft } from '../api/backend'
 
-type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
+type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
 type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
 type DocumentFilter = 'active' | 'favorites' | 'archived' | 'all'
 
@@ -48,7 +48,7 @@ const applicationDraft = reactive({
   role: '',
   department: '',
   resumeId: '',
-  stage: 'applied' as ApplicationStage,
+  stage: 'saved' as ApplicationStage,
   match: 70,
   appliedAt: '',
   nextAction: '',
@@ -135,6 +135,7 @@ const careerUpdateLabel = computed(() => {
 const applications = computed(() => store.applications)
 
 const stageOptions: { id: ApplicationStage; zh: string; en: string }[] = [
+  { id: 'saved', zh: '待投递', en: 'Saved' },
   { id: 'applied', zh: '已投递', en: 'Applied' },
   { id: 'screen', zh: '初筛', en: 'Screening' },
   { id: 'onsite', zh: '面试', en: 'On-site' },
@@ -182,10 +183,12 @@ const pipelineSortLabel = computed(() => {
 })
 
 const pipelineStats = computed(() => {
+  const saved = applications.value.filter((app) => app.stage === 'saved').length
+  const applied = applications.value.filter((app) => app.stage === 'applied').length
   const offer = applications.value.filter((app) => app.stage === 'offer').length
   const closed = applications.value.filter((app) => app.stage === 'rejected').length
-  const active = applications.value.length - offer - closed
-  return { offer, active, closed }
+  const active = applications.value.length - saved - offer - closed
+  return { saved, applied, offer, active, closed }
 })
 
 const activities = computed(() => store.activityLog)
@@ -229,6 +232,13 @@ const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'classic', label: '经典', desc: '简洁·全页' },
   { id: 'modern', label: '现代', desc: '双栏·标题色块' },
   { id: 'sidebar', label: '侧边栏', desc: '色彩·个性' },
+  { id: 'compact', label: '紧凑', desc: '信息密集·一页优先' },
+  { id: 'executive', label: '高管', desc: '稳重·管理层叙事' },
+  { id: 'creative', label: '创意', desc: '视觉·作品集友好' },
+  { id: 'academic', label: '学术', desc: '论文项目·教育优先' },
+  { id: 'technical', label: '技术', desc: '技能矩阵·工程导向' },
+  { id: 'product', label: '产品', desc: '成果指标·产品叙事' },
+  { id: 'minimal', label: '极简', desc: '留白·轻量现代' },
 ]
 
 const accents: { id: TweakAccent; hex: string; label: string }[] = [
@@ -282,6 +292,20 @@ function stageLabel(stage: ApplicationStage) {
   return item ? label(item.zh, item.en) : stage
 }
 
+function templateDescKey(id: TemplateId) {
+  return `${id}Desc` as
+    | 'classicDesc'
+    | 'modernDesc'
+    | 'sidebarDesc'
+    | 'compactDesc'
+    | 'executiveDesc'
+    | 'creativeDesc'
+    | 'academicDesc'
+    | 'technicalDesc'
+    | 'productDesc'
+    | 'minimalDesc'
+}
+
 function resetApplicationDraft(app?: JobApplication) {
   editingApplicationId.value = app?.id ?? ''
   applicationDraft.company = app?.company ?? ''
@@ -289,10 +313,10 @@ function resetApplicationDraft(app?: JobApplication) {
   applicationDraft.role = app?.role ?? store.data.personal.title ?? ''
   applicationDraft.department = app?.department ?? ''
   applicationDraft.resumeId = app?.resumeId ?? store.activeResumeId
-  applicationDraft.stage = app?.stage ?? 'applied'
+  applicationDraft.stage = app?.stage ?? 'saved'
   applicationDraft.match = app?.match ?? Math.max(60, store.completeness)
-  applicationDraft.appliedAt = app?.appliedAt ?? new Date().toISOString().slice(0, 10)
-  applicationDraft.nextAction = app?.nextAction ?? ''
+  applicationDraft.appliedAt = app?.appliedAt ?? ''
+  applicationDraft.nextAction = app?.nextAction ?? label('评估 JD，决定是否投递', 'Review JD and decide whether to apply')
   applicationDraft.followUpAt = app?.followUpAt ?? ''
   applicationDraft.contactName = app?.contactName ?? ''
   applicationDraft.contactEmail = app?.contactEmail ?? ''
@@ -364,10 +388,10 @@ function saveApplication() {
   }
   if (editingApplicationId.value) {
     store.updateApplication(editingApplicationId.value, payload)
-    showToast(label('投递记录已更新', 'Application updated'), 'success')
+    showToast(label('岗位记录已更新', 'Opportunity updated'), 'success')
   } else {
     store.addApplication(payload)
-    showToast(label('投递记录已添加', 'Application added'), 'success')
+    showToast(label('岗位已加入管线', 'Opportunity added to pipeline'), 'success')
   }
   pipelineFilter.value = 'all'
   closeApplicationForm()
@@ -375,7 +399,26 @@ function saveApplication() {
 
 function removeApplication(id: string) {
   store.deleteApplication(id)
-  showToast(label('投递记录已删除', 'Application deleted'), 'success')
+  showToast(label('岗位记录已删除', 'Opportunity deleted'), 'success')
+}
+
+function markApplicationApplied(app: JobApplication) {
+  store.updateApplication(app.id, {
+    stage: 'applied',
+    appliedAt: new Date().toISOString().slice(0, 10),
+    nextAction: app.nextAction || label('等待 HR 初筛反馈', 'Wait for recruiter screening'),
+  })
+  showToast(label('已标记为已投递', 'Marked as applied'), 'success')
+}
+
+function advanceApplication(app: JobApplication) {
+  const order: ApplicationStage[] = ['saved', 'applied', 'screen', 'onsite', 'offer']
+  const next = order[Math.min(order.indexOf(app.stage) + 1, order.length - 1)] ?? app.stage
+  store.updateApplication(app.id, {
+    stage: next,
+    appliedAt: app.appliedAt || (next === 'saved' ? '' : new Date().toISOString().slice(0, 10)),
+  })
+  showToast(label('进度已推进', 'Stage advanced'), 'success')
 }
 
 function openEditor() {
@@ -811,10 +854,11 @@ function matchClass(score: number) {
 
             <div class="hero__actions">
               <button class="btn btn--primary" @click="openEditor">{{ t('openEditor') }} <kbd>E</kbd></button>
-              <button class="btn" @click="emit('navigate', 'assistant')">{{ t('tailorWithAI') }}</button>
+              <button class="btn" @click="emit('navigate', 'editor')">{{ t('tailorWithAI') }}</button>
+              <button class="btn btn--ghost" @click="emit('navigate', 'documents')">{{ t('documentsPage') }}</button>
+              <button class="btn btn--ghost" @click="emit('navigate', 'growth')">{{ t('growth') }}</button>
               <button class="btn btn--ghost" @click="emit('command', 'export')">{{ t('exportPdf') }}</button>
-              <button class="btn btn--ghost" @click="emit('navigate', 'history')">{{ t('viewHistory') }}</button>
-              <button class="btn btn--ghost" @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '记录本次更新' : 'Record update' }}</button>
+              <button class="btn btn--ghost" @click="emit('navigate', 'pipeline')">{{ t('pipeline') }}</button>
             </div>
           </div>
 
@@ -865,20 +909,19 @@ function matchClass(score: number) {
             @click="setTemplate(template.id)">
             <TemplateThumbnail :type="template.id" :color="store.config.themeColor" />
             <strong>{{ t(template.id) }}</strong>
-            <span>{{ t(`${template.id}Desc` as 'classicDesc' | 'modernDesc' | 'sidebarDesc') }}</span>
+            <span>{{ t(templateDescKey(template.id)) }}</span>
           </button>
         </div>
       </section>
 
-      <section v-if="props.mode === 'workspace'" class="section">
+      <section v-if="props.mode === 'growth'" class="section">
         <div class="section__head">
           <div>
-            <div class="num">02 · {{ t('documents') }}</div>
-            <h2>{{ t('documents') }}</h2>
+            <div class="num">01 · {{ t('growth') }}</div>
+            <h2>{{ label('成长经历记录', 'Growth experience log') }}</h2>
           </div>
           <div class="meta">
-            <button @click="openEditor">{{ t('openCurrent') }} →</button>
-            <button @click="createBlank">{{ t('newResumeFull') }}</button>
+            <button @click="emit('navigate', 'editor')">{{ t('tailorWithAI') }} →</button>
           </div>
         </div>
         <div class="career-reminder" :class="{ due: careerUpdateDays <= 0 }">
@@ -902,6 +945,19 @@ function matchClass(score: number) {
             </div>
           </div>
           <button :class="{ ready: careerChecklistDone }" @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '我已更新' : 'I updated it' }}</button>
+        </div>
+      </section>
+
+      <section v-if="props.mode === 'documents'" class="section">
+        <div class="section__head">
+          <div>
+            <div class="num">01 · {{ t('documentsPage') }}</div>
+            <h2>{{ t('documents') }}</h2>
+          </div>
+          <div class="meta">
+            <button @click="openEditor">{{ t('openCurrent') }} →</button>
+            <button @click="createBlank">{{ t('newResumeFull') }}</button>
+          </div>
         </div>
         <div class="doc-filter">
           <button
@@ -962,15 +1018,15 @@ function matchClass(score: number) {
         </div>
       </section>
 
-      <section v-if="props.mode === 'workspace' || props.mode === 'pipeline'" class="section">
+      <section v-if="props.mode === 'pipeline'" class="section">
         <div class="section__head section__head--double">
           <div>
-            <div class="num">{{ props.mode === 'pipeline' ? '01' : '03' }} · {{ t('pipeline') }}</div>
+            <div class="num">01 · {{ t('pipeline') }}</div>
             <h2>{{ t('pipelineTitle') }}</h2>
           </div>
           <div class="meta">
-            <span>{{ pipelineStats.offer }} {{ label('个 Offer', 'offer') }} · {{ pipelineStats.active }} {{ label('进行中', 'active') }} · {{ pipelineStats.closed }} {{ label('已关闭', 'closed') }}</span>
-            <button @click="openApplicationForm()">+ {{ t('logApplication') }}</button>
+            <span>{{ pipelineStats.saved }} {{ label('个待投递', 'saved') }} · {{ pipelineStats.applied }} {{ label('已投递', 'applied') }} · {{ pipelineStats.active }} {{ label('跟进中', 'active') }} · {{ pipelineStats.offer }} Offer</span>
+            <button @click="openApplicationForm()">+ {{ label('收藏岗位', 'Save role') }}</button>
           </div>
         </div>
         <div class="apps">
@@ -995,7 +1051,7 @@ function matchClass(score: number) {
 
           <form v-if="applicationFormOpen" class="application-form" @submit.prevent="saveApplication">
             <div class="application-form__head">
-              <strong>{{ editingApplicationId ? label('编辑投递记录', 'Edit application') : label('新增投递记录', 'New application') }}</strong>
+              <strong>{{ editingApplicationId ? label('编辑岗位记录', 'Edit opportunity') : label('新增岗位记录', 'New opportunity') }}</strong>
               <button type="button" @click="closeApplicationForm">×</button>
             </div>
             <p v-if="applicationError" class="form-error">{{ applicationError }}</p>
@@ -1033,7 +1089,7 @@ function matchClass(score: number) {
                 <input v-model.number="applicationDraft.match" type="number" min="0" max="100" />
               </label>
               <label>
-                <span>{{ t('applied') }}</span>
+                <span>{{ applicationDraft.stage === 'saved' ? label('计划投递日期', 'Planned apply date') : t('applied') }}</span>
                 <input v-model="applicationDraft.appliedAt" type="date" />
               </label>
               <label>
@@ -1067,7 +1123,7 @@ function matchClass(score: number) {
             </div>
             <div class="application-form__actions">
               <button type="button" class="btn btn--ghost" @click="closeApplicationForm">{{ label('取消', 'Cancel') }}</button>
-              <button type="submit" class="btn btn--primary">{{ editingApplicationId ? label('保存修改', 'Save changes') : label('添加记录', 'Add application') }}</button>
+              <button type="submit" class="btn btn--primary">{{ editingApplicationId ? label('保存修改', 'Save changes') : label('加入管线', 'Add to pipeline') }}</button>
             </div>
           </form>
 
@@ -1096,7 +1152,7 @@ function matchClass(score: number) {
                 </td>
                 <td>
                   <div class="role-cell">
-                    {{ app.role }}
+                    {{ app.role || label('未填写岗位', 'Untitled role') }}
                     <small>{{ app.nextAction || app.department || label('未填写下一步', 'No next action') }}</small>
                   </div>
                 </td>
@@ -1113,12 +1169,14 @@ function matchClass(score: number) {
                 </td>
                 <td>
                   <div class="applied-when">
-                    {{ formatAppliedDate(app.appliedAt) }}
-                    <small>{{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : daysAgo(app.appliedAt) }}</small>
+                    {{ app.stage === 'saved' ? label('待投递', 'Not applied') : formatAppliedDate(app.appliedAt) }}
+                    <small>{{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : app.stage === 'saved' ? (app.nextAction || label('评估岗位', 'Review role')) : daysAgo(app.appliedAt) }}</small>
                   </div>
                 </td>
                 <td>
                   <div class="row-actions">
+                    <button v-if="app.stage === 'saved'" @click="markApplicationApplied(app)">{{ label('标记投递', 'Mark applied') }}</button>
+                    <button v-else-if="app.stage !== 'offer' && app.stage !== 'rejected'" @click="advanceApplication(app)">{{ label('推进', 'Advance') }}</button>
                     <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
                     <button @click="removeApplication(app.id)">{{ label('删除', 'Delete') }}</button>
                   </div>
@@ -1127,7 +1185,7 @@ function matchClass(score: number) {
               <tr v-if="!filteredApplications.length">
                 <td colspan="7">
                   <div class="empty-row">
-                    {{ pipelineSearch ? label('没有匹配的投递记录，换个关键词试试。', 'No matching applications. Try another keyword.') : label('还没有投递记录，先添加一个目标岗位。', 'No applications yet. Add a target role first.') }}
+                    {{ pipelineSearch ? label('没有匹配的岗位记录，换个关键词试试。', 'No matching opportunities. Try another keyword.') : label('还没有岗位记录，先收藏一个可能投递的岗位。', 'No opportunities yet. Save a role first.') }}
                   </div>
                 </td>
               </tr>
@@ -1136,9 +1194,9 @@ function matchClass(score: number) {
         </div>
       </section>
 
-      <section v-if="props.mode === 'workspace' || props.mode === 'history' || props.mode === 'assistant'" class="section">
+      <section v-if="props.mode === 'history'" class="section">
         <div class="lower">
-          <div v-if="props.mode !== 'assistant'" class="panel">
+          <div class="panel">
             <div class="panel__head">
               <div class="ttl">{{ t('commits') }} · <em>{{ store.activeDocument.title }}</em></div>
               <button @click="emit('navigate', 'history')">{{ t('fullLog') }} →</button>
@@ -1158,7 +1216,7 @@ function matchClass(score: number) {
             </div>
           </div>
 
-          <div class="panel ai-panel">
+          <div v-if="false" class="panel ai-panel">
             <div class="panel__head">
               <div class="ttl">AI · <em>{{ t('coEditor') }}</em></div>
               <div class="live">{{ label('会话', 'SESSION') }} · {{ t('ready') }}</div>
@@ -1183,7 +1241,7 @@ function matchClass(score: number) {
                     <div class="jd-builder">
                       <div class="jd-builder__head">
                         <span>{{ label('JD 定制草稿', 'JD-tailored draft') }}</span>
-                        <b>{{ jdDraft ? `${jdDraft.match.score}/100` : label('待生成', 'ready') }}</b>
+                        <b>{{ jdDraft ? `${jdDraft?.match.score}/100` : label('待生成', 'ready') }}</b>
                       </div>
                       <div class="jd-builder__grid">
                         <input v-model="jdCompany" :placeholder="label('目标公司', 'Target company')" />
@@ -1193,8 +1251,8 @@ function matchClass(score: number) {
                       <p v-if="jdError" class="form-error">{{ jdError }}</p>
                       <div v-if="jdDraft" class="jd-result">
                         <div>
-                          <strong>{{ jdDraft.title }}</strong>
-                          <span>{{ label('命中关键词', 'Matched keywords') }} · {{ jdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || label('暂无', 'none') }}</span>
+                          <strong>{{ jdDraft?.title }}</strong>
+                          <span>{{ label('命中关键词', 'Matched keywords') }} · {{ jdDraft?.match.matchedKeywords.slice(0, 8).join(' · ') || label('暂无', 'none') }}</span>
                         </div>
                         <div class="jd-review">
                           <div class="jd-review__head">

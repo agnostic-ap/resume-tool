@@ -30,8 +30,9 @@ const groups = [
     labelEn: 'Jump to',
     items: [
       { icon: '⌂', label: 'workspace', hint: '↵', command: 'workspace' },
+      { icon: '▣', label: 'documentsPage', hint: '↵', command: 'documents' },
       { icon: '▦', label: 'templates', hint: '↵', command: 'templates' },
-      { icon: '✦', label: 'assistant', hint: '↵', command: 'assistant' },
+      { icon: '◇', label: 'growth', hint: '↵', command: 'growth' },
       { icon: '▤', label: 'pipeline', hint: '↵', command: 'pipeline' },
       { icon: '↺', label: 'history', hint: '↵', command: 'history' },
       { icon: '⌘', label: 'settings', hint: '↵', command: 'settings' },

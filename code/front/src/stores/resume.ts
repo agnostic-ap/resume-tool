@@ -267,6 +267,7 @@ function normalizeCareerUpdateChecklist(checklist: Partial<CareerUpdateChecklist
 function normalizeApplication(app: Partial<JobApplication>, fallbackResume: ResumeDocument): JobApplication {
   const now = new Date().toISOString()
   const company = app.company?.trim() || 'Untitled company'
+  const stage = (app.stage || 'saved') as ApplicationStage
   return {
     id: app.id || newId('app'),
     company,
@@ -276,9 +277,9 @@ function normalizeApplication(app: Partial<JobApplication>, fallbackResume: Resu
     department: app.department || '',
     resumeId: app.resumeId || fallbackResume.id,
     resumeTitle: app.resumeTitle || fallbackResume.title,
-    stage: (app.stage || 'applied') as ApplicationStage,
+    stage,
     match: Math.max(0, Math.min(100, Number(app.match ?? 70))),
-    appliedAt: app.appliedAt || now.slice(0, 10),
+    appliedAt: app.appliedAt || (stage === 'saved' ? '' : now.slice(0, 10)),
     nextAction: app.nextAction || '',
     followUpAt: app.followUpAt || '',
     contactName: app.contactName || '',
@@ -1126,7 +1127,7 @@ export const useResumeStore = defineStore('resume', () => {
       companyMono: input.companyMono || input.company?.slice(0, 1),
     }, doc)
     applications.value.unshift(app)
-    logActivity({ type: 'application', tag: 'apply', message: `Added application: ${app.company}`, messageZh: `新增投递：${app.company}`, messageEn: `Added application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
+    logActivity({ type: 'application', tag: app.stage === 'saved' ? 'saved' : 'apply', message: `Added opportunity: ${app.company}`, messageZh: `新增岗位记录：${app.company}`, messageEn: `Added opportunity: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
     void runBackendSync(() => backendApi.createApplication(app)).then((serverApp) => {
       if (serverApp) replaceApplication(app.id, serverApp)
     })

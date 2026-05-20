@@ -30,6 +30,13 @@ const templateComponents: Record<string, any> = {
   classic: TemplateClassic,
   modern:  TemplateModern,
   sidebar: TemplateSidebar,
+  compact: TemplateClassic,
+  executive: TemplateSidebar,
+  creative: TemplateSidebar,
+  academic: TemplateClassic,
+  technical: TemplateModern,
+  product: TemplateModern,
+  minimal: TemplateClassic,
 }
 const currentTemplate = computed(() => templateComponents[store.config.templateId] ?? TemplateClassic)
 

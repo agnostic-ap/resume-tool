@@ -15,7 +15,7 @@ import { useI18n } from './i18n'
 import { useLocaleText } from './composables/useLocaleText'
 import type { TemplateId } from './types/resume'
 
-type AppView = 'workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings'
+type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
 
 const store = useResumeStore()
 const { t } = useI18n()
@@ -25,6 +25,8 @@ const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
 const editorTweaksOpen = ref(false)
+const editorAiPrompt = ref('')
+const editorAiSuggestions = ref<{ id: string; title: string; body: string }[]>([])
 
 const resumeColorPresets = [
   { hex: '#C65A3A', label: 'Terracotta' },
@@ -38,6 +40,13 @@ const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'classic', label: '经典', desc: '简洁·全页' },
   { id: 'modern', label: '现代', desc: '双栏·标题色块' },
   { id: 'sidebar', label: '侧边栏', desc: '色彩·个性' },
+  { id: 'compact', label: '紧凑', desc: '信息密集·一页优先' },
+  { id: 'executive', label: '高管', desc: '稳重·管理层叙事' },
+  { id: 'creative', label: '创意', desc: '视觉·作品集友好' },
+  { id: 'academic', label: '学术', desc: '论文项目·教育优先' },
+  { id: 'technical', label: '技术', desc: '技能矩阵·工程导向' },
+  { id: 'product', label: '产品', desc: '成果指标·产品叙事' },
+  { id: 'minimal', label: '极简', desc: '留白·轻量现代' },
 ]
 
 const activeSections = computed(() =>
@@ -55,8 +64,9 @@ const primaryAdvice = computed(() => {
 const viewTitle: Record<AppView, string> = {
   workspace: 'workspace',
   editor: 'editor',
+  documents: 'documentsPage',
   templates: 'templates',
-  assistant: 'assistant',
+  growth: 'growth',
   pipeline: 'pipeline',
   history: 'history',
   settings: 'settings',
@@ -65,8 +75,9 @@ const viewTitle: Record<AppView, string> = {
 const railItems = computed<{ id: AppView; icon: string; label: string; count?: number }[]>(() => [
   { id: 'workspace', icon: '⌂', label: 'workspace' },
   { id: 'editor', icon: '§', label: 'editor' },
+  { id: 'documents', icon: '▣', label: 'documentsPage', count: store.documents.length },
   { id: 'templates', icon: '▦', label: 'templates' },
-  { id: 'assistant', icon: '✦', label: 'assistant' },
+  { id: 'growth', icon: '◇', label: 'growth' },
   { id: 'pipeline', icon: '▤', label: 'pipeline', count: store.applications.length },
   { id: 'history', icon: '↺', label: 'history' },
 ])
@@ -116,7 +127,11 @@ function runCommand(command: string) {
   } else if (command === 'templates') {
     navigate('templates')
   } else if (command === 'assistant') {
-    navigate('assistant')
+    navigate('editor')
+  } else if (command === 'documents') {
+    navigate('documents')
+  } else if (command === 'growth') {
+    navigate('growth')
   } else if (command === 'pipeline') {
     navigate('pipeline')
   } else if (command === 'history') {
@@ -131,6 +146,20 @@ function runCommand(command: string) {
   }
 }
 
+function templateDescKey(id: TemplateId) {
+  return `${id}Desc` as
+    | 'classicDesc'
+    | 'modernDesc'
+    | 'sidebarDesc'
+    | 'compactDesc'
+    | 'executiveDesc'
+    | 'creativeDesc'
+    | 'academicDesc'
+    | 'technicalDesc'
+    | 'productDesc'
+    | 'minimalDesc'
+}
+
 function resetResumeAppearance() {
   store.setThemeColor('#C65A3A')
   store.config.fontSize = 14
@@ -140,6 +169,44 @@ function resetResumeAppearance() {
 function setEditorTemplate(id: TemplateId) {
   store.setTemplate(id)
   showToast(l(`已切换到${t(id)}模板`, `Switched to ${t(id)} template`), 'success')
+}
+
+function selectEditorResume(value: Event) {
+  const id = value.target instanceof HTMLSelectElement ? value.target.value : ''
+  if (!id) return
+  store.selectResume(id)
+  showToast(l('已切换编辑简历', 'Editing resume switched'), 'success')
+}
+
+function generateEditorAiAdvice() {
+  const prompt = editorAiPrompt.value.trim()
+  if (!prompt) {
+    showToast(l('先输入希望 AI 帮你优化的方向', 'Enter what you want AI to improve first'), 'info')
+    return
+  }
+  editorAiSuggestions.value.unshift({
+    id: `editor-ai-${Date.now()}`,
+    title: l('可直接采纳到个人简介', 'Ready to apply to summary'),
+    body: l(
+      `面向“${prompt}”强化叙述：突出最近经历、关键技术栈和可验证成果，弱相关职责建议压缩。`,
+      `Tailor the resume for "${prompt}": emphasize recent work, key stack, and verifiable outcomes while trimming weaker duties.`,
+    ),
+  })
+  store.logActivity({
+    type: 'ai',
+    tag: 'AI',
+    message: 'Generated editor-side resume advice',
+    messageZh: '在编辑器生成 AI 优化建议',
+    messageEn: 'Generated editor-side resume advice',
+    meta: prompt,
+  })
+  editorAiPrompt.value = ''
+}
+
+function applyEditorAiAdvice(body: string) {
+  const current = store.data.personal.summary.trim()
+  store.data.personal.summary = current ? `${current} ${body}` : body
+  showToast(l('AI 建议已写入个人简介', 'AI advice applied to summary'), 'success')
 }
 
 function syncHash() {
@@ -231,9 +298,44 @@ onUnmounted(() => {
               <TemplateThumbnail :type="template.id" :color="store.config.themeColor" />
               <span>
                 <b>{{ t(template.id) }}</b>
-                <small>{{ t(`${template.id}Desc` as 'classicDesc' | 'modernDesc' | 'sidebarDesc') }}</small>
+                <small>{{ t(templateDescKey(template.id)) }}</small>
               </span>
             </button>
+          </div>
+        </div>
+
+        <div class="inspector-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ t('documentsPage') }}</span>
+            <button @click="navigate('documents')">{{ l('管理', 'Manage') }}</button>
+          </div>
+          <label class="inspector-field">
+            <span>{{ l('当前编辑简历', 'Current resume') }}</span>
+            <select :value="store.activeResumeId" @change="selectEditorResume">
+              <option v-for="doc in store.documents" :key="doc.id" :value="doc.id">
+                {{ doc.title }}{{ doc.archived ? l('（已归档）', ' (archived)') : '' }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <div class="inspector-card editor-ai-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ t('coEditor') }}</span>
+            <button @click="generateEditorAiAdvice">{{ l('生成', 'Generate') }}</button>
+          </div>
+          <textarea
+            v-model="editorAiPrompt"
+            rows="4"
+            :placeholder="t('aiPlaceholder')"
+            @keydown.meta.enter.prevent="generateEditorAiAdvice"
+            @keydown.ctrl.enter.prevent="generateEditorAiAdvice"></textarea>
+          <div class="editor-ai-suggestions">
+            <button v-for="suggestion in editorAiSuggestions.slice(0, 3)" :key="suggestion.id" @click="applyEditorAiAdvice(suggestion.body)">
+              <b>{{ suggestion.title }}</b>
+              <span>{{ suggestion.body }}</span>
+            </button>
+            <p v-if="!editorAiSuggestions.length">{{ l('AI 协作现在就在编辑器里：输入目标岗位、JD 或想加强的经历。', 'AI co-editing now lives in the editor: enter a target role, JD, or experience to strengthen.') }}</p>
           </div>
         </div>
 

@@ -8,7 +8,7 @@ import { useLocaleText } from '../composables/useLocaleText'
 
 defineProps<{ currentView: string }>()
 const emit = defineEmits<{
-  navigate: ['workspace' | 'editor' | 'templates' | 'assistant' | 'pipeline' | 'history' | 'settings']
+  navigate: ['workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings']
   openCommand: []
 }>()
 

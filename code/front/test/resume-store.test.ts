@@ -70,6 +70,30 @@ test('resume store keeps workspace and resume appearance colors separate', () =>
   assert.equal(store.config.themeColor, '#31566A')
 })
 
+test('resume store supports saved opportunities before applying', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  const opportunity = store.addApplication({
+    company: 'Notion',
+    role: 'Product Engineer',
+    stage: 'saved',
+    nextAction: 'Review JD fit',
+  })
+
+  assert.equal(opportunity.stage, 'saved')
+  assert.equal(opportunity.appliedAt, '')
+
+  store.updateApplication(opportunity.id, {
+    stage: 'applied',
+    appliedAt: '2026-05-20',
+  })
+
+  const updated = store.applications.find((item) => item.id === opportunity.id)!
+  assert.equal(updated.stage, 'applied')
+  assert.equal(updated.appliedAt, '2026-05-20')
+})
+
 test('resume store imports and exports normalized workspace data', () => {
   setupStoreHarness()
   const store = useResumeStore()
