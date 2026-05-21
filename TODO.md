@@ -4,6 +4,38 @@ Last reviewed: 2026-05-21
 
 This is the active product and engineering backlog after reviewing the current frontend, store, backend, templates, and test surface. Completed historical items are intentionally omitted so this file stays useful while iterating.
 
+## User Journey Friction Audit - 2026-05-21
+
+Source: [docs/user-flow-audit.md](docs/user-flow-audit.md)
+
+- [ ] First-run path: replace demo-heavy success with a clear blank-resume onboarding path.
+  - Friction: the product looks complete because demo data is present, but a new blank resume has weak guidance after the user enters the editor.
+  - Acceptance: first-run users can choose blank/import/sample, then land on a guided editor checklist with the next required field highlighted.
+
+- [ ] Workspace to AI tailoring: make the `Tailor with AI` CTA land on the real JD workflow.
+  - Friction: the workspace CTA opens the editor, but the visible assistant only appends local advice to the summary while the real JD draft UI is hidden.
+  - Acceptance: users can paste a JD in the editor, review structured before/after changes, apply selected sections, and create a linked pipeline record.
+
+- [ ] Editor right rail: make every card action match what it claims.
+  - Friction: `AI editing assistant` claims to use target role/JD context but does not call the backend; `showAI` hides some AI cards but not the assistant card; archived resumes can still appear in the editor selector.
+  - Acceptance: AI cards follow the same visibility setting, assistant actions use the same draft contract, archived resumes are visibly read-only or excluded from active editing.
+
+- [ ] Pipeline path: make "saved role -> applied -> follow-up -> offer/closed" feel like a managed workflow.
+  - Friction: users can log notes, but cannot edit timeline events, choose event dates/stages per note, set reminders, or open a focused opportunity detail view.
+  - Acceptance: each opportunity has a detail drawer or board card with editable timeline, next action, follow-up due state, contact/JD archive, and stage transitions.
+
+- [ ] Growth path: turn biweekly updates into reusable career memory.
+  - Friction: the current page is a checklist that resets after completion, so the user cannot review past achievements or let AI reuse them later.
+  - Acceptance: growth entries are append-only records with type, metrics, skills, company/project links, and can be selected by AI tailoring.
+
+- [ ] Super admin path: replace static dashboard data with real platform control.
+  - Friction: the admin app shows users, permissions, resumes, API requests, and config sync, but all rows/actions are static and do not call backend APIs.
+  - Acceptance: super admin can authenticate, view real users/requests/resumes/applications, manage API keys, run config sync, and inspect audit logs with dangerous actions confirmed.
+
+- [ ] Trust path: make save/sync/export status impossible to misunderstand.
+  - Friction: `Saved` only watches resume content; backend failures, document metadata, applications, settings, imports, and exports do not have truthful per-operation states.
+  - Acceptance: topbar distinguishes local saved, cloud pending, cloud failed, export warnings, import preview, and retryable sync errors.
+
 ## P0 - Broken Or Incomplete User Flows
 
 - [ ] Restore the JD-tailoring flow in the editor.
