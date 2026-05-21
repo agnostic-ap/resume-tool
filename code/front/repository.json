@@ -1,0 +1,8 @@
+{
+  "id": "c-front",
+  "name": "resume-tool-c-front",
+  "kind": "frontend",
+  "audience": "consumer",
+  "stack": ["Vue", "Vite", "Pinia"],
+  "sharedConfigDir": "config"
+}

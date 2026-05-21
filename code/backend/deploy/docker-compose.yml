@@ -1,0 +1,18 @@
+services:
+  resume-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8787:8787"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      RESUME_BACKEND_DATA_DIR: /data
+      CORS_ORIGIN: http://127.0.0.1:5173,http://127.0.0.1:5174
+      RESUME_PLATFORM_API_KEY: dev-secret
+    volumes:
+      - resume-api-data:/data
+
+volumes:
+  resume-api-data:

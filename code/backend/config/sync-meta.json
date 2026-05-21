@@ -1,0 +1,11 @@
+{
+  "workspace": "resume-tool",
+  "repositoryId": "backend-api",
+  "repositoryName": "resume-tool-backend-api",
+  "syncedFrom": "config",
+  "configFiles": [
+    "runtime.json",
+    "shared.env.example"
+  ],
+  "syncedAt": "2026-05-20T23:44:51.389Z"
+}

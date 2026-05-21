@@ -1,0 +1,14 @@
+{
+  "appName": "Resume Studio",
+  "apiBaseUrl": "http://127.0.0.1:8787",
+  "frontend": {
+    "consumerUrl": "http://127.0.0.1:5173",
+    "adminUrl": "http://127.0.0.1:5174"
+  },
+  "features": {
+    "jdTailoring": true,
+    "platformApi": true,
+    "growthLog": true,
+    "adminConsole": true
+  }
+}

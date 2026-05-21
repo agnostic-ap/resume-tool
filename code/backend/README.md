@@ -1,6 +1,6 @@
 # Resume Tool Backend
 
-Standalone local backend for Resume Studio.
+Standalone backend API repository for Resume Studio.
 
 Stack:
 
@@ -8,6 +8,14 @@ Stack:
 - TypeScript for API-layer type safety
 - Zod for request body validation
 - JSON file storage for the first local-first version
+
+Repository assets:
+
+- `src/`: backend API implementation
+- `test/`: backend API and store tests
+- `sql/`: target database schema and migration notes
+- `deploy/`: Docker and compose deployment files
+- `config/`: shared config synced from the root workspace
 
 ## Run
 

@@ -1,0 +1,35 @@
+{
+  "workspace": "resume-tool",
+  "version": 1,
+  "sharedConfigDir": "config",
+  "configFiles": [
+    "runtime.json",
+    "shared.env.example"
+  ],
+  "repositories": [
+    {
+      "id": "c-front",
+      "name": "resume-tool-c-front",
+      "path": "code/front",
+      "kind": "frontend",
+      "audience": "consumer",
+      "devPort": 5173
+    },
+    {
+      "id": "admin-front",
+      "name": "resume-tool-admin-front",
+      "path": "code/admin",
+      "kind": "frontend",
+      "audience": "admin",
+      "devPort": 5174
+    },
+    {
+      "id": "backend-api",
+      "name": "resume-tool-backend-api",
+      "path": "code/backend",
+      "kind": "backend",
+      "audience": "api",
+      "devPort": 8787
+    }
+  ]
+}

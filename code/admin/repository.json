@@ -1,0 +1,9 @@
+{
+  "id": "admin-front",
+  "name": "resume-tool-admin-front",
+  "kind": "frontend",
+  "audience": "admin",
+  "adminRole": "super_admin",
+  "stack": ["React", "Vite", "Ant Design"],
+  "sharedConfigDir": "config"
+}

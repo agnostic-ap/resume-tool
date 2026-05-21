@@ -1,0 +1,9 @@
+{
+  "id": "backend-api",
+  "name": "resume-tool-backend-api",
+  "kind": "backend",
+  "audience": "api",
+  "stack": ["Fastify", "TypeScript", "Zod"],
+  "sharedConfigDir": "config",
+  "contains": ["api", "sql", "deploy"]
+}
