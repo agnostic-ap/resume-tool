@@ -45,7 +45,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
 
   app.get('/health', async () => ({
     ok: true,
-    service: 'resume-tool-backend',
+    service: 'resume-tool-backend-api',
     stack: 'fastify',
     dbPath: store.dbPath,
   }))

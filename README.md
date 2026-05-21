@@ -9,6 +9,8 @@ This root repository coordinates four code repositories:
 
 ## Shared Config
 
+Use Node.js `20.19.0` or newer for all child repositories. The workspace pins the recommended local version in `.nvmrc`.
+
 Root-level config lives in `config/`. Run the sync script after changing shared config:
 
 ```bash

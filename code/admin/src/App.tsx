@@ -31,9 +31,11 @@ import {
   theme,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import runtimeConfig from '../config/runtime.json'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
+const apiBaseUrl = runtimeConfig.apiBaseUrl
 
 type ResumeRow = {
   key: string
@@ -167,7 +169,7 @@ export default function App() {
             </div>
             <Space>
               <Tag color="red">SUPER ADMIN</Tag>
-              <Tag color="blue">API: 127.0.0.1:8787</Tag>
+              <Tag color="blue">API: {apiBaseUrl.replace(/^https?:\/\//, '')}</Tag>
               <Button icon={<CloudSyncOutlined />}>同步主仓库配置</Button>
             </Space>
           </Header>
@@ -205,9 +207,9 @@ export default function App() {
               <Col xs={24} xl={10}>
                 <Card title="系统控制面板">
                   <Descriptions column={1} size="small">
-                    <Descriptions.Item label="C 端仓库">code/front</Descriptions.Item>
-                    <Descriptions.Item label="管理端仓库">code/admin</Descriptions.Item>
-                    <Descriptions.Item label="后端接口仓库">code/backend</Descriptions.Item>
+                    <Descriptions.Item label="C 端地址">{runtimeConfig.frontend.consumerUrl}</Descriptions.Item>
+                    <Descriptions.Item label="管理端地址">{runtimeConfig.frontend.adminUrl}</Descriptions.Item>
+                    <Descriptions.Item label="后端接口">{apiBaseUrl}</Descriptions.Item>
                     <Descriptions.Item label="SQL 文件">code/backend/sql/001_initial_schema.sql</Descriptions.Item>
                     <Descriptions.Item label="部署文件">code/backend/deploy</Descriptions.Item>
                     <Descriptions.Item label="配置同步">scripts/sync-config.mjs</Descriptions.Item>

@@ -58,7 +58,11 @@ DELETE /api/applications/:id
 
 GET    /api/activity
 POST   /api/assistant/suggestions
+POST   /api/assistant/resume-drafts
 
+GET    /api/v1/platform/requests
+POST   /api/v1/resume-drafts
+POST   /api/v1/platform/resume-drafts
 POST   /api/platform/resume-drafts
 ```
 
@@ -71,10 +75,10 @@ curl -s -X POST http://127.0.0.1:8787/api/applications \
   -d '{"company":"Vercel","role":"Frontend Engineer","stage":"screen","match":86}'
 ```
 
-Platform generation example:
+Platform generation example using the canonical external route:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8787/api/platform/resume-drafts \
+curl -s -X POST http://127.0.0.1:8787/api/v1/resume-drafts \
   -H 'content-type: application/json' \
   -H 'x-resume-api-key: dev-secret' \
   -d '{
@@ -107,7 +111,12 @@ curl -s -X POST http://127.0.0.1:8787/api/platform/resume-drafts \
   }'
 ```
 
-`POST /api/platform/resume-drafts` is intended for another AI platform to call after it has analyzed a user's full work history and a target JD. The response returns a generated resume-shaped draft, match metadata, selected experience indexes, and generation metadata. Set `persist: true` to save the draft as a resume document and receive `generation.documentId`.
+`POST /api/v1/resume-drafts` is intended for another AI platform to call after it has analyzed a user's full work history and a target JD. The response returns a generated resume-shaped draft, match metadata, selected experience indexes, and generation metadata. Set `persist: true` to save the draft as a resume document and receive `generation.documentId`.
+
+Compatibility aliases:
+
+- `POST /api/v1/platform/resume-drafts`
+- `POST /api/platform/resume-drafts`
 
 ## Tests
 

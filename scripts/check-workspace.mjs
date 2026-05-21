@@ -55,6 +55,8 @@ for (const repo of repoConfig.repositories) {
   for (const file of files) {
     await assertFile(join(repo.path, file))
   }
+  await assertRepositoryMetadata(repo)
+  await assertSyncedConfig(repo)
 }
 
 console.log('workspace structure ok')
@@ -65,4 +67,36 @@ async function assertFile(path) {
   } catch {
     throw new Error(`missing required file: ${path}`)
   }
+}
+
+async function assertRepositoryMetadata(repo) {
+  const repository = await readJson(join(repo.path, 'repository.json'))
+  const pkg = await readJson(join(repo.path, 'package.json'))
+  if (repository.id !== repo.id) {
+    throw new Error(`${repo.path}/repository.json id mismatch: expected ${repo.id}, got ${repository.id}`)
+  }
+  if (repository.name !== repo.name) {
+    throw new Error(`${repo.path}/repository.json name mismatch: expected ${repo.name}, got ${repository.name}`)
+  }
+  if (pkg.name !== repo.name) {
+    throw new Error(`${repo.path}/package.json name mismatch: expected ${repo.name}, got ${pkg.name}`)
+  }
+}
+
+async function assertSyncedConfig(repo) {
+  for (const file of repoConfig.configFiles) {
+    const rootContent = await readFile(join(root, repoConfig.sharedConfigDir, file), 'utf8')
+    const repoContent = await readFile(join(root, repo.path, 'config', file), 'utf8')
+    if (rootContent !== repoContent) {
+      throw new Error(`${repo.path}/config/${file} is out of sync with ${repoConfig.sharedConfigDir}/${file}`)
+    }
+  }
+  const meta = await readJson(join(repo.path, 'config/sync-meta.json'))
+  if (meta.repositoryId !== repo.id || meta.repositoryName !== repo.name) {
+    throw new Error(`${repo.path}/config/sync-meta.json repository metadata is stale`)
+  }
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(join(root, path), 'utf8'))
 }

@@ -1,5 +1,5 @@
 {
-  "name": "resume-tool-backend",
+  "name": "resume-tool-backend-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "coverage": "node --experimental-test-coverage --import tsx --test test/*.test.*"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
