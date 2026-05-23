@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import TopBar from './components/TopBar.vue'
 import EditorPanel from './components/EditorPanel.vue'
 import PreviewPanel from './components/PreviewPanel.vue'
@@ -13,9 +13,11 @@ import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 import { useI18n } from './i18n'
 import { useLocaleText } from './composables/useLocaleText'
-import type { TemplateId } from './types/resume'
+import { backendApi, type PlatformResumeDraft } from './api/backend'
+import type { ResumeData, TemplateId } from './types/resume'
 
 type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
+type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
 
 const store = useResumeStore()
 const { t } = useI18n()
@@ -25,8 +27,18 @@ const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
 const editorTweaksOpen = ref(false)
-const editorAiPrompt = ref('')
-const editorAiSuggestions = ref<{ id: string; title: string; body: string }[]>([])
+const editorJdCompany = ref('')
+const editorJdRole = ref('')
+const editorJdText = ref('')
+const editorJdGenerating = ref(false)
+const editorJdDraft = ref<PlatformResumeDraft | null>(null)
+const editorJdError = ref('')
+const editorJdApplySections = reactive<Record<JdReviewSection, boolean>>({
+  summary: true,
+  experience: true,
+  skills: true,
+  projects: true,
+})
 
 const resumeColorPresets = [
   { hex: '#3E7891', label: 'Ocean' },
@@ -62,6 +74,41 @@ const primaryAdvice = computed(() => {
   if (store.completeness < 90) return l('继续补齐隐藏或空白章节，导出前建议把完整度推到 90 以上。', 'Fill the remaining visible sections before export; aim for 90+ completeness.')
   return l('内容结构已经很稳，导出前只需要检查分页线和主题色。', 'The structure is solid. Check page breaks and theme color before export.')
 })
+
+const editorJdSectionReviews = computed(() => {
+  const draft = editorJdDraft.value
+  if (!draft) return []
+  return [
+    {
+      id: 'summary' as const,
+      label: l('个人简介', 'Summary'),
+      before: previewText(store.data.personal.summary),
+      after: previewText(draft.data.personal.summary),
+    },
+    {
+      id: 'experience' as const,
+      label: l('工作经历', 'Experience'),
+      before: previewExperience(store.data.experience),
+      after: previewExperience(draft.data.experience),
+    },
+    {
+      id: 'skills' as const,
+      label: l('技能', 'Skills'),
+      before: previewSkills(store.data.skills),
+      after: previewSkills(draft.data.skills),
+    },
+    {
+      id: 'projects' as const,
+      label: l('项目', 'Projects'),
+      before: previewProjects(store.data.projects),
+      after: previewProjects(draft.data.projects),
+    },
+  ]
+})
+
+const selectedEditorJdSectionCount = computed(() =>
+  (Object.keys(editorJdApplySections) as JdReviewSection[]).filter((section) => editorJdApplySections[section]).length,
+)
 
 const viewTitle: Record<AppView, string> = {
   workspace: 'workspace',
@@ -180,35 +227,197 @@ function selectEditorResume(value: Event) {
   showToast(l('已切换编辑简历', 'Editing resume switched'), 'success')
 }
 
-function generateEditorAiAdvice() {
-  const prompt = editorAiPrompt.value.trim()
-  if (!prompt) {
-    showToast(l('先输入希望 AI 帮你优化的方向', 'Enter what you want AI to improve first'), 'info')
-    return
-  }
-  editorAiSuggestions.value.unshift({
-    id: `editor-ai-${Date.now()}`,
-    title: l('可直接采纳到个人简介', 'Ready to apply to summary'),
-    body: l(
-      `面向“${prompt}”强化叙述：突出最近经历、关键技术栈和可验证成果，弱相关职责建议压缩。`,
-      `Tailor the resume for "${prompt}": emphasize recent work, key stack, and verifiable outcomes while trimming weaker duties.`,
-    ),
-  })
-  store.logActivity({
-    type: 'ai',
-    tag: 'AI',
-    message: 'Generated editor-side resume advice',
-    messageZh: '在编辑器生成 AI 优化建议',
-    messageEn: 'Generated editor-side resume advice',
-    meta: prompt,
-  })
-  editorAiPrompt.value = ''
+function splitItems(value: string) {
+  return value
+    .split(/[,，、\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
-function applyEditorAiAdvice(body: string) {
-  const current = store.data.personal.summary.trim()
-  store.data.personal.summary = current ? `${current} ${body}` : body
-  showToast(l('AI 建议已写入个人简介', 'AI advice applied to summary'), 'success')
+function splitBullets(value: string) {
+  return value
+    .split('\n')
+    .map((line) => line.replace(/^[•\-\*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function previewText(value: string) {
+  const text = value.trim().replace(/\s+/g, ' ')
+  return text || l('暂无内容', 'No content yet')
+}
+
+function previewExperience(items: ResumeData['experience']) {
+  if (!items.length) return l('暂无工作经历', 'No experience yet')
+  return items
+    .slice(0, 2)
+    .map((item) => `${item.company || l('未填写公司', 'Untitled company')} · ${item.position || l('未填写岗位', 'Untitled role')}`)
+    .join('\n')
+}
+
+function previewSkills(items: ResumeData['skills']) {
+  if (!items.length) return l('暂无技能', 'No skills yet')
+  return items
+    .slice(0, 3)
+    .map((item) => `${item.category || l('技能', 'Skills')}: ${item.items}`)
+    .join('\n')
+}
+
+function previewProjects(items: ResumeData['projects']) {
+  if (!items.length) return l('暂无项目', 'No projects yet')
+  return items
+    .slice(0, 2)
+    .map((item) => `${item.name || l('未命名项目', 'Untitled project')} · ${item.tech || item.role}`)
+    .join('\n')
+}
+
+function currentEditorJdSnapshot(role = editorJdRole.value.trim() || store.data.personal.title.trim()) {
+  return {
+    company: editorJdCompany.value.trim(),
+    title: role,
+    location: '',
+    description: editorJdText.value.trim(),
+    requirements: splitBullets(editorJdText.value),
+    url: '',
+  }
+}
+
+function resetEditorJdApplySections(value: boolean) {
+  ;(Object.keys(editorJdApplySections) as JdReviewSection[]).forEach((section) => {
+    editorJdApplySections[section] = value
+  })
+}
+
+async function generateEditorJdDraft() {
+  const role = editorJdRole.value.trim() || store.data.personal.title.trim()
+  const description = editorJdText.value.trim()
+  if (!role || !description) {
+    editorJdError.value = l('请至少填写目标岗位和 JD 内容。', 'Add a target role and JD text first.')
+    showToast(editorJdError.value, 'error')
+    return
+  }
+  if (!store.data.experience.length) {
+    editorJdError.value = l('请先补充至少一段工作经历，再生成定制草稿。', 'Add at least one work experience before generating a draft.')
+    showToast(editorJdError.value, 'error', 4200)
+    return
+  }
+
+  editorJdGenerating.value = true
+  editorJdError.value = ''
+  editorJdDraft.value = null
+  try {
+    const draft = await backendApi.generateAssistantResumeDraft({
+      requestId: `front-editor-${Date.now()}`,
+      persist: false,
+      locale: store.config.locale,
+      templateId: store.config.templateId,
+      personal: store.data.personal,
+      workHistory: store.data.experience.map((item) => ({
+        id: item.id,
+        company: item.company || l('未填写公司', 'Untitled company'),
+        title: item.position || l('未填写岗位', 'Untitled role'),
+        location: item.location,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        current: item.current,
+        description: item.description,
+        achievements: splitBullets(item.description),
+        skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
+      })),
+      education: store.data.education,
+      skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
+      projects: store.data.projects,
+      jobDescription: currentEditorJdSnapshot(role),
+    })
+    editorJdDraft.value = draft
+    resetEditorJdApplySections(true)
+    store.logActivity({
+      type: 'ai',
+      tag: 'JD',
+      message: 'Generated editor JD-tailored resume draft',
+      messageZh: '在编辑器生成 JD 定制简历草稿',
+      messageEn: 'Generated editor JD-tailored resume draft',
+      meta: `${draft.title} · ${draft.match.score}/100`,
+    })
+    showToast(l('已生成 JD 定制草稿', 'JD-tailored draft generated'), 'success')
+  } catch (error) {
+    editorJdError.value = error instanceof Error ? error.message : String(error)
+    showToast(l('生成失败，请确认后端已连接', 'Generation failed. Check backend connection.'), 'error', 4200)
+  } finally {
+    editorJdGenerating.value = false
+  }
+}
+
+function applyEditorJdDraft() {
+  if (!editorJdDraft.value) return
+  if (!selectedEditorJdSectionCount.value) {
+    showToast(l('请至少选择一个要应用的章节', 'Select at least one section to apply'), 'error')
+    return
+  }
+  const draft = editorJdDraft.value
+  store.data = {
+    ...store.data,
+    personal: {
+      ...store.data.personal,
+      summary: editorJdApplySections.summary ? draft.data.personal.summary : store.data.personal.summary,
+    },
+    experience: editorJdApplySections.experience ? draft.data.experience : store.data.experience,
+    skills: editorJdApplySections.skills ? draft.data.skills : store.data.skills,
+    projects: editorJdApplySections.projects ? draft.data.projects : store.data.projects,
+  }
+  draft.generation.appliedAt = new Date().toISOString()
+  store.logActivity({
+    type: 'ai',
+    tag: 'JD',
+    message: 'Applied selected editor JD-tailored sections',
+    messageZh: '采纳编辑器 JD 定制草稿的所选章节',
+    messageEn: 'Applied selected editor JD-tailored sections',
+    meta: `${selectedEditorJdSectionCount.value} · ${draft.match.score}/100`,
+  })
+  showToast(l('已应用所选草稿章节', 'Selected draft sections applied'), 'success')
+}
+
+function createApplicationFromEditorJdDraft() {
+  if (!editorJdDraft.value) return
+  const draft = editorJdDraft.value
+  const company = editorJdCompany.value.trim() || l('未填写公司', 'Untitled company')
+  const role = editorJdRole.value.trim() || draft.data.personal.title || store.data.personal.title
+  const created = store.addApplication({
+    company,
+    role,
+    stage: 'saved',
+    resumeId: store.activeResumeId,
+    match: draft.match.score,
+    appliedAt: '',
+    nextAction: l('评估 JD 定制草稿，决定是否投递', 'Review the JD-tailored draft and decide whether to apply'),
+    followUpAt: '',
+    contactName: '',
+    contactEmail: '',
+    jobPostUrl: '',
+    notes: l('由编辑器 JD 定制草稿创建。', 'Created from the editor JD-tailored draft.'),
+    jobDescription: currentEditorJdSnapshot(role),
+    tailoring: {
+      requestId: draft.requestId || '',
+      sourceResumeId: store.activeResumeId,
+      draftTitle: draft.title,
+      matchScore: draft.match.score,
+      matchedKeywords: draft.match.matchedKeywords,
+      selectedExperienceIds: draft.match.selectedExperienceIds,
+      strategy: draft.generation.strategy,
+      generatedAt: draft.generation.generatedAt,
+      appliedAt: draft.generation.appliedAt,
+    },
+  })
+  store.logActivity({
+    type: 'application',
+    tag: 'JD',
+    message: 'Created application from editor JD-tailored draft',
+    messageZh: '从编辑器 JD 定制草稿创建投递记录',
+    messageEn: 'Created application from editor JD-tailored draft',
+    meta: `${created.company} · ${created.match}`,
+    resumeId: created.resumeId,
+  })
+  navigate('pipeline')
+  showToast(l('已创建投递记录并保存 JD 信息', 'Application created with JD details'), 'success')
 }
 
 function syncHash() {
