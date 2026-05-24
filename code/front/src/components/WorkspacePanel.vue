@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ActivityEvent, ApplicationStage, CareerUpdateKey, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
@@ -11,6 +11,7 @@ import { backendApi, type PlatformResumeDraft } from '../api/backend'
 type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
 type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
 type DocumentFilter = 'active' | 'favorites' | 'archived' | 'all'
+type PipelineFocus = 'all' | 'today' | 'overdue' | 'high-match'
 
 const props = withDefaults(defineProps<{ mode?: AppView }>(), { mode: 'workspace' })
 const emit = defineEmits<{
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 const store = useResumeStore()
 const { t, locale } = useI18n()
 const pipelineFilter = ref('all')
+const pipelineFocus = ref<PipelineFocus>('all')
 const pipelineSearch = ref('')
 const pipelineSort = ref<'applied-desc' | 'match-desc' | 'company-asc'>('applied-desc')
 const assistantPrompt = ref('')
@@ -41,7 +43,15 @@ const renameDraft = ref('')
 const applicationFormOpen = ref(false)
 const editingApplicationId = ref('')
 const applicationError = ref('')
+const selectedApplicationId = ref('')
+const editingProgressEventId = ref('')
 const progressDrafts = reactive<Record<string, string>>({})
+const progressEventDraft = reactive({
+  stage: 'saved' as ApplicationStage,
+  title: '',
+  note: '',
+  happenedAt: '',
+})
 const pendingDeleteResume = ref<{ id: string; title: string } | null>(null)
 const applicationDraft = reactive({
   company: '',
@@ -149,9 +159,22 @@ const filters = computed(() => [
   ...stageOptions.map((stage) => ({ id: stage.id, label: label(stage.zh, stage.en) })),
 ])
 
+const pipelineFocusOptions = computed<Array<{ id: PipelineFocus; label: string; count: number }>>(() => [
+  { id: 'all', label: label('全部视图', 'All views'), count: applications.value.length },
+  { id: 'today', label: label('今日待跟进', 'Due today'), count: applications.value.filter((app) => followUpState(app) === 'today').length },
+  { id: 'overdue', label: label('逾期跟进', 'Overdue'), count: applications.value.filter((app) => followUpState(app) === 'overdue').length },
+  { id: 'high-match', label: label('高匹配', 'High match'), count: applications.value.filter((app) => app.match >= 85).length },
+])
+
 const filteredApplications = computed(() =>
   applications.value
     .filter((item) => pipelineFilter.value === 'all' || item.stage === pipelineFilter.value)
+    .filter((item) => {
+      if (pipelineFocus.value === 'today') return followUpState(item) === 'today'
+      if (pipelineFocus.value === 'overdue') return followUpState(item) === 'overdue'
+      if (pipelineFocus.value === 'high-match') return item.match >= 85
+      return true
+    })
     .filter((item) => {
       const query = pipelineSearch.value.trim().toLowerCase()
       if (!query) return true
@@ -193,6 +216,10 @@ const pipelineStats = computed(() => {
 })
 
 const activities = computed(() => store.activityLog)
+
+const selectedApplication = computed(() =>
+  applications.value.find((app) => app.id === selectedApplicationId.value) ?? null,
+)
 
 const jdSectionReviews = computed(() => {
   const draft = jdDraft.value
@@ -351,6 +378,29 @@ function daysAgo(date: string) {
   return `${diff}d ago`
 }
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function followUpState(app: JobApplication): 'none' | 'today' | 'overdue' | 'future' {
+  if (!app.followUpAt || app.stage === 'offer' || app.stage === 'rejected') return 'none'
+  const today = localDateKey()
+  if (app.followUpAt < today) return 'overdue'
+  if (app.followUpAt === today) return 'today'
+  return 'future'
+}
+
+function followUpLabel(app: JobApplication) {
+  const state = followUpState(app)
+  if (state === 'overdue') return label('逾期', 'Overdue')
+  if (state === 'today') return label('今日', 'Today')
+  if (state === 'future') return formatAppliedDate(app.followUpAt)
+  return label('未设置', 'Not set')
+}
+
 function latestProgress(app: JobApplication) {
   return app.progressLog?.[app.progressLog.length - 1]
 }
@@ -417,8 +467,19 @@ function saveApplication() {
 }
 
 function removeApplication(id: string) {
+  if (selectedApplicationId.value === id) selectedApplicationId.value = ''
   store.deleteApplication(id)
   showToast(label('岗位记录已删除', 'Opportunity deleted'), 'success')
+}
+
+function openApplicationDetail(app: JobApplication) {
+  selectedApplicationId.value = app.id
+  editingProgressEventId.value = ''
+}
+
+function closeApplicationDetail() {
+  selectedApplicationId.value = ''
+  editingProgressEventId.value = ''
 }
 
 function markApplicationApplied(app: JobApplication) {
@@ -463,6 +524,66 @@ function addProgressNote(app: JobApplication) {
   })
   progressDrafts[app.id] = ''
   showToast(label('进度已记录', 'Progress recorded'), 'success')
+}
+
+function startProgressEventEdit(event: ApplicationProgressEvent) {
+  editingProgressEventId.value = event.id
+  progressEventDraft.stage = event.stage
+  progressEventDraft.title = event.title
+  progressEventDraft.note = event.note
+  progressEventDraft.happenedAt = event.happenedAt || localDateKey()
+}
+
+function cancelProgressEventEdit() {
+  editingProgressEventId.value = ''
+  progressEventDraft.stage = 'saved'
+  progressEventDraft.title = ''
+  progressEventDraft.note = ''
+  progressEventDraft.happenedAt = ''
+}
+
+function saveProgressEvent(app: JobApplication) {
+  if (!editingProgressEventId.value) return
+  if (!progressEventDraft.title.trim() || !progressEventDraft.happenedAt) {
+    showToast(label('请填写进度标题和日期', 'Add a progress title and date'), 'error')
+    return
+  }
+  store.updateApplication(app.id, {
+    progressLog: app.progressLog.map((event) => event.id === editingProgressEventId.value
+      ? {
+          ...event,
+          stage: progressEventDraft.stage,
+          title: progressEventDraft.title.trim(),
+          note: progressEventDraft.note.trim(),
+          happenedAt: progressEventDraft.happenedAt,
+        }
+      : event),
+  })
+  cancelProgressEventEdit()
+  showToast(label('时间线事件已更新', 'Timeline event updated'), 'success')
+}
+
+function deleteProgressEvent(app: JobApplication, eventId: string) {
+  store.updateApplication(app.id, {
+    progressLog: app.progressLog.filter((event) => event.id !== eventId),
+  })
+  if (editingProgressEventId.value === eventId) cancelProgressEventEdit()
+  showToast(label('时间线事件已删除', 'Timeline event deleted'), 'success')
+}
+
+function createProgressEvent(app: JobApplication) {
+  const event: ApplicationProgressEvent = {
+    id: `progress-${Date.now()}`,
+    stage: app.stage,
+    title: label('新的进度事件', 'New timeline event'),
+    note: '',
+    happenedAt: localDateKey(),
+    createdAt: new Date().toISOString(),
+  }
+  store.updateApplication(app.id, {
+    progressLog: [...app.progressLog, event],
+  })
+  startProgressEventEdit(event)
 }
 
 function openEditor() {
@@ -1082,6 +1203,15 @@ function matchClass(score: number) {
                 {{ filter.label }}<span class="count">{{ filter.id === 'all' ? applications.length : applications.filter((a) => a.stage === filter.id).length }}</span>
               </button>
             </div>
+            <div class="apps__focus">
+              <button
+                v-for="focus in pipelineFocusOptions"
+                :key="focus.id"
+                :class="{ on: pipelineFocus === focus.id }"
+                @click="pipelineFocus = focus.id">
+                {{ focus.label }}<span>{{ focus.count }}</span>
+              </button>
+            </div>
             <div class="apps__tools">
               <input v-model="pipelineSearch" type="search" :placeholder="label('搜索公司、岗位、简历', 'Search company, role, resume')" />
               <select v-model="pipelineSort">
@@ -1185,7 +1315,7 @@ function matchClass(score: number) {
             </thead>
             <tbody>
               <template v-for="app in filteredApplications" :key="app.id">
-                <tr>
+                <tr :class="`follow-${followUpState(app)}`">
                   <td>
                     <div class="co">
                       <div class="co__logo">{{ app.companyMono }}</div>
@@ -1215,13 +1345,17 @@ function matchClass(score: number) {
                   <td>
                     <div class="applied-when">
                       {{ app.stage === 'saved' ? label('待投递', 'Not applied') : formatAppliedDate(app.appliedAt) }}
-                      <small>{{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : app.stage === 'saved' ? (app.nextAction || label('评估岗位', 'Review role')) : daysAgo(app.appliedAt) }}</small>
+                      <small>
+                        <b v-if="followUpState(app) !== 'none'" :class="`follow-chip follow-chip--${followUpState(app)}`">{{ followUpLabel(app) }}</b>
+                        {{ app.followUpAt ? `${label('跟进', 'Follow')} ${formatAppliedDate(app.followUpAt)}` : app.stage === 'saved' ? (app.nextAction || label('评估岗位', 'Review role')) : daysAgo(app.appliedAt) }}
+                      </small>
                     </div>
                   </td>
                   <td>
                     <div class="row-actions">
                       <button v-if="app.stage === 'saved'" @click="markApplicationApplied(app)">{{ label('标记投递', 'Mark applied') }}</button>
                       <button v-else-if="app.stage !== 'offer' && app.stage !== 'rejected'" @click="advanceApplication(app)">{{ label('推进', 'Advance') }}</button>
+                      <button @click="openApplicationDetail(app)">{{ label('详情', 'Details') }}</button>
                       <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
                       <button @click="removeApplication(app.id)">{{ label('删除', 'Delete') }}</button>
                     </div>
@@ -1259,6 +1393,110 @@ function matchClass(score: number) {
               </tr>
             </tbody>
           </table>
+
+          <Teleport to="body">
+            <div v-if="selectedApplication" class="application-detail-backdrop" @click.self="closeApplicationDetail">
+              <aside class="application-detail-drawer">
+                <div class="application-detail__head">
+                  <div>
+                    <span>{{ label('投递详情', 'Application detail') }}</span>
+                    <h3>{{ selectedApplication.company }} · {{ selectedApplication.role || label('未填写岗位', 'Untitled role') }}</h3>
+                    <p>{{ selectedApplication.resumeTitle }} · {{ stageLabel(selectedApplication.stage) }} · {{ selectedApplication.match }}/100</p>
+                  </div>
+                  <button @click="closeApplicationDetail">×</button>
+                </div>
+
+                <div class="application-detail__actions">
+                  <button class="btn btn--primary" @click="advanceApplication(selectedApplication)">{{ label('推进阶段', 'Advance stage') }}</button>
+                  <button class="btn btn--ghost" @click="openApplicationForm(selectedApplication)">{{ label('编辑岗位', 'Edit role') }}</button>
+                </div>
+
+                <section class="application-detail__section">
+                  <div class="detail-grid">
+                    <div>
+                      <span>{{ label('跟进状态', 'Follow-up') }}</span>
+                      <strong :class="`follow-text follow-text--${followUpState(selectedApplication)}`">{{ followUpLabel(selectedApplication) }}</strong>
+                    </div>
+                    <div>
+                      <span>{{ label('投递日期', 'Applied') }}</span>
+                      <strong>{{ selectedApplication.appliedAt ? formatAppliedDate(selectedApplication.appliedAt) : label('未投递', 'Not applied') }}</strong>
+                    </div>
+                    <div>
+                      <span>{{ label('联系人', 'Contact') }}</span>
+                      <strong>{{ selectedApplication.contactName || selectedApplication.contactEmail || label('未填写', 'Not set') }}</strong>
+                    </div>
+                    <div>
+                      <span>{{ label('下一步', 'Next') }}</span>
+                      <strong>{{ selectedApplication.nextAction || label('未填写', 'Not set') }}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section v-if="selectedApplication.jobDescription" class="application-detail__section">
+                  <div class="detail-section-head">
+                    <span>{{ label('JD 快照', 'JD snapshot') }}</span>
+                    <a v-if="selectedApplication.jobDescription.url" :href="selectedApplication.jobDescription.url" target="_blank" rel="noreferrer">{{ label('打开链接', 'Open link') }}</a>
+                  </div>
+                  <p class="jd-snapshot">{{ selectedApplication.jobDescription.description || selectedApplication.jobDescription.requirements.join(' · ') || label('已保存 JD 元数据', 'JD metadata saved') }}</p>
+                </section>
+
+                <section v-if="selectedApplication.tailoring" class="application-detail__section">
+                  <div class="detail-section-head">
+                    <span>{{ label('定制元数据', 'Tailoring metadata') }}</span>
+                    <b>JD {{ selectedApplication.tailoring.matchScore }}</b>
+                  </div>
+                  <dl class="detail-meta-list">
+                    <div><dt>request id</dt><dd>{{ selectedApplication.tailoring.requestId || label('未返回', 'missing') }}</dd></div>
+                    <div><dt>{{ label('生成策略', 'strategy') }}</dt><dd>{{ selectedApplication.tailoring.strategy }}</dd></div>
+                    <div><dt>{{ label('命中关键词', 'keywords') }}</dt><dd>{{ selectedApplication.tailoring.matchedKeywords.join(' · ') || label('暂无', 'none') }}</dd></div>
+                  </dl>
+                </section>
+
+                <section class="application-detail__section">
+                  <div class="detail-section-head">
+                    <span>{{ label('时间线', 'Timeline') }}</span>
+                    <button class="mini-link" @click="createProgressEvent(selectedApplication)">{{ label('新增事件', 'New event') }}</button>
+                  </div>
+                  <div class="detail-progress-list">
+                    <article v-for="event in selectedApplication.progressLog" :key="event.id" class="detail-progress-event">
+                      <i :class="`stage--${event.stage}`"></i>
+                      <div v-if="editingProgressEventId === event.id" class="progress-event-editor">
+                        <div class="progress-event-editor__grid">
+                          <select v-model="progressEventDraft.stage">
+                            <option v-for="stage in stageOptions" :key="stage.id" :value="stage.id">{{ label(stage.zh, stage.en) }}</option>
+                          </select>
+                          <input v-model="progressEventDraft.happenedAt" type="date" />
+                          <input v-model="progressEventDraft.title" :placeholder="label('事件标题', 'Event title')" />
+                          <input v-model="progressEventDraft.note" :placeholder="label('备注', 'Note')" />
+                        </div>
+                        <div class="progress-event-editor__actions">
+                          <button @click="saveProgressEvent(selectedApplication)">{{ label('保存', 'Save') }}</button>
+                          <button @click="cancelProgressEventEdit">{{ label('取消', 'Cancel') }}</button>
+                        </div>
+                      </div>
+                      <div v-else>
+                        <span>{{ progressWhen(event.happenedAt) }} · {{ stageLabel(event.stage) }}</span>
+                        <strong>{{ event.title }}</strong>
+                        <p>{{ event.note || selectedApplication.nextAction || label('暂无备注', 'No note') }}</p>
+                        <div class="detail-progress-event__actions">
+                          <button @click="startProgressEventEdit(event)">{{ label('编辑', 'Edit') }}</button>
+                          <button @click="deleteProgressEvent(selectedApplication, event.id)">{{ label('删除', 'Delete') }}</button>
+                        </div>
+                      </div>
+                    </article>
+                    <div v-if="!selectedApplication.progressLog.length" class="empty-row">
+                      {{ label('还没有进度事件，先在表格里记录一次跟进。', 'No timeline events yet. Add a note from the table first.') }}
+                    </div>
+                  </div>
+                </section>
+
+                <section v-if="selectedApplication.notes" class="application-detail__section">
+                  <div class="detail-section-head"><span>{{ label('备注', 'Notes') }}</span></div>
+                  <p class="jd-snapshot">{{ selectedApplication.notes }}</p>
+                </section>
+              </aside>
+            </div>
+          </Teleport>
         </div>
       </section>
 

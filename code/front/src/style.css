@@ -1393,6 +1393,35 @@ button:disabled {
   font-size: 9px;
 }
 
+.apps__focus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--rule-soft);
+}
+
+.apps__focus button {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.apps__focus button.on {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.apps__focus span {
+  margin-left: 5px;
+  color: var(--vermillion);
+}
+
 .apps__tools {
   display: flex;
   align-items: center;
@@ -1547,6 +1576,14 @@ button:disabled {
   background: var(--paper);
 }
 
+.apps__table tr.follow-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--vermillion);
+}
+
+.apps__table tr.follow-today td:first-child {
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+
 .apps__table .progress-row td {
   padding-top: 0;
   background: var(--surface);
@@ -1588,6 +1625,29 @@ button:disabled {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 400;
+}
+
+.follow-chip {
+  display: inline-flex;
+  margin-right: 5px;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.follow-chip--overdue {
+  border-color: rgba(198, 90, 58, 0.3);
+  background: rgba(198, 90, 58, 0.08);
+  color: var(--vermillion);
+}
+
+.follow-chip--today {
+  border-color: rgba(181, 138, 68, 0.35);
+  background: rgba(181, 138, 68, 0.1);
+  color: var(--gold);
 }
 
 .stage {
@@ -1763,6 +1823,262 @@ button:disabled {
 
 .row-actions button:hover {
   color: var(--vermillion);
+}
+
+.application-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(14, 14, 12, 0.32);
+  backdrop-filter: blur(4px);
+}
+
+.application-detail-drawer {
+  width: min(560px, calc(100vw - 24px));
+  height: 100%;
+  overflow-y: auto;
+  border-left: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: -24px 0 60px rgba(14, 14, 12, 0.2);
+}
+
+.application-detail__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.application-detail__head span,
+.detail-section-head span,
+.detail-grid span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.application-detail__head h3 {
+  margin: 4px 0;
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.application-detail__head p {
+  margin: 0;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.application-detail__head > button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.application-detail__actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.application-detail__section {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.detail-grid strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.follow-text--overdue {
+  color: var(--vermillion) !important;
+}
+
+.follow-text--today {
+  color: var(--gold) !important;
+}
+
+.detail-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.detail-section-head a,
+.detail-section-head b {
+  color: var(--vermillion);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.jd-snapshot {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.detail-meta-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.detail-meta-list div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.detail-meta-list dt,
+.detail-meta-list dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.detail-meta-list dd {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.detail-progress-list {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-progress-event {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.detail-progress-event > i {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--ink-5);
+}
+
+.detail-progress-event > i.stage--offer,
+.detail-progress-event > i.stage--onsite {
+  background: var(--moss);
+}
+
+.detail-progress-event > i.stage--saved {
+  background: var(--vermillion);
+}
+
+.detail-progress-event > i.stage--applied,
+.detail-progress-event > i.stage--screen {
+  background: var(--gold);
+}
+
+.detail-progress-event span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.detail-progress-event strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.detail-progress-event p {
+  margin: 5px 0 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.detail-progress-event__actions,
+.progress-event-editor__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.detail-progress-event__actions button,
+.progress-event-editor__actions button {
+  border: 0;
+  background: transparent;
+  color: var(--vermillion);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.progress-event-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.progress-event-editor__grid {
+  display: grid;
+  grid-template-columns: 0.8fr 0.9fr;
+  gap: 8px;
+}
+
+.progress-event-editor__grid input,
+.progress-event-editor__grid select {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
 }
 
 .empty-row {

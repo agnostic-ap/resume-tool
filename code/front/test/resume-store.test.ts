@@ -163,6 +163,27 @@ test('resume store supports saved opportunities before applying', () => {
 
   const withNote = store.applications.find((item) => item.id === opportunity.id)!
   assert.equal(withNote.progressLog.at(-1)?.note, 'Recruiter replied.')
+
+  store.updateApplication(opportunity.id, {
+    progressLog: withNote.progressLog.map((event) => event.id === 'progress-manual'
+      ? { ...event, title: 'Recruiter reply', note: 'Recruiter asked for portfolio.', happenedAt: '2026-05-22' }
+      : event),
+  })
+
+  const withEditedNote = store.applications.find((item) => item.id === opportunity.id)!
+  assert.equal(withEditedNote.progressLog.at(-1)?.title, 'Recruiter reply')
+  assert.equal(withEditedNote.progressLog.at(-1)?.note, 'Recruiter asked for portfolio.')
+  assert.equal(withEditedNote.progressLog.at(-1)?.happenedAt, '2026-05-22')
+
+  store.updateApplication(opportunity.id, {
+    progressLog: withEditedNote.progressLog.filter((event) => event.id !== 'progress-manual'),
+  })
+
+  const afterDelete = store.applications.find((item) => item.id === opportunity.id)!
+  assert.equal(afterDelete.progressLog.some((event) => event.id === 'progress-manual'), false)
+
+  store.updateApplication(opportunity.id, { progressLog: [] })
+  assert.equal(store.applications.find((item) => item.id === opportunity.id)?.progressLog.length, 0)
 })
 
 test('resume store imports and exports normalized workspace data', () => {

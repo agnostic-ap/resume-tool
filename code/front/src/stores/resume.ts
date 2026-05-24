@@ -377,8 +377,9 @@ function normalizeProgressLog(
   note: string,
   happenedAt: string,
   createdAt: string,
+  allowEmpty = false,
 ): ApplicationProgressEvent[] {
-  if (Array.isArray(events) && events.length) {
+  if (Array.isArray(events) && (events.length || allowEmpty)) {
     return events.map((event) => ({
       id: event.id || newId('progress'),
       stage: (event.stage || stage) as ApplicationStage,
@@ -1333,8 +1334,8 @@ export const useResumeStore = defineStore('resume', () => {
     const doc = documents.value.find((item) => item.id === (patch.resumeId ?? app.resumeId))
     const previousStage = app.stage
     const nextStage = patch.stage ?? app.stage
-    const nextProgressLog = patch.progressLog
-      ? normalizeProgressLog(patch.progressLog, nextStage, patch.nextAction ?? app.nextAction, patch.appliedAt ?? app.appliedAt, new Date().toISOString())
+    const nextProgressLog = patch.progressLog !== undefined
+      ? normalizeProgressLog(patch.progressLog, nextStage, patch.nextAction ?? app.nextAction, patch.appliedAt ?? app.appliedAt, new Date().toISOString(), true)
       : previousStage !== nextStage
         ? [
             ...app.progressLog,
