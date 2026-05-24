@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, GrowthEntry, GrowthEntryType, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, GrowthEntry, GrowthEntryType, JobApplication, ResumeData, ResumeDocument, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
@@ -11,6 +11,7 @@ import { backendApi, type PlatformResumeDraft } from '../api/backend'
 type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
 type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
 type DocumentFilter = 'active' | 'favorites' | 'archived' | 'all'
+type DocumentSort = 'updated-desc' | 'created-desc' | 'title-asc' | 'applications-desc'
 type PipelineFocus = 'all' | 'today' | 'overdue' | 'high-match'
 type GrowthFilter = 'active' | 'used' | 'unused' | 'archived' | 'all'
 
@@ -113,6 +114,11 @@ const assistantSuggestions = ref<AssistantSuggestion[]>([
 
 const documents = computed(() => store.documents)
 const documentFilter = ref<DocumentFilter>('active')
+const documentSearch = ref('')
+const documentSort = ref<DocumentSort>('updated-desc')
+const selectedDocumentIds = ref<string[]>([])
+const bulkDeleteSnapshot = ref<{ documents: ResumeDocument[]; applications: JobApplication[]; activeResumeId: string } | null>(null)
+const pendingBulkDelete = ref<{ ids: string[]; titles: string[] } | null>(null)
 const metaEditId = ref('')
 const metaDraft = reactive({
   folder: '',
@@ -122,10 +128,36 @@ const metaDraft = reactive({
 })
 
 const visibleDocuments = computed(() => {
-  if (documentFilter.value === 'favorites') return documents.value.filter((doc) => doc.favorite && !doc.archived)
-  if (documentFilter.value === 'archived') return documents.value.filter((doc) => doc.archived)
-  if (documentFilter.value === 'all') return documents.value
-  return documents.value.filter((doc) => !doc.archived)
+  const query = documentSearch.value.trim().toLowerCase()
+  return documents.value
+    .filter((doc) => {
+      if (documentFilter.value === 'favorites') return doc.favorite && !doc.archived
+      if (documentFilter.value === 'archived') return doc.archived
+      if (documentFilter.value === 'all') return true
+      return !doc.archived
+    })
+    .filter((doc) => {
+      if (!query) return true
+      const appText = documentApplications(doc.id).map((app) => `${app.company} ${app.role}`).join(' ')
+      return [
+        doc.title,
+        doc.folder,
+        doc.targetCompany,
+        doc.targetRole,
+        doc.data.personal.name,
+        doc.data.personal.title,
+        doc.sourceResumeTitle ?? '',
+        doc.tags.join(' '),
+        appText,
+      ].some((value) => value.toLowerCase().includes(query))
+    })
+    .slice()
+    .sort((a, b) => {
+      if (documentSort.value === 'title-asc') return a.title.localeCompare(b.title)
+      if (documentSort.value === 'created-desc') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      if (documentSort.value === 'applications-desc') return documentApplications(b.id).length - documentApplications(a.id).length
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
 })
 
 const documentFilters = computed<Array<{ id: DocumentFilter; label: string; count: number }>>(() => [
@@ -134,6 +166,14 @@ const documentFilters = computed<Array<{ id: DocumentFilter; label: string; coun
   { id: 'archived', label: label('归档', 'Archived'), count: documents.value.filter((doc) => doc.archived).length },
   { id: 'all', label: label('全部', 'All'), count: documents.value.length },
 ])
+
+const selectedDocuments = computed(() =>
+  documents.value.filter((doc) => selectedDocumentIds.value.includes(doc.id)),
+)
+
+const selectedVisibleDocumentCount = computed(() =>
+  visibleDocuments.value.filter((doc) => selectedDocumentIds.value.includes(doc.id)).length,
+)
 
 const careerChecklistItems: { key: CareerUpdateKey; zh: string; en: string }[] = [
   { key: 'projects', zh: '新增项目 / 交付物', en: 'New projects / shipped work' },
@@ -652,6 +692,99 @@ function createBlank() {
 function openDocument(id: string) {
   store.selectResume(id)
   emit('navigate', 'editor')
+}
+
+function documentApplications(id: string) {
+  return store.applications.filter((app) => app.resumeId === id || app.tailoring?.sourceResumeId === id)
+}
+
+function documentLastExport(doc: ResumeDocument) {
+  return store.activityLog.find((event) => event.type === 'export' && event.tag === 'PDF' && event.resumeId === doc.id)
+}
+
+function documentOriginLabel(doc: ResumeDocument) {
+  const origins: Record<ResumeDocument['origin'], string> = {
+    sample: label('示例', 'Sample'),
+    blank: label('空白创建', 'Blank'),
+    import: label('导入', 'Import'),
+    copy: label('复制', 'Copy'),
+    'jd-draft': label('JD 草稿生成', 'JD draft'),
+    platform: label('平台生成', 'Platform'),
+  }
+  const base = origins[doc.origin] ?? origins.sample
+  return doc.sourceResumeTitle ? `${base} · ${doc.sourceResumeTitle}` : base
+}
+
+function formatShortDate(value?: string) {
+  if (!value) return label('暂无', 'None')
+  return value.slice(0, 10)
+}
+
+function toggleDocumentSelection(id: string, checked: boolean) {
+  selectedDocumentIds.value = checked
+    ? [...new Set([...selectedDocumentIds.value, id])]
+    : selectedDocumentIds.value.filter((item) => item !== id)
+}
+
+function toggleDocumentSelectionFromEvent(id: string, event: Event) {
+  toggleDocumentSelection(id, Boolean((event.target as HTMLInputElement | null)?.checked))
+}
+
+function selectAllVisibleDocuments() {
+  const ids = visibleDocuments.value.map((doc) => doc.id)
+  const allSelected = ids.length > 0 && ids.every((id) => selectedDocumentIds.value.includes(id))
+  selectedDocumentIds.value = allSelected
+    ? selectedDocumentIds.value.filter((id) => !ids.includes(id))
+    : [...new Set([...selectedDocumentIds.value, ...ids])]
+}
+
+function clearDocumentSelection() {
+  selectedDocumentIds.value = []
+}
+
+function bulkArchiveDocuments(archived: boolean) {
+  selectedDocuments.value.forEach((doc) => {
+    if (doc.archived !== archived) store.updateResumeMetadata(doc.id, { archived })
+  })
+  showToast(archived ? label('已批量归档简历', 'Resumes archived') : label('已批量恢复简历', 'Resumes restored'), 'success')
+  clearDocumentSelection()
+}
+
+function requestBulkDeleteDocuments() {
+  const docs = selectedDocuments.value
+  if (!docs.length) return
+  if (store.documents.length - docs.length < 1) {
+    showToast(label('至少保留一份简历', 'Keep at least one resume'), 'error')
+    return
+  }
+  pendingBulkDelete.value = {
+    ids: docs.map((doc) => doc.id),
+    titles: docs.map((doc) => doc.title),
+  }
+}
+
+function confirmBulkDeleteDocuments() {
+  if (!pendingBulkDelete.value) return
+  const ids = pendingBulkDelete.value.ids
+  bulkDeleteSnapshot.value = {
+    documents: store.documents.filter((doc) => ids.includes(doc.id)).map((doc) => JSON.parse(JSON.stringify(doc))),
+    applications: store.applications.map((app) => JSON.parse(JSON.stringify(app))),
+    activeResumeId: store.activeResumeId,
+  }
+  ids.forEach((id) => store.deleteResume(id))
+  showToast(label('简历已删除，可短时撤销', 'Resumes deleted. Undo is available briefly.'), 'success', 8000)
+  selectedDocumentIds.value = []
+  pendingBulkDelete.value = null
+  window.setTimeout(() => {
+    bulkDeleteSnapshot.value = null
+  }, 8000)
+}
+
+function undoBulkDeleteDocuments() {
+  if (!bulkDeleteSnapshot.value) return
+  store.restoreDeletedResumes(bulkDeleteSnapshot.value)
+  bulkDeleteSnapshot.value = null
+  showToast(label('已撤销批量删除', 'Bulk delete undone'), 'success')
 }
 
 function startRename(id: string, title: string) {
@@ -1352,9 +1485,38 @@ function matchClass(score: number) {
             {{ filter.label }}<span>{{ filter.count }}</span>
           </button>
         </div>
+        <div class="doc-library-toolbar">
+          <div class="doc-library-toolbar__search">
+            <input v-model="documentSearch" :placeholder="label('搜索公司、岗位、标签、投递', 'Search company, role, tags, applications')" />
+            <select v-model="documentSort">
+              <option value="updated-desc">{{ label('最近编辑', 'Recently edited') }}</option>
+              <option value="created-desc">{{ label('最近创建', 'Recently created') }}</option>
+              <option value="applications-desc">{{ label('关联投递多', 'Most applications') }}</option>
+              <option value="title-asc">{{ label('标题 A-Z', 'Title A-Z') }}</option>
+            </select>
+          </div>
+          <div class="doc-bulk-actions">
+            <button @click="selectAllVisibleDocuments">
+              {{ selectedVisibleDocumentCount === visibleDocuments.length && visibleDocuments.length ? label('取消全选', 'Clear visible') : label('选择当前', 'Select visible') }}
+            </button>
+            <button :disabled="!selectedDocuments.length" @click="bulkArchiveDocuments(true)">{{ label('批量归档', 'Archive') }}</button>
+            <button :disabled="!selectedDocuments.length" @click="bulkArchiveDocuments(false)">{{ label('批量恢复', 'Restore') }}</button>
+            <button class="danger-link" :disabled="!selectedDocuments.length" @click="requestBulkDeleteDocuments">{{ label('批量删除', 'Delete') }}</button>
+          </div>
+        </div>
+        <div v-if="bulkDeleteSnapshot" class="doc-undo">
+          <span>{{ label('刚刚删除了简历', 'Recently deleted resumes') }} · {{ bulkDeleteSnapshot.documents.length }}</span>
+          <button @click="undoBulkDeleteDocuments">{{ label('撤销', 'Undo') }}</button>
+        </div>
         <div class="docs">
           <article v-for="doc in visibleDocuments" :key="doc.id" class="doc" :class="{ active: doc.id === store.activeResumeId, archived: doc.archived }" @click="openDocument(doc.id)">
             <div class="doc__head">
+              <label class="doc-select" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="selectedDocumentIds.includes(doc.id)"
+                  @change="toggleDocumentSelectionFromEvent(doc.id, $event)" />
+              </label>
               <span class="lang">{{ doc.favorite ? '★' : doc.config.locale === 'zh-CN' ? 'ZH' : 'EN' }}</span>
               <span class="menu">{{ doc.id === store.activeResumeId ? 'LIVE' : '···' }}</span>
             </div>
@@ -1362,9 +1524,17 @@ function matchClass(score: number) {
               <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @keydown.esc="cancelRename" @blur="finishRename" />
               <div v-else class="doc__title">{{ doc.title }}</div>
               <div class="doc__role">{{ doc.folder }} · {{ doc.targetCompany || doc.targetRole || doc.data.personal.title || label('未命名', 'Untitled') }}</div>
-              <div v-if="doc.sourceResumeTitle" class="doc__source">{{ label('来源', 'From') }} · {{ doc.sourceResumeTitle }}</div>
+              <div class="doc__source">{{ label('来源', 'From') }} · {{ documentOriginLabel(doc) }}</div>
               <div v-if="doc.tags.length" class="doc-tags">
                 <span v-for="tag in doc.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
+              </div>
+              <div class="doc-lineage">
+                <span>{{ label('关联投递', 'Applications') }} · {{ documentApplications(doc.id).length }}</span>
+                <span>{{ label('最近导出', 'Last export') }} · {{ formatShortDate(documentLastExport(doc)?.createdAt) }}</span>
+                <span>{{ label('最近编辑', 'Edited') }} · {{ formatShortDate(doc.updatedAt) }}</span>
+              </div>
+              <div v-if="documentApplications(doc.id).length" class="doc-apps">
+                <span v-for="app in documentApplications(doc.id).slice(0, 3)" :key="app.id">{{ app.company }} · {{ app.role }}</span>
               </div>
             </div>
             <div v-if="metaEditId === doc.id" class="doc-meta-edit" @click.stop>
@@ -1398,6 +1568,10 @@ function matchClass(score: number) {
             <div class="plus">＋</div>
             <strong>{{ t('newResumeFull') }}</strong>
               <span>{{ label('空白 · 导入 · 编辑', 'blank · import · edit') }}</span>
+          </article>
+          <article v-if="!visibleDocuments.length" class="doc doc--empty">
+            <strong>{{ label('没有匹配的简历', 'No matching resumes') }}</strong>
+            <span>{{ label('换个关键词、筛选条件或新建一份岗位版本。', 'Try another keyword or filter, or create a role-specific version.') }}</span>
           </article>
         </div>
       </section>
@@ -1934,5 +2108,11 @@ function matchClass(score: number) {
       danger
       @confirm="confirmDeleteDocument"
       @cancel="pendingDeleteResume = null" />
+    <ConfirmDialog v-if="pendingBulkDelete"
+      :title="label('批量删除简历？', 'Delete selected resumes?')"
+      :message="label(`将删除 ${pendingBulkDelete.titles.length} 份简历：${pendingBulkDelete.titles.join('、')}。关联投递会自动改到保留的简历。`, `This will delete ${pendingBulkDelete.titles.length} resumes: ${pendingBulkDelete.titles.join(', ')}. Linked applications will move to a remaining resume.`)"
+      danger
+      @confirm="confirmBulkDeleteDocuments"
+      @cancel="pendingBulkDelete = null" />
   </main>
 </template>

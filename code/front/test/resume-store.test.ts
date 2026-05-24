@@ -16,6 +16,7 @@ test('resume store manages multiple resumes and biweekly update dates', () => {
   assert.equal(store.data.personal.name, '')
   assert.equal(store.data.experience.length, 0)
   assert.equal(blank.folder, 'General')
+  assert.equal(blank.origin, 'blank')
 
   store.renameResume(blank.id, 'Platform Resume')
   assert.equal(store.activeDocument.title, 'Platform Resume')
@@ -34,6 +35,7 @@ test('resume store manages multiple resumes and biweekly update dates', () => {
   const copy = store.duplicateResume(blank.id)
   assert.equal(store.activeDocument.sourceResumeId, blank.id)
   assert.equal(store.activeDocument.sourceResumeTitle, 'Platform Resume')
+  assert.equal(store.activeDocument.origin, 'copy')
   assert.equal(copy?.archived, false)
   store.toggleResumeArchive(copy!.id)
   assert.equal(store.activeDocument.archived, true)
@@ -94,6 +96,32 @@ test('resume store captures and tracks career memory entries', () => {
   assert.equal(exported.growthEntries[0].archived, true)
 })
 
+test('resume store restores deleted resume snapshots for bulk undo', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+  const source = store.createResume(true)
+  store.renameResume(source.id, 'Undo Resume')
+  const app = store.addApplication({
+    company: 'FutureHire',
+    role: 'Platform Engineer',
+    resumeId: source.id,
+  })
+  const snapshot = {
+    documents: [JSON.parse(JSON.stringify(source))],
+    applications: JSON.parse(JSON.stringify(store.applications)),
+    activeResumeId: store.activeResumeId,
+  }
+
+  store.deleteResume(source.id)
+  assert.equal(store.documents.some((doc) => doc.id === source.id), false)
+  assert.notEqual(store.applications.find((item) => item.id === app.id)?.resumeId, source.id)
+
+  const restored = store.restoreDeletedResumes(snapshot)
+  assert.equal(restored.length, 1)
+  assert.equal(store.documents.some((doc) => doc.id === source.id), true)
+  assert.equal(store.applications.find((item) => item.id === app.id)?.resumeId, source.id)
+})
+
 test('resume store keeps workspace and resume appearance colors separate', () => {
   setupStoreHarness()
   const store = useResumeStore()
@@ -118,6 +146,7 @@ test('resume store migrates previous default app palettes to the refreshed style
       {
         id: 'legacy-theme-resume',
         title: 'Legacy Theme Resume',
+        origin: 'import',
         data: {
           personal: { name: 'Lin', title: 'Designer' },
           experience: [],
@@ -234,6 +263,7 @@ test('resume store imports and exports normalized workspace data', () => {
       {
         id: 'imported-resume',
         title: 'Imported Resume',
+        origin: 'import',
         data: {
           personal: { name: 'Ada Lovelace', title: 'Platform Engineer' },
           experience: [],
@@ -312,6 +342,7 @@ test('resume store imports and exports normalized workspace data', () => {
   assert.equal(store.config.tweaks.showAI, false)
   assert.deepEqual(store.data.languages, [])
   assert.deepEqual(store.data.certifications, [])
+  assert.equal(store.activeDocument.origin, 'import')
   assert.equal(store.applications[0].match, 100)
   assert.equal(store.applications[0].nextAction, 'Send tailored draft')
   assert.equal(store.applications[0].contactEmail, 'jordan@example.com')
@@ -339,6 +370,7 @@ test('resume store connects to backend and applies remote state', async () => {
       {
         id: 'remote-resume',
         title: 'Remote Resume',
+        origin: 'platform',
         data: {
           personal: {
             name: 'Grace Hopper',
@@ -456,6 +488,7 @@ test('resume store connects to backend and applies remote state', async () => {
     assert.equal(store.data.personal.name, 'Grace Hopper')
     assert.equal(store.config.templateId, 'modern')
     assert.equal(store.activeDocument.folder, 'Backend')
+    assert.equal(store.activeDocument.origin, 'platform')
     assert.equal(store.activeDocument.favorite, true)
     assert.equal(store.activeDocument.careerUpdateChecklist.notes, 'Remote note')
     assert.equal(store.growthEntries[0].title, 'Remote career memory')

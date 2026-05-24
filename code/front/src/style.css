@@ -1060,6 +1060,74 @@ button:disabled {
   color: #9f3f2c;
 }
 
+.doc-library-toolbar,
+.doc-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-soft);
+  border-bottom: 0;
+  background: var(--paper-2);
+}
+
+.doc-library-toolbar__search,
+.doc-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-library-toolbar input,
+.doc-library-toolbar select {
+  height: 32px;
+  min-width: 180px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.doc-library-toolbar input {
+  width: min(320px, 42vw);
+  padding: 0 9px;
+}
+
+.doc-library-toolbar select {
+  padding: 0 8px;
+}
+
+.doc-bulk-actions button,
+.doc-undo button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.doc-bulk-actions button:disabled {
+  opacity: 0.35;
+}
+
+.doc-bulk-actions .danger-link {
+  color: var(--vermillion);
+}
+
+.doc-undo {
+  border-bottom: 1px solid var(--rule-soft);
+  background: rgba(87, 107, 88, 0.08);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.doc-undo button {
+  color: var(--vermillion);
+}
+
 .doc-rename {
   width: 100%;
   padding: 6px 8px;
@@ -1424,6 +1492,11 @@ button:disabled {
   background: var(--paper-2);
 }
 
+.doc--empty {
+  justify-content: center;
+  color: var(--ink-4);
+}
+
 .doc--new .plus {
   width: 36px;
   height: 36px;
@@ -1440,11 +1513,25 @@ button:disabled {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.doc-select {
+  display: inline-grid;
+  place-items: center;
+}
+
+.doc-select input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--vermillion);
 }
 
 .doc__head .lang,
 .doc__role,
 .doc__source,
+.doc-lineage,
+.doc-apps,
 .doc__meta,
 .toolbar-note,
 .mono {
@@ -1454,6 +1541,8 @@ button:disabled {
 .doc__head .lang,
 .doc__role,
 .doc__source,
+.doc-lineage,
+.doc-apps,
 .doc__meta {
   color: var(--ink-4);
   font-size: 10px;
@@ -1491,6 +1580,25 @@ button:disabled {
   color: var(--ink-3);
   font-family: var(--mono);
   font-size: 9px;
+}
+
+.doc-lineage,
+.doc-apps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.doc-lineage span,
+.doc-apps span {
+  padding: 3px 6px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.doc-apps span {
+  color: var(--moss);
 }
 
 .doc-meta-edit {

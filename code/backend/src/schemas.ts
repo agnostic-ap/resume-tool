@@ -8,6 +8,7 @@ export const createResumeSchema = z.object({
   targetRole: z.string().optional(),
   targetCompany: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  origin: z.enum(['sample', 'blank', 'import', 'copy', 'jd-draft', 'platform']).optional(),
   favorite: z.boolean().optional(),
   archived: z.boolean().optional(),
 })
@@ -20,6 +21,7 @@ export const updateResumeSchema = z.object({
   targetRole: z.string().optional(),
   targetCompany: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  origin: z.enum(['sample', 'blank', 'import', 'copy', 'jd-draft', 'platform']).optional(),
   sourceResumeId: z.string().optional(),
   sourceResumeTitle: z.string().optional(),
   favorite: z.boolean().optional(),

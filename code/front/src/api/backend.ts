@@ -109,14 +109,14 @@ export const backendApi = {
     return request<BackendState>('/api/state')
   },
 
-  createResume(input: { blank?: boolean; title?: string; sourceId?: string; folder?: string; targetRole?: string; targetCompany?: string; tags?: string[] }) {
+  createResume(input: { blank?: boolean; title?: string; sourceId?: string; folder?: string; targetRole?: string; targetCompany?: string; tags?: string[]; origin?: ResumeDocument['origin'] }) {
     return request<ResumeDocument>('/api/resumes', {
       method: 'POST',
       body: JSON.stringify(input),
     })
   },
 
-  updateResume(id: string, input: Partial<Pick<ResumeDocument, 'title' | 'data' | 'config' | 'folder' | 'targetRole' | 'targetCompany' | 'tags' | 'favorite' | 'archived' | 'careerUpdateChecklist'>>) {
+  updateResume(id: string, input: Partial<Pick<ResumeDocument, 'title' | 'data' | 'config' | 'folder' | 'targetRole' | 'targetCompany' | 'tags' | 'origin' | 'favorite' | 'archived' | 'careerUpdateChecklist'>>) {
     return request<ResumeDocument>(`/api/resumes/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(input),

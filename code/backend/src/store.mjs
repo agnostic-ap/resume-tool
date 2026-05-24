@@ -98,6 +98,7 @@ export function createStore(options = {}) {
           targetRole: String(input.targetRole ?? (blank ? '' : source.targetRole ?? '')),
           targetCompany: String(input.targetCompany ?? ''),
           tags: normalizeTags(input.tags ?? (blank ? [] : source.tags)),
+          origin: normalizeResumeOrigin(input.origin ?? (blank ? 'blank' : 'copy')),
           sourceResumeId: blank ? undefined : source.id,
           sourceResumeTitle: blank ? undefined : source.title,
           favorite: Boolean(input.favorite ?? false),
@@ -133,6 +134,7 @@ export function createStore(options = {}) {
         if (patch.targetRole !== undefined) doc.targetRole = String(patch.targetRole).trim()
         if (patch.targetCompany !== undefined) doc.targetCompany = String(patch.targetCompany).trim()
         if (patch.tags !== undefined) doc.tags = normalizeTags(patch.tags)
+        if (patch.origin !== undefined) doc.origin = normalizeResumeOrigin(patch.origin)
         if (patch.sourceResumeId !== undefined) doc.sourceResumeId = String(patch.sourceResumeId).trim() || undefined
         if (patch.sourceResumeTitle !== undefined) doc.sourceResumeTitle = String(patch.sourceResumeTitle).trim() || undefined
         if (patch.favorite !== undefined) doc.favorite = Boolean(patch.favorite)
@@ -376,6 +378,7 @@ export function createStore(options = {}) {
           targetRole: String(input.jobDescription?.title ?? ''),
           targetCompany: String(input.jobDescription?.company ?? ''),
           tags: normalizeTags([input.jobDescription?.title, input.jobDescription?.company, 'platform'].filter(Boolean)),
+          origin: 'jd-draft',
           sourceResumeId: undefined,
           sourceResumeTitle: undefined,
           favorite: false,
@@ -484,6 +487,7 @@ export function normalizeDocument(doc = {}) {
     targetRole: String(doc.targetRole ?? ''),
     targetCompany: String(doc.targetCompany ?? ''),
     tags: normalizeTags(doc.tags),
+    origin: normalizeResumeOrigin(doc.origin ?? (doc.sourceResumeId ? 'copy' : 'sample')),
     sourceResumeId: doc.sourceResumeId ? String(doc.sourceResumeId) : undefined,
     sourceResumeTitle: doc.sourceResumeTitle ? String(doc.sourceResumeTitle) : undefined,
     favorite: Boolean(doc.favorite),
@@ -499,6 +503,10 @@ export function normalizeDocument(doc = {}) {
 function normalizeTags(tags = []) {
   if (!Array.isArray(tags)) return []
   return [...new Set(tags.map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 12)
+}
+
+function normalizeResumeOrigin(origin = 'sample') {
+  return ['sample', 'blank', 'import', 'copy', 'jd-draft', 'platform'].includes(origin) ? origin : 'sample'
 }
 
 function defaultCareerUpdateChecklist(date = new Date()) {
@@ -780,6 +788,7 @@ function toDocumentSummary(doc) {
     targetRole: doc.targetRole,
     targetCompany: doc.targetCompany,
     tags: doc.tags,
+    origin: doc.origin,
     sourceResumeId: doc.sourceResumeId,
     sourceResumeTitle: doc.sourceResumeTitle,
     favorite: doc.favorite,

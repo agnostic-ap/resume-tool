@@ -114,6 +114,8 @@ export interface GrowthEntry {
   updatedAt: string
 }
 
+export type ResumeOrigin = 'sample' | 'blank' | 'import' | 'copy' | 'jd-draft' | 'platform'
+
 export interface ResumeDocument {
   id: string
   title: string
@@ -123,6 +125,7 @@ export interface ResumeDocument {
   targetRole: string
   targetCompany: string
   tags: string[]
+  origin: ResumeOrigin
   sourceResumeId?: string
   sourceResumeTitle?: string
   favorite: boolean

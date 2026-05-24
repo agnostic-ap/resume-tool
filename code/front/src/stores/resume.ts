@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState } from '../api/backend'
@@ -279,6 +279,12 @@ function normalizeTags(tags: unknown) {
   return [...new Set(tags.map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 12)
 }
 
+function normalizeResumeOrigin(origin: unknown, fallback: ResumeOrigin = 'sample'): ResumeOrigin {
+  return ['sample', 'blank', 'import', 'copy', 'jd-draft', 'platform'].includes(String(origin))
+    ? String(origin) as ResumeOrigin
+    : fallback
+}
+
 function defaultCareerUpdateChecklist(date = new Date()): CareerUpdateChecklist {
   return {
     projects: false,
@@ -457,6 +463,7 @@ function normalizeDocument(doc: Partial<ResumeDocument>): ResumeDocument {
     targetRole: doc.targetRole?.trim() || '',
     targetCompany: doc.targetCompany?.trim() || '',
     tags: normalizeTags(doc.tags),
+    origin: normalizeResumeOrigin(doc.origin, doc.sourceResumeId ? 'copy' : 'sample'),
     sourceResumeId: doc.sourceResumeId,
     sourceResumeTitle: doc.sourceResumeTitle,
     favorite: Boolean(doc.favorite),
@@ -509,6 +516,7 @@ export const useResumeStore = defineStore('resume', () => {
     targetRole: legacyData.personal.title || '',
     targetCompany: '',
     tags: [],
+    origin: 'sample',
     favorite: false,
     archived: false,
     careerUpdateChecklist: defaultCareerUpdateChecklist(now),
@@ -1093,6 +1101,7 @@ export const useResumeStore = defineStore('resume', () => {
       targetRole: blank ? '' : activeDocument.value.targetRole,
       targetCompany: '',
       tags: blank ? [] : [...activeDocument.value.tags],
+      origin: blank ? 'blank' : 'copy',
       sourceResumeId: blank ? undefined : sourceId,
       sourceResumeTitle: blank ? undefined : sourceTitle,
       favorite: false,
@@ -1123,6 +1132,7 @@ export const useResumeStore = defineStore('resume', () => {
         targetRole: doc.targetRole,
         targetCompany: doc.targetCompany,
         tags: doc.tags,
+        origin: doc.origin,
       }), { entityType: 'resume', operation: 'create', entityId: doc.id }).then((serverDoc) => {
         if (serverDoc) replaceDocument(doc.id, serverDoc)
       }).finally(() => {
@@ -1144,6 +1154,7 @@ export const useResumeStore = defineStore('resume', () => {
       title: `${source.title} Copy`,
       sourceResumeId: source.id,
       sourceResumeTitle: source.title,
+      origin: 'copy',
       favorite: false,
       archived: false,
       careerUpdateChecklist: defaultCareerUpdateChecklist(created),
@@ -1185,6 +1196,58 @@ export const useResumeStore = defineStore('resume', () => {
     void runBackendSync(() => backendApi.deleteResume(id), { entityType: 'resume', operation: 'delete', entityId: id })
   }
 
+  function restoreDeletedResumes(snapshot: { documents: ResumeDocument[]; applications?: JobApplication[]; activeResumeId?: string }) {
+    const restored = snapshot.documents
+      .map((doc) => normalizeDocument(doc))
+      .filter((doc) => !documents.value.some((item) => item.id === doc.id))
+    if (!restored.length) return []
+    documents.value = [...restored, ...documents.value]
+    if (snapshot.applications?.length) {
+      applications.value = snapshot.applications.map((app) =>
+        normalizeApplication(app, documents.value.find((doc) => doc.id === app.resumeId) ?? activeDocument.value),
+      )
+    }
+    if (snapshot.activeResumeId && documents.value.some((doc) => doc.id === snapshot.activeResumeId)) {
+      activeResumeId.value = snapshot.activeResumeId
+    }
+    logActivity({
+      type: 'resume',
+      tag: 'restore',
+      message: `Restored ${restored.length} deleted resume${restored.length > 1 ? 's' : ''}`,
+      messageZh: `恢复 ${restored.length} 份已删除简历`,
+      messageEn: `Restored ${restored.length} deleted resume${restored.length > 1 ? 's' : ''}`,
+      meta: restored.map((doc) => doc.title).join(', '),
+      resumeId: restored[0].id,
+    })
+    restored.forEach((doc) => {
+      void runBackendSync(async () => {
+        const serverDoc = await backendApi.createResume({
+          blank: true,
+          title: doc.title,
+          folder: doc.folder,
+          targetRole: doc.targetRole,
+          targetCompany: doc.targetCompany,
+          tags: doc.tags,
+          origin: doc.origin,
+        })
+        return backendApi.updateResume(serverDoc.id, {
+          data: doc.data,
+          config: doc.config,
+          folder: doc.folder,
+          targetRole: doc.targetRole,
+          targetCompany: doc.targetCompany,
+          tags: doc.tags,
+          origin: doc.origin,
+          favorite: doc.favorite,
+          archived: doc.archived,
+        })
+      }, { entityType: 'resume', operation: 'restore', entityId: doc.id }).then((serverDoc) => {
+        if (serverDoc) replaceDocument(doc.id, serverDoc)
+      })
+    })
+    return restored
+  }
+
   function selectResume(id: string) {
     if (documents.value.some((doc) => doc.id === id)) {
       activeResumeId.value = id
@@ -1204,13 +1267,14 @@ export const useResumeStore = defineStore('resume', () => {
     void runBackendSync(() => backendApi.updateResume(id, { title: doc.title }), { entityType: 'resume', operation: 'rename', entityId: id })
   }
 
-  function updateResumeMetadata(id: string, patch: Partial<Pick<ResumeDocument, 'folder' | 'targetRole' | 'targetCompany' | 'tags' | 'favorite' | 'archived'>>) {
+  function updateResumeMetadata(id: string, patch: Partial<Pick<ResumeDocument, 'folder' | 'targetRole' | 'targetCompany' | 'tags' | 'origin' | 'favorite' | 'archived'>>) {
     const doc = documents.value.find((item) => item.id === id)
     if (!doc) return
     if (patch.folder !== undefined) doc.folder = patch.folder.trim() || 'General'
     if (patch.targetRole !== undefined) doc.targetRole = patch.targetRole.trim()
     if (patch.targetCompany !== undefined) doc.targetCompany = patch.targetCompany.trim()
     if (patch.tags !== undefined) doc.tags = normalizeTags(patch.tags)
+    if (patch.origin !== undefined) doc.origin = normalizeResumeOrigin(patch.origin, doc.origin)
     if (patch.favorite !== undefined) doc.favorite = patch.favorite
     if (patch.archived !== undefined) doc.archived = patch.archived
     doc.updatedAt = new Date().toISOString()
@@ -1228,6 +1292,7 @@ export const useResumeStore = defineStore('resume', () => {
       targetRole: doc.targetRole,
       targetCompany: doc.targetCompany,
       tags: doc.tags,
+      origin: doc.origin,
       favorite: doc.favorite,
       archived: doc.archived,
     }), { entityType: 'resume', operation: 'metadata', entityId: id })
@@ -1360,6 +1425,7 @@ export const useResumeStore = defineStore('resume', () => {
           targetRole: doc.targetRole?.trim() || '',
           targetCompany: doc.targetCompany?.trim() || '',
           tags: normalizeTags(doc.tags),
+          origin: normalizeResumeOrigin(doc.origin, 'import'),
           sourceResumeId: doc.sourceResumeId,
           sourceResumeTitle: doc.sourceResumeTitle,
           favorite: Boolean(doc.favorite),
@@ -1499,6 +1565,7 @@ export const useResumeStore = defineStore('resume', () => {
     createResume,
     duplicateResume,
     deleteResume,
+    restoreDeletedResumes,
     selectResume,
     renameResume,
     updateResumeMetadata,

@@ -12,6 +12,7 @@ test('creates initial state on first read', async () => {
     const state = await store.readState()
     assert.equal(state.documents.length, 1)
     assert.equal(state.activeResumeId, state.documents[0].id)
+    assert.equal(state.documents[0].origin, 'sample')
     assert.equal(state.activityLog[0].type, 'system')
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -32,6 +33,7 @@ test('creates, updates, selects, and deletes resume documents', async () => {
     })
     assert.equal(created.title, 'Backend Resume')
     assert.equal(created.folder, 'Backend')
+    assert.equal(created.origin, 'blank')
     assert.deepEqual(created.tags, ['api', 'backend'])
 
     const updated = await store.updateDocument(created.id, {
@@ -84,6 +86,7 @@ test('protects resume deletion edges and relinks applications', async () => {
     assert.equal(copy.data.personal.name, source.data.personal.name)
     assert.equal(copy.sourceResumeId, source.id)
     assert.equal(copy.sourceResumeTitle, source.title)
+    assert.equal(copy.origin, 'copy')
 
     await assert.rejects(
       () => store.deleteDocument('missing-resume'),

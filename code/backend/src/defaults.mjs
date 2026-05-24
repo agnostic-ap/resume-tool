@@ -136,6 +136,7 @@ export function initialState(now = new Date()) {
     targetRole: DEMO_RESUME_DATA.personal.title,
     targetCompany: '',
     tags: [],
+    origin: 'sample',
     favorite: false,
     archived: false,
     careerUpdateChecklist: {
