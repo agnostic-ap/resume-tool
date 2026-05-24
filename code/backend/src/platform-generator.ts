@@ -14,6 +14,7 @@ export function generatePlatformResume(input: PlatformGenerateResumeInput) {
     input.jobDescription.description,
     ...(input.jobDescription.requirements ?? []),
     ...(input.jobDescription.keywords ?? []),
+    ...(input.growthEntries ?? []).flatMap((entry) => [entry.title, entry.content, entry.metrics, ...(entry.skills ?? [])]),
   ].filter(Boolean).join('\n')
 
   const keywords = unique([
@@ -57,8 +58,25 @@ export function generatePlatformResume(input: PlatformGenerateResumeInput) {
   const skillPool = unique([
     ...input.skills,
     ...selectedWork.flatMap(({ item }) => item.skills ?? []),
+    ...(input.growthEntries ?? []).flatMap((entry) => entry.skills ?? []),
     ...matchedKeywords,
   ]).slice(0, 28)
+
+  const growthProjects = (input.growthEntries ?? [])
+    .filter((entry) => entry.type === 'project' || entry.project || entry.metrics)
+    .slice(0, 2)
+    .map((entry) => ({
+      name: entry.project || entry.title || '',
+      role: entry.type === 'role' ? entry.title : '',
+      startDate: entry.date ?? '',
+      endDate: '',
+      url: entry.evidenceUrl ?? '',
+      tech: (entry.skills ?? []).join(', '),
+      description: [
+        entry.content,
+        entry.metrics ? `${locale === 'zh-CN' ? '指标' : 'Metrics'}: ${entry.metrics}` : '',
+      ].filter(Boolean).join('\n'),
+    }))
 
   const data = {
     personal: {
@@ -103,7 +121,7 @@ export function generatePlatformResume(input: PlatformGenerateResumeInput) {
         items: skillPool.filter((skill) => !matchedKeywords.includes(skill)).slice(0, 12).join(', '),
       },
     ].filter((group) => group.items),
-    projects: input.projects.slice(0, 3).map((item, index) => ({
+    projects: [...growthProjects, ...input.projects].slice(0, 3).map((item, index) => ({
       id: `generated-project-${index + 1}`,
       name: item.name ?? '',
       role: item.role ?? '',
@@ -184,12 +202,18 @@ function buildSummary(input: PlatformGenerateResumeInput, matchedKeywords: strin
   const company = input.jobDescription.company
   const base = input.personal.summary?.trim()
   const keywordText = matchedKeywords.slice(0, 6).join(locale === 'zh-CN' ? '、' : ', ')
+  const growthText = (input.growthEntries ?? [])
+    .filter((entry) => entry.title || entry.metrics)
+    .slice(0, 2)
+    .map((entry) => entry.metrics ? `${entry.title}: ${entry.metrics}` : entry.title)
+    .join(locale === 'zh-CN' ? '；' : '; ')
 
   if (locale === 'zh-CN') {
     return [
       base || '具备多段相关项目与业务交付经验。',
       `当前简历面向${target}${company ? `（${company}）` : ''}岗位生成。`,
       keywordText ? `重点匹配能力：${keywordText}。` : '',
+      growthText ? `引用职业记忆：${growthText}。` : '',
       '简历内容已按 JD 相关度优先排序，突出最近且最贴近岗位要求的经历。',
     ].filter(Boolean).join(' ')
   }
@@ -198,6 +222,7 @@ function buildSummary(input: PlatformGenerateResumeInput, matchedKeywords: strin
     base || 'Candidate with relevant delivery and product experience.',
     `This resume is tailored for ${target}${company ? ` at ${company}` : ''}.`,
     keywordText ? `Core match areas: ${keywordText}.` : '',
+    growthText ? `Career memory referenced: ${growthText}.` : '',
     'Experience is ordered by JD relevance, emphasizing recent and role-aligned work.',
   ].filter(Boolean).join(' ')
 }

@@ -91,6 +91,29 @@ export interface CareerUpdateChecklist {
   updatedAt?: string
 }
 
+export type GrowthEntryType = 'project' | 'metric' | 'role' | 'feedback' | 'skill' | 'achievement'
+
+export interface GrowthEntry {
+  id: string
+  date: string
+  type: GrowthEntryType
+  company: string
+  project: string
+  title: string
+  content: string
+  metrics: string
+  skills: string[]
+  evidenceUrl: string
+  private: boolean
+  archived: boolean
+  sourceResumeId: string
+  sourceResumeTitle: string
+  usedByResumeIds: string[]
+  usedByApplicationIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ResumeDocument {
   id: string
   title: string
@@ -187,7 +210,7 @@ export type SyncOperationStatus = 'pending' | 'synced' | 'failed' | 'local-only'
 
 export interface SyncOperation {
   id: string
-  entityType: 'resume' | 'application' | 'activity' | 'settings' | 'import' | 'system'
+  entityType: 'resume' | 'application' | 'growth' | 'activity' | 'settings' | 'import' | 'system'
   operation: string
   entityId: string
   status: SyncOperationStatus

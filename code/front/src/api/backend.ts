@@ -1,9 +1,10 @@
-import type { ActivityEvent, JobApplication, Locale, ResumeConfig, ResumeData, ResumeDocument, TemplateId } from '../types/resume'
+import type { ActivityEvent, GrowthEntry, JobApplication, Locale, ResumeConfig, ResumeData, ResumeDocument, TemplateId } from '../types/resume'
 
 export interface BackendState {
   activeResumeId: string
   documents: ResumeDocument[]
   applications: JobApplication[]
+  growthEntries?: GrowthEntry[]
   activityLog: ActivityEvent[]
 }
 
@@ -35,6 +36,7 @@ export interface PlatformGenerateResumeInput {
   education?: Array<Partial<ResumeData['education'][number]>>
   skills?: string[]
   projects?: Array<Partial<ResumeData['projects'][number]>>
+  growthEntries?: Array<Partial<GrowthEntry>>
   jobDescription: {
     company?: string
     title: string
@@ -159,6 +161,20 @@ export const backendApi = {
   deleteApplication(id: string) {
     return request<{ deletedId: string }>(`/api/applications/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    })
+  },
+
+  createGrowthEntry(input: Partial<GrowthEntry>) {
+    return request<GrowthEntry>('/api/growth-entries', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateGrowthEntry(id: string, input: Partial<GrowthEntry>) {
+    return request<GrowthEntry>(`/api/growth-entries/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
     })
   },
 

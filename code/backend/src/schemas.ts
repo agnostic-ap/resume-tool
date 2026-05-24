@@ -82,6 +82,26 @@ export const createApplicationSchema = z.object({
 
 export const updateApplicationSchema = createApplicationSchema.partial()
 
+export const growthEntrySchema = z.object({
+  date: z.string().optional(),
+  type: z.enum(['project', 'metric', 'role', 'feedback', 'skill', 'achievement']).optional(),
+  company: z.string().optional(),
+  project: z.string().optional(),
+  title: z.string().trim().min(1),
+  content: z.string().optional(),
+  metrics: z.string().optional(),
+  skills: z.array(z.string()).optional(),
+  evidenceUrl: z.string().optional(),
+  private: z.boolean().optional(),
+  archived: z.boolean().optional(),
+  sourceResumeId: z.string().optional(),
+  sourceResumeTitle: z.string().optional(),
+  usedByResumeIds: z.array(z.string()).optional(),
+  usedByApplicationIds: z.array(z.string()).optional(),
+})
+
+export const updateGrowthEntrySchema = growthEntrySchema.partial()
+
 export const assistantSuggestionSchema = z.object({
   prompt: z.string().trim().min(1),
 })
@@ -129,6 +149,20 @@ const platformProjectSchema = z.object({
   description: z.string().optional(),
 })
 
+const platformGrowthEntrySchema = z.object({
+  id: z.string().optional(),
+  date: z.string().optional(),
+  type: z.enum(['project', 'metric', 'role', 'feedback', 'skill', 'achievement']).optional(),
+  company: z.string().optional(),
+  project: z.string().optional(),
+  title: z.string().optional(),
+  content: z.string().optional(),
+  metrics: z.string().optional(),
+  skills: z.array(z.string()).optional(),
+  evidenceUrl: z.string().optional(),
+  private: z.boolean().optional(),
+})
+
 export const platformGenerateResumeSchema = z.object({
   requestId: z.string().optional(),
   userId: z.string().optional(),
@@ -140,6 +174,7 @@ export const platformGenerateResumeSchema = z.object({
   education: z.array(platformEducationSchema).optional().default([]),
   skills: z.array(z.string()).optional().default([]),
   projects: z.array(platformProjectSchema).optional().default([]),
+  growthEntries: z.array(platformGrowthEntrySchema).optional().default([]),
   jobDescription: z.object({
     company: z.string().optional(),
     title: z.string().trim().min(1),
@@ -154,4 +189,6 @@ export type CreateResumeInput = z.infer<typeof createResumeSchema>
 export type UpdateResumeInput = z.infer<typeof updateResumeSchema>
 export type CreateApplicationInput = z.infer<typeof createApplicationSchema>
 export type UpdateApplicationInput = z.infer<typeof updateApplicationSchema>
+export type GrowthEntryInput = z.infer<typeof growthEntrySchema>
+export type UpdateGrowthEntryInput = z.infer<typeof updateGrowthEntrySchema>
 export type PlatformGenerateResumeInput = z.infer<typeof platformGenerateResumeSchema>

@@ -5,8 +5,10 @@ import {
   assistantSuggestionSchema,
   createApplicationSchema,
   createResumeSchema,
+  growthEntrySchema,
   platformGenerateResumeSchema,
   updateApplicationSchema,
+  updateGrowthEntrySchema,
   updateResumeSchema,
 } from './schemas.js'
 import { generatePlatformResume } from './platform-generator.js'
@@ -88,6 +90,18 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     store.updateApplication(getParam(request.params, 'id'), parseBody(updateApplicationSchema, request.body)),
   )
   app.delete('/api/applications/:id', async (request) => store.deleteApplication(getParam(request.params, 'id')))
+
+  app.get('/api/growth-entries', async () => store.listGrowthEntries())
+  app.post('/api/growth-entries', async (request, reply) => {
+    const entry = await store.createGrowthEntry(parseBody(growthEntrySchema, request.body))
+    return reply.status(201).send(entry)
+  })
+  app.patch('/api/growth-entries/:id', async (request) =>
+    store.updateGrowthEntry(getParam(request.params, 'id'), parseBody(updateGrowthEntrySchema, request.body)),
+  )
+  app.put('/api/growth-entries/:id', async (request) =>
+    store.updateGrowthEntry(getParam(request.params, 'id'), parseBody(updateGrowthEntrySchema, request.body)),
+  )
 
   app.get('/api/activity', async () => store.listActivity())
   app.post('/api/assistant/suggestions', async (request, reply) => {

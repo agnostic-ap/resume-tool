@@ -54,6 +54,44 @@ test('resume store manages multiple resumes and biweekly update dates', () => {
   assert.notEqual(original.nextCareerUpdateAt, before)
   assert.equal(original.careerUpdateChecklist.projects, false)
   assert.ok(store.daysUntilCareerUpdate(originalId) >= 13)
+  assert.equal(store.growthEntries.length, 1)
+  assert.equal(store.growthEntries[0].sourceResumeId, originalId)
+  assert.equal(store.growthEntries[0].type, 'project')
+  assert.equal(store.growthEntries[0].content, 'Added platform metrics.')
+})
+
+test('resume store captures and tracks career memory entries', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+  const resumeId = store.activeResumeId
+
+  const entry = store.upsertGrowthEntry({
+    date: '2026-05-20',
+    type: 'metric',
+    company: 'FutureHire',
+    project: 'JD Matcher',
+    title: 'Raised JD match precision',
+    content: 'Shipped relevance scoring improvements for resume drafts.',
+    metrics: '+18% acceptance on reviewed drafts',
+    skills: ['LLM', 'TypeScript', 'Evaluation'],
+    evidenceUrl: 'https://example.com/evidence',
+    sourceResumeId: resumeId,
+  })
+
+  assert.equal(store.growthEntries.length, 1)
+  assert.equal(entry.sourceResumeTitle, store.activeDocument.title)
+  assert.deepEqual(entry.skills, ['LLM', 'TypeScript', 'Evaluation'])
+
+  store.markGrowthEntryUsed([entry.id], { resumeId, applicationId: 'app-growth-1' })
+  assert.deepEqual(store.growthEntries[0].usedByResumeIds, [resumeId])
+  assert.deepEqual(store.growthEntries[0].usedByApplicationIds, ['app-growth-1'])
+
+  store.toggleGrowthEntryArchived(entry.id)
+  assert.equal(store.growthEntries[0].archived, true)
+
+  const exported = JSON.parse(store.exportData())
+  assert.equal(exported.growthEntries[0].title, 'Raised JD match precision')
+  assert.equal(exported.growthEntries[0].archived, true)
 })
 
 test('resume store keeps workspace and resume appearance colors separate', () => {
@@ -251,6 +289,20 @@ test('resume store imports and exports normalized workspace data', () => {
         resumeId: 'imported-resume',
       },
     ],
+    growthEntries: [
+      {
+        id: 'growth-1',
+        date: '2026-05-20',
+        type: 'achievement',
+        company: 'FutureHire',
+        project: 'Matching',
+        title: 'Imported growth memory',
+        content: 'Captured a reusable hiring platform proof point.',
+        metrics: '95% p95 under 400ms',
+        skills: ['Node.js'],
+        sourceResumeId: 'imported-resume',
+      },
+    ],
   }))
 
   assert.equal(store.activeResumeId, 'imported-resume')
@@ -268,12 +320,15 @@ test('resume store imports and exports normalized workspace data', () => {
   assert.equal(store.applications[0].jobDescription?.archivedAt, '2026-05-19T00:00:00.000Z')
   assert.equal(store.applications[0].tailoring?.matchScore, 100)
   assert.deepEqual(store.applications[0].tailoring?.matchedKeywords, ['LLM'])
+  assert.equal(store.growthEntries[0].title, 'Imported growth memory')
+  assert.equal(store.growthEntries[0].sourceResumeTitle, 'Imported Resume')
 
   const exported = JSON.parse(store.exportData())
   assert.equal(exported.activeResumeId, 'imported-resume')
   assert.equal(exported.documents[0].title, 'Imported Resume')
   assert.equal(exported.applications[0].companyMono, 'F')
   assert.equal(exported.applications[0].tailoring.requestId, 'jd-run-1')
+  assert.equal(exported.growthEntries[0].title, 'Imported growth memory')
 })
 
 test('resume store connects to backend and applies remote state', async () => {
@@ -360,6 +415,28 @@ test('resume store connects to backend and applies remote state', async () => {
       },
     ],
     applications: [],
+    growthEntries: [
+      {
+        id: 'remote-growth',
+        date: '2026-01-04',
+        type: 'skill',
+        company: 'Navy',
+        project: 'Compiler',
+        title: 'Remote career memory',
+        content: 'Added compiler optimization notes.',
+        metrics: '',
+        skills: ['compiler'],
+        evidenceUrl: '',
+        private: false,
+        archived: false,
+        sourceResumeId: 'remote-resume',
+        sourceResumeTitle: 'Remote Resume',
+        usedByResumeIds: [],
+        usedByApplicationIds: [],
+        createdAt: '2026-01-04T00:00:00.000Z',
+        updatedAt: '2026-01-04T00:00:00.000Z',
+      },
+    ],
     activityLog: [],
   }
   const originalFetch = globalThis.fetch
@@ -381,6 +458,7 @@ test('resume store connects to backend and applies remote state', async () => {
     assert.equal(store.activeDocument.folder, 'Backend')
     assert.equal(store.activeDocument.favorite, true)
     assert.equal(store.activeDocument.careerUpdateChecklist.notes, 'Remote note')
+    assert.equal(store.growthEntries[0].title, 'Remote career memory')
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, SyncOperation, SyncOperationStatus } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState } from '../api/backend'
@@ -305,6 +305,32 @@ function normalizeCareerUpdateChecklist(checklist: Partial<CareerUpdateChecklist
   }
 }
 
+function normalizeGrowthEntry(entry: Partial<GrowthEntry>, fallbackResume: ResumeDocument): GrowthEntry {
+  const now = new Date().toISOString()
+  const sourceResumeId = entry.sourceResumeId || fallbackResume.id
+  const sourceResumeTitle = entry.sourceResumeTitle || fallbackResume.title
+  return {
+    id: entry.id || newId('growth'),
+    date: entry.date || now.slice(0, 10),
+    type: (['project', 'metric', 'role', 'feedback', 'skill', 'achievement'].includes(entry.type || '') ? entry.type : 'achievement') as GrowthEntryType,
+    company: entry.company || fallbackResume.targetCompany || '',
+    project: entry.project || '',
+    title: entry.title?.trim() || 'Untitled growth entry',
+    content: entry.content || '',
+    metrics: entry.metrics || '',
+    skills: Array.isArray(entry.skills) ? [...new Set(entry.skills.map(String).map((item) => item.trim()).filter(Boolean))].slice(0, 20) : [],
+    evidenceUrl: entry.evidenceUrl || '',
+    private: Boolean(entry.private),
+    archived: Boolean(entry.archived),
+    sourceResumeId,
+    sourceResumeTitle,
+    usedByResumeIds: Array.isArray(entry.usedByResumeIds) ? [...new Set(entry.usedByResumeIds.map(String).filter(Boolean))] : [],
+    usedByApplicationIds: Array.isArray(entry.usedByApplicationIds) ? [...new Set(entry.usedByApplicationIds.map(String).filter(Boolean))] : [],
+    createdAt: entry.createdAt || now,
+    updatedAt: entry.updatedAt || now,
+  }
+}
+
 function normalizeApplication(app: Partial<JobApplication>, fallbackResume: ResumeDocument): JobApplication {
   const now = new Date().toISOString()
   const company = app.company?.trim() || 'Untitled company'
@@ -500,6 +526,10 @@ export const useResumeStore = defineStore('resume', () => {
     loadFromStorage<JobApplication[]>('resume-applications', defaultApplications(seedApplicationResume.id, seedApplicationResume.title))
       .map((app) => normalizeApplication(app, documents.value.find((doc) => doc.id === app.resumeId) ?? seedApplicationResume)),
   )
+  const growthEntries = ref<GrowthEntry[]>(
+    loadFromStorage<GrowthEntry[]>('resume-growth-entries', [])
+      .map((entry) => normalizeGrowthEntry(entry, documents.value.find((doc) => doc.id === entry.sourceResumeId) ?? seedApplicationResume)),
+  )
   const activityLog = ref<ActivityEvent[]>(
     loadFromStorage<ActivityEvent[]>('resume-activity-log', defaultActivityLog(seedApplicationResume.id, seedApplicationResume.title))
       .map((activity) => normalizeActivity(activity, documents.value.find((doc) => doc.id === activity.resumeId) ?? seedApplicationResume)),
@@ -557,6 +587,9 @@ export const useResumeStore = defineStore('resume', () => {
   const persistApplications = useDebounceFn((v: JobApplication[]) => {
     try { localStorage.setItem('resume-applications', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const persistGrowthEntries = useDebounceFn((v: GrowthEntry[]) => {
+    try { localStorage.setItem('resume-growth-entries', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 400)
   const persistActivityLog = useDebounceFn((v: ActivityEvent[]) => {
     try { localStorage.setItem('resume-activity-log', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
@@ -593,6 +626,7 @@ export const useResumeStore = defineStore('resume', () => {
   watch(documents, persistDocuments, { deep: true })
   watch(activeResumeId, persistActiveId)
   watch(applications, persistApplications, { deep: true })
+  watch(growthEntries, persistGrowthEntries, { deep: true })
   watch(activityLog, persistActivityLog, { deep: true })
   watch(syncOperations, persistSyncOperations, { deep: true })
   watch(() => activeDocument.value.data, () => {
@@ -617,6 +651,9 @@ export const useResumeStore = defineStore('resume', () => {
     applications.value = Array.isArray(state.applications)
       ? state.applications.map((app) => normalizeApplication(app, incomingDocuments.find((doc) => doc.id === app.resumeId) ?? fallback))
       : []
+    growthEntries.value = Array.isArray(state.growthEntries)
+      ? state.growthEntries.map((entry) => normalizeGrowthEntry(entry, incomingDocuments.find((doc) => doc.id === entry.sourceResumeId) ?? fallback))
+      : growthEntries.value
     activityLog.value = Array.isArray(state.activityLog)
       ? state.activityLog.map((activity) => normalizeActivity(activity, incomingDocuments.find((doc) => doc.id === activity.resumeId) ?? fallback))
       : []
@@ -748,6 +785,13 @@ export const useResumeStore = defineStore('resume', () => {
         entityType: 'application',
         operation: 'retry',
         entityId: app.id,
+      }),
+    ))
+    await Promise.all(growthEntries.value.map((entry) =>
+      runBackendSync(() => backendApi.updateGrowthEntry(entry.id, entry), {
+        entityType: 'growth',
+        operation: 'retry',
+        entityId: entry.id,
       }),
     ))
     if (backendStatus.value.online && !syncOperations.value.some((item) => item.status === 'failed')) {
@@ -1203,6 +1247,20 @@ export const useResumeStore = defineStore('resume', () => {
     const doc = documents.value.find((item) => item.id === id)
     if (!doc) return
     const updated = new Date()
+    const completed = (Object.keys(doc.careerUpdateChecklist) as CareerUpdateKey[])
+      .filter((key) => typeof doc.careerUpdateChecklist[key] === 'boolean' && doc.careerUpdateChecklist[key])
+    if (completed.length || doc.careerUpdateChecklist.notes.trim()) {
+      upsertGrowthEntry({
+        date: updated.toISOString().slice(0, 10),
+        type: completed.includes('projects') ? 'project' : completed.includes('skills') ? 'skill' : completed.includes('metrics') ? 'metric' : 'achievement',
+        title: doc.careerUpdateChecklist.notes.trim() || 'Biweekly career update',
+        content: doc.careerUpdateChecklist.notes.trim() || completed.join(', '),
+        metrics: completed.includes('metrics') ? doc.careerUpdateChecklist.notes : '',
+        skills: completed.includes('skills') ? normalizeTags(doc.careerUpdateChecklist.notes.split(/[,，、\n]/)) : [],
+        sourceResumeId: doc.id,
+        sourceResumeTitle: doc.title,
+      }, false)
+    }
     doc.lastCareerUpdateAt = updated.toISOString()
     doc.nextCareerUpdateAt = addDays(updated, 14).toISOString()
     doc.careerUpdateChecklist = defaultCareerUpdateChecklist(updated)
@@ -1239,6 +1297,55 @@ export const useResumeStore = defineStore('resume', () => {
     return Math.ceil((new Date(doc.nextCareerUpdateAt).getTime() - Date.now()) / 86400000)
   }
 
+  function upsertGrowthEntry(input: Partial<GrowthEntry>, shouldLog = true) {
+    const fallback = documents.value.find((doc) => doc.id === input.sourceResumeId) ?? activeDocument.value
+    const existing = input.id ? growthEntries.value.find((entry) => entry.id === input.id) : undefined
+    const normalized = normalizeGrowthEntry({
+      ...existing,
+      ...input,
+      updatedAt: new Date().toISOString(),
+    }, fallback)
+    if (existing) {
+      Object.assign(existing, normalized)
+    } else {
+      growthEntries.value.unshift(normalized)
+    }
+    if (shouldLog) {
+      logActivity({
+        type: 'resume',
+        tag: 'growth',
+        message: existing ? `Updated growth entry: ${normalized.title}` : `Added growth entry: ${normalized.title}`,
+        messageZh: existing ? `更新成长记录：${normalized.title}` : `新增成长记录：${normalized.title}`,
+        messageEn: existing ? `Updated growth entry: ${normalized.title}` : `Added growth entry: ${normalized.title}`,
+        meta: normalized.type,
+        resumeId: normalized.sourceResumeId,
+      })
+    }
+    void runBackendSync(
+      () => existing ? backendApi.updateGrowthEntry(normalized.id, normalized) : backendApi.createGrowthEntry(normalized),
+      { entityType: 'growth', operation: existing ? 'update' : 'create', entityId: normalized.id },
+    )
+    return normalized
+  }
+
+  function toggleGrowthEntryArchived(id: string) {
+    const entry = growthEntries.value.find((item) => item.id === id)
+    if (!entry) return
+    return upsertGrowthEntry({ ...entry, archived: !entry.archived })
+  }
+
+  function markGrowthEntryUsed(entryIds: string[], usage: { resumeId?: string; applicationId?: string }) {
+    entryIds.forEach((id) => {
+      const entry = growthEntries.value.find((item) => item.id === id)
+      if (!entry) return
+      upsertGrowthEntry({
+        ...entry,
+        usedByResumeIds: usage.resumeId ? [...new Set([...entry.usedByResumeIds, usage.resumeId])] : entry.usedByResumeIds,
+        usedByApplicationIds: usage.applicationId ? [...new Set([...entry.usedByApplicationIds, usage.applicationId])] : entry.usedByApplicationIds,
+      }, false)
+    })
+  }
+
   function importData(json: string) {
     try {
       const parsed = JSON.parse(json)
@@ -1269,6 +1376,12 @@ export const useResumeStore = defineStore('resume', () => {
       if (Array.isArray(parsed.applications)) {
         applications.value = parsed.applications.map((app: Partial<JobApplication>) =>
           normalizeApplication(app, documents.value.find((doc) => doc.id === app.resumeId) ?? activeDocument.value),
+        )
+        imported = true
+      }
+      if (Array.isArray(parsed.growthEntries)) {
+        growthEntries.value = parsed.growthEntries.map((entry: Partial<GrowthEntry>) =>
+          normalizeGrowthEntry(entry, documents.value.find((doc) => doc.id === entry.sourceResumeId) ?? activeDocument.value),
         )
         imported = true
       }
@@ -1308,6 +1421,7 @@ export const useResumeStore = defineStore('resume', () => {
       activeResumeId: activeResumeId.value,
       documents: documents.value,
       applications: applications.value,
+      growthEntries: growthEntries.value,
       activityLog: activityLog.value,
     }, null, 2)
   }
@@ -1371,6 +1485,7 @@ export const useResumeStore = defineStore('resume', () => {
   return {
     documents,
     applications,
+    growthEntries,
     activityLog,
     syncOperations,
     backendStatus,
@@ -1393,6 +1508,9 @@ export const useResumeStore = defineStore('resume', () => {
     updateCareerChecklist,
     setCareerChecklistItem,
     daysUntilCareerUpdate,
+    upsertGrowthEntry,
+    toggleGrowthEntryArchived,
+    markGrowthEntryUsed,
     addApplication,
     updateApplication,
     deleteApplication,

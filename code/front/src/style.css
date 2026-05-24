@@ -1163,6 +1163,210 @@ button:disabled {
   resize: vertical;
 }
 
+.growth-memory {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.22fr);
+  gap: 14px;
+}
+
+.growth-form,
+.growth-library {
+  min-width: 0;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+}
+
+.growth-form {
+  padding: 14px;
+}
+
+.growth-form__head,
+.growth-library__toolbar,
+.growth-entry-card__head,
+.growth-entry-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.growth-form__head {
+  margin-bottom: 12px;
+}
+
+.growth-form__head strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.growth-form__head button,
+.growth-entry-card__foot button,
+.growth-entry-card__foot a {
+  border: 0;
+  background: transparent;
+  color: var(--vermillion);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.growth-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.growth-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.growth-form label span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.growth-form input,
+.growth-form select,
+.growth-form textarea,
+.growth-library__toolbar input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.growth-form input,
+.growth-form select,
+.growth-library__toolbar input {
+  height: 34px;
+  padding: 0 9px;
+}
+
+.growth-form textarea {
+  padding: 9px;
+  resize: vertical;
+}
+
+.growth-form__wide,
+.growth-form__notes,
+.growth-form__privacy {
+  grid-column: 1 / -1;
+}
+
+.growth-form__privacy {
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--rule-soft);
+  background: var(--paper);
+}
+
+.growth-form__privacy input {
+  width: 14px;
+  height: 14px;
+}
+
+.growth-form__privacy span {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.growth-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.growth-library__toolbar {
+  padding: 10px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper-2);
+}
+
+.growth-library__toolbar .doc-filter {
+  margin: 0;
+}
+
+.growth-library__toolbar input {
+  width: 220px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.growth-entry-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.growth-entry-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.growth-entry-card.archived {
+  opacity: 0.62;
+}
+
+.growth-entry-card__head span,
+.growth-entry-card__head b,
+.growth-entry-card__foot small {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.growth-entry-card__head b {
+  color: var(--moss);
+}
+
+.growth-entry-card h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.growth-entry-card p {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.growth-entry-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.growth-entry-card__meta span {
+  padding: 3px 6px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.growth-entry-card__foot > div {
+  display: flex;
+  gap: 8px;
+}
+
 .doc-filter {
   display: flex;
   flex-wrap: wrap;
@@ -2355,6 +2559,51 @@ button:disabled {
   padding: 9px;
   line-height: 1.55;
   resize: vertical;
+}
+
+.jd-growth-picker {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.jd-growth-picker > button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink-3);
+  text-align: left;
+}
+
+.jd-growth-picker > button.on {
+  border-color: var(--moss);
+  background: rgba(87, 107, 88, 0.08);
+  color: var(--ink);
+}
+
+.jd-growth-picker b,
+.jd-growth-picker span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.jd-growth-picker b {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.jd-growth-picker span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .jd-result {

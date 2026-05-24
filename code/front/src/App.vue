@@ -34,6 +34,7 @@ const editorJdText = ref('')
 const editorJdGenerating = ref(false)
 const editorJdDraft = ref<PlatformResumeDraft | null>(null)
 const editorJdError = ref('')
+const editorJdGrowthEntryIds = ref<string[]>([])
 const editorJdApplySections = reactive<Record<JdReviewSection, boolean>>({
   summary: true,
   experience: true,
@@ -109,6 +110,14 @@ const editorJdSectionReviews = computed(() => {
 
 const selectedEditorJdSectionCount = computed(() =>
   (Object.keys(editorJdApplySections) as JdReviewSection[]).filter((section) => editorJdApplySections[section]).length,
+)
+
+const editorJdGrowthEntries = computed(() =>
+  store.growthEntries.filter((entry) => !entry.archived).slice(0, 6),
+)
+
+const selectedEditorJdGrowthEntries = computed(() =>
+  store.growthEntries.filter((entry) => editorJdGrowthEntryIds.value.includes(entry.id)),
 )
 
 const onboardingItems = computed<Array<{ id: OnboardingTarget; label: string; done: boolean; action: string }>>(() => [
@@ -348,6 +357,12 @@ function resetEditorJdApplySections(value: boolean) {
   })
 }
 
+function toggleEditorJdGrowthEntry(id: string) {
+  editorJdGrowthEntryIds.value = editorJdGrowthEntryIds.value.includes(id)
+    ? editorJdGrowthEntryIds.value.filter((item) => item !== id)
+    : [...editorJdGrowthEntryIds.value, id]
+}
+
 async function generateEditorJdDraft() {
   const role = editorJdRole.value.trim() || store.data.personal.title.trim()
   const description = editorJdText.value.trim()
@@ -387,6 +402,7 @@ async function generateEditorJdDraft() {
       education: store.data.education,
       skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
       projects: store.data.projects,
+      growthEntries: selectedEditorJdGrowthEntries.value,
       jobDescription: currentEditorJdSnapshot(role),
     })
     editorJdDraft.value = draft
@@ -426,6 +442,7 @@ function applyEditorJdDraft() {
     projects: editorJdApplySections.projects ? draft.data.projects : store.data.projects,
   }
   draft.generation.appliedAt = new Date().toISOString()
+  store.markGrowthEntryUsed(editorJdGrowthEntryIds.value, { resumeId: store.activeResumeId })
   store.logActivity({
     type: 'ai',
     tag: 'JD',
@@ -468,6 +485,7 @@ function createApplicationFromEditorJdDraft() {
       appliedAt: draft.generation.appliedAt,
     },
   })
+  store.markGrowthEntryUsed(editorJdGrowthEntryIds.value, { resumeId: store.activeResumeId, applicationId: created.id })
   store.logActivity({
     type: 'application',
     tag: 'JD',
@@ -585,6 +603,20 @@ onUnmounted(() => {
           <div class="jd-builder__grid">
             <input v-model="editorJdCompany" :placeholder="l('目标公司', 'Target company')" />
             <input v-model="editorJdRole" :placeholder="l('目标岗位', 'Target role')" />
+          </div>
+          <div v-if="editorJdGrowthEntries.length" class="jd-growth-picker">
+            <div class="jd-review__head">
+              <span>{{ l('引用职业记忆', 'Reference career memories') }}</span>
+              <button class="mini-link" @click="navigate('growth')">{{ l('管理', 'Manage') }}</button>
+            </div>
+            <button
+              v-for="entry in editorJdGrowthEntries"
+              :key="entry.id"
+              :class="{ on: editorJdGrowthEntryIds.includes(entry.id) }"
+              @click="toggleEditorJdGrowthEntry(entry.id)">
+              <b>{{ entry.title }}</b>
+              <span>{{ entry.metrics || entry.skills.join(' · ') || entry.date }}</span>
+            </button>
           </div>
           <textarea
             v-model="editorJdText"

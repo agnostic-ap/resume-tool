@@ -157,6 +157,7 @@ export function initialState(now = new Date()) {
     activeResumeId: resume.id,
     documents: [resume],
     applications: [],
+    growthEntries: [],
     platformRequests: [],
     activityLog: [
       {

@@ -134,6 +134,43 @@ test('validates and persists applications', async () => {
   }
 })
 
+test('validates and persists career memory entries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const entry = await store.createGrowthEntry({
+      date: '2026-05-20',
+      type: 'metric',
+      company: 'FutureHire',
+      project: 'JD Matcher',
+      title: 'Raised JD match precision',
+      content: 'Shipped relevance scoring improvements for resume drafts.',
+      metrics: '+18% acceptance on reviewed drafts',
+      skills: ['LLM', 'TypeScript', 'LLM'],
+      sourceResumeId: 'resume-main',
+    })
+
+    assert.equal(entry.type, 'metric')
+    assert.equal(entry.sourceResumeTitle, 'Frontend Engineer')
+    assert.deepEqual(entry.skills, ['LLM', 'TypeScript'])
+
+    const updated = await store.updateGrowthEntry(entry.id, {
+      archived: true,
+      usedByResumeIds: ['resume-main', 'resume-main'],
+      usedByApplicationIds: ['app-1'],
+    })
+    assert.equal(updated.archived, true)
+    assert.deepEqual(updated.usedByResumeIds, ['resume-main'])
+    assert.deepEqual(updated.usedByApplicationIds, ['app-1'])
+
+    const state = await store.readState()
+    assert.equal(state.growthEntries.length, 1)
+    assert.equal(state.growthEntries[0].title, 'Raised JD match precision')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('persists JD tailoring metadata on applications', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   try {

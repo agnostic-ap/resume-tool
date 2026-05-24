@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, GrowthEntry, GrowthEntryType, JobApplication, ResumeData, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { showToast } from '../composables/toast'
@@ -12,6 +12,7 @@ type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | '
 type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
 type DocumentFilter = 'active' | 'favorites' | 'archived' | 'all'
 type PipelineFocus = 'all' | 'today' | 'overdue' | 'high-match'
+type GrowthFilter = 'active' | 'used' | 'unused' | 'archived' | 'all'
 
 const props = withDefaults(defineProps<{ mode?: AppView }>(), { mode: 'workspace' })
 const emit = defineEmits<{
@@ -26,6 +27,9 @@ const pipelineFocus = ref<PipelineFocus>('all')
 const pipelineSearch = ref('')
 const pipelineSort = ref<'applied-desc' | 'match-desc' | 'company-asc'>('applied-desc')
 const assistantPrompt = ref('')
+const growthSearch = ref('')
+const growthFilter = ref<GrowthFilter>('active')
+const growthEditId = ref('')
 const jdCompany = ref('')
 const jdRole = ref('')
 const jdText = ref('')
@@ -69,6 +73,19 @@ const applicationDraft = reactive({
   jobPostUrl: '',
   jdArchive: '',
   notes: '',
+})
+const growthDraft = reactive({
+  date: '',
+  type: 'achievement' as GrowthEntryType,
+  company: '',
+  project: '',
+  title: '',
+  content: '',
+  metrics: '',
+  skills: '',
+  evidenceUrl: '',
+  private: false,
+  sourceResumeId: '',
 })
 type AssistantSuggestion = {
   id: string
@@ -142,6 +159,42 @@ const careerUpdateLabel = computed(() => {
   if (days === 0) return 'Due today'
   return `Due in ${days} days`
 })
+
+const growthEntries = computed(() => store.growthEntries)
+const growthTypeOptions: Array<{ id: GrowthEntryType; zh: string; en: string }> = [
+  { id: 'achievement', zh: '成果', en: 'Achievement' },
+  { id: 'project', zh: '项目', en: 'Project' },
+  { id: 'metric', zh: '指标', en: 'Metric' },
+  { id: 'role', zh: '职责变化', en: 'Role change' },
+  { id: 'skill', zh: '技能', en: 'Skill' },
+  { id: 'feedback', zh: '反馈', en: 'Feedback' },
+]
+const growthFilters = computed<Array<{ id: GrowthFilter; label: string; count: number }>>(() => [
+  { id: 'active', label: label('活跃', 'Active'), count: growthEntries.value.filter((entry) => !entry.archived).length },
+  { id: 'used', label: label('已使用', 'Used'), count: growthEntries.value.filter((entry) => entry.usedByResumeIds.length || entry.usedByApplicationIds.length).length },
+  { id: 'unused', label: label('未使用', 'Unused'), count: growthEntries.value.filter((entry) => !entry.archived && !entry.usedByResumeIds.length && !entry.usedByApplicationIds.length).length },
+  { id: 'archived', label: label('归档', 'Archived'), count: growthEntries.value.filter((entry) => entry.archived).length },
+  { id: 'all', label: label('全部', 'All'), count: growthEntries.value.length },
+])
+const filteredGrowthEntries = computed(() =>
+  growthEntries.value
+    .filter((entry) => {
+      if (growthFilter.value === 'active') return !entry.archived
+      if (growthFilter.value === 'used') return entry.usedByResumeIds.length || entry.usedByApplicationIds.length
+      if (growthFilter.value === 'unused') return !entry.archived && !entry.usedByResumeIds.length && !entry.usedByApplicationIds.length
+      if (growthFilter.value === 'archived') return entry.archived
+      return true
+    })
+    .filter((entry) => {
+      const query = growthSearch.value.trim().toLowerCase()
+      if (!query) return true
+      return [entry.title, entry.content, entry.metrics, entry.company, entry.project, entry.skills.join(' ')].some((value) =>
+        value.toLowerCase().includes(query),
+      )
+    })
+    .slice()
+    .sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()),
+)
 
 const applications = computed(() => store.applications)
 
@@ -685,13 +738,73 @@ function confirmDeleteDocument() {
   pendingDeleteResume.value = null
 }
 
+function growthTypeLabel(type: GrowthEntryType) {
+  const option = growthTypeOptions.find((item) => item.id === type)
+  return option ? label(option.zh, option.en) : type
+}
+
+function growthUsageLabel(entry: GrowthEntry) {
+  const count = entry.usedByResumeIds.length + entry.usedByApplicationIds.length
+  if (count > 0) return label(`已使用 ${count} 次`, `Used ${count} time${count > 1 ? 's' : ''}`)
+  return label('未使用', 'Unused')
+}
+
+function resetGrowthDraft(entry?: GrowthEntry) {
+  growthEditId.value = entry?.id ?? ''
+  growthDraft.date = entry?.date ?? new Date().toISOString().slice(0, 10)
+  growthDraft.type = entry?.type ?? 'achievement'
+  growthDraft.company = entry?.company ?? store.activeDocument.targetCompany ?? ''
+  growthDraft.project = entry?.project ?? ''
+  growthDraft.title = entry?.title ?? ''
+  growthDraft.content = entry?.content ?? ''
+  growthDraft.metrics = entry?.metrics ?? ''
+  growthDraft.skills = entry?.skills.join(', ') ?? ''
+  growthDraft.evidenceUrl = entry?.evidenceUrl ?? ''
+  growthDraft.private = entry?.private ?? false
+  growthDraft.sourceResumeId = entry?.sourceResumeId ?? store.activeResumeId
+}
+
+function saveGrowthEntry() {
+  if (!growthDraft.title.trim() || !growthDraft.content.trim()) {
+    showToast(label('请填写成长记录标题和内容', 'Add a title and content for the growth entry'), 'error')
+    return
+  }
+  const source = store.documents.find((doc) => doc.id === growthDraft.sourceResumeId) ?? store.activeDocument
+  store.upsertGrowthEntry({
+    id: growthEditId.value || undefined,
+    date: growthDraft.date,
+    type: growthDraft.type,
+    company: growthDraft.company.trim(),
+    project: growthDraft.project.trim(),
+    title: growthDraft.title.trim(),
+    content: growthDraft.content.trim(),
+    metrics: growthDraft.metrics.trim(),
+    skills: splitItems(growthDraft.skills),
+    evidenceUrl: growthDraft.evidenceUrl.trim(),
+    private: growthDraft.private,
+    sourceResumeId: source.id,
+    sourceResumeTitle: source.title,
+  })
+  resetGrowthDraft()
+  showToast(label('成长记录已保存', 'Growth entry saved'), 'success')
+}
+
+function editGrowthEntry(entry: GrowthEntry) {
+  resetGrowthDraft(entry)
+}
+
+function toggleGrowthArchive(entry: GrowthEntry) {
+  store.toggleGrowthEntryArchived(entry.id)
+  showToast(entry.archived ? label('成长记录已恢复', 'Growth entry restored') : label('成长记录已归档', 'Growth entry archived'), 'success')
+}
+
 function recordCareerUpdate() {
   if (!careerChecklistDone.value) {
     showToast(label('先完成职业更新清单，再记录本次更新', 'Complete the career checklist before recording this update'), 'error', 4200)
     return
   }
   store.markCareerUpdated()
-  showToast(locale.value === 'zh-CN' ? '已记录本次职业经历更新，两周后再次提醒' : 'Career update recorded. Next reminder is in two weeks.', 'success', 4000)
+  showToast(locale.value === 'zh-CN' ? '已沉淀为职业记忆，两周后再次提醒' : 'Saved to career memory. Next reminder is in two weeks.', 'success', 4000)
 }
 
 function setCareerChecklistItem(key: CareerUpdateKey, value: Event) {
@@ -1086,6 +1199,7 @@ function matchClass(score: number) {
             <h2>{{ label('成长经历记录', 'Growth experience log') }}</h2>
           </div>
           <div class="meta">
+            <span>{{ growthEntries.length }} {{ label('条职业记忆', 'career memories') }}</span>
             <button @click="emit('navigate', 'editor')">{{ t('tailorWithAI') }} →</button>
           </div>
         </div>
@@ -1110,6 +1224,111 @@ function matchClass(score: number) {
             </div>
           </div>
           <button :class="{ ready: careerChecklistDone }" @click="recordCareerUpdate">{{ locale === 'zh-CN' ? '我已更新' : 'I updated it' }}</button>
+        </div>
+
+        <div class="growth-memory">
+          <form class="growth-form" @submit.prevent="saveGrowthEntry">
+            <div class="growth-form__head">
+              <strong>{{ growthEditId ? label('编辑职业记忆', 'Edit career memory') : label('新增职业记忆', 'New career memory') }}</strong>
+              <button type="button" @click="resetGrowthDraft()">{{ label('新建', 'New') }}</button>
+            </div>
+            <div class="growth-form__grid">
+              <label>
+                <span>{{ label('日期', 'Date') }}</span>
+                <input v-model="growthDraft.date" type="date" />
+              </label>
+              <label>
+                <span>{{ label('类型', 'Type') }}</span>
+                <select v-model="growthDraft.type">
+                  <option v-for="type in growthTypeOptions" :key="type.id" :value="type.id">{{ label(type.zh, type.en) }}</option>
+                </select>
+              </label>
+              <label>
+                <span>{{ label('公司', 'Company') }}</span>
+                <input v-model="growthDraft.company" :placeholder="label('可选', 'Optional')" />
+              </label>
+              <label>
+                <span>{{ label('项目', 'Project') }}</span>
+                <input v-model="growthDraft.project" :placeholder="label('可选', 'Optional')" />
+              </label>
+              <label class="growth-form__wide">
+                <span>{{ label('标题', 'Title') }}</span>
+                <input v-model="growthDraft.title" :placeholder="label('例如：将首页加载时间降低 70%', 'Example: Reduced home page load time by 70%')" />
+              </label>
+              <label>
+                <span>{{ label('来源简历', 'Source resume') }}</span>
+                <select v-model="growthDraft.sourceResumeId">
+                  <option v-for="doc in documents" :key="doc.id" :value="doc.id">{{ doc.title }}</option>
+                </select>
+              </label>
+              <label class="growth-form__wide">
+                <span>{{ label('量化指标', 'Metrics') }}</span>
+                <input v-model="growthDraft.metrics" :placeholder="label('例如：4s -> 1.2s，留存 +20%', 'Example: 4s -> 1.2s, retention +20%')" />
+              </label>
+              <label>
+                <span>{{ label('技能关键词', 'Skills') }}</span>
+                <input v-model="growthDraft.skills" :placeholder="label('Vue, TypeScript', 'Vue, TypeScript')" />
+              </label>
+              <label>
+                <span>{{ label('证据链接', 'Evidence URL') }}</span>
+                <input v-model="growthDraft.evidenceUrl" type="url" placeholder="https://..." />
+              </label>
+              <label class="growth-form__notes">
+                <span>{{ label('内容', 'Content') }}</span>
+                <textarea v-model="growthDraft.content" rows="4" :placeholder="label('记录职责、行动、结果和可复用素材。', 'Capture responsibility, action, result, and reusable material.')" />
+              </label>
+              <label class="growth-form__privacy">
+                <input v-model="growthDraft.private" type="checkbox" />
+                <span>{{ label('包含敏感信息，仅本地引用时提醒', 'Contains sensitive information; remind before reuse') }}</span>
+              </label>
+            </div>
+            <div class="growth-form__actions">
+              <button type="submit" class="btn btn--primary">{{ label('保存职业记忆', 'Save memory') }}</button>
+            </div>
+          </form>
+
+          <div class="growth-library">
+            <div class="growth-library__toolbar">
+              <div class="doc-filter">
+                <button
+                  v-for="filter in growthFilters"
+                  :key="filter.id"
+                  :class="{ on: growthFilter === filter.id }"
+                  @click="growthFilter = filter.id">
+                  {{ filter.label }}<span>{{ filter.count }}</span>
+                </button>
+              </div>
+              <input v-model="growthSearch" type="search" :placeholder="label('搜索项目、指标、技能', 'Search projects, metrics, skills')" />
+            </div>
+            <div class="growth-entry-list">
+              <article v-for="entry in filteredGrowthEntries" :key="entry.id" class="growth-entry-card" :class="{ archived: entry.archived }">
+                <div class="growth-entry-card__head">
+                  <span>{{ growthTypeLabel(entry.type) }} · {{ entry.date }}</span>
+                  <b>{{ growthUsageLabel(entry) }}</b>
+                </div>
+                <h3>{{ entry.title }}</h3>
+                <p>{{ entry.content }}</p>
+                <div class="growth-entry-card__meta">
+                  <span v-if="entry.company">{{ entry.company }}</span>
+                  <span v-if="entry.project">{{ entry.project }}</span>
+                  <span v-if="entry.metrics">{{ entry.metrics }}</span>
+                  <span v-for="skill in entry.skills.slice(0, 5)" :key="skill">{{ skill }}</span>
+                  <span v-if="entry.private">{{ label('敏感', 'Private') }}</span>
+                </div>
+                <div class="growth-entry-card__foot">
+                  <small>{{ label('来源', 'From') }} · {{ entry.sourceResumeTitle }}</small>
+                  <div>
+                    <a v-if="entry.evidenceUrl" :href="entry.evidenceUrl" target="_blank" rel="noreferrer">{{ label('证据', 'Evidence') }}</a>
+                    <button @click="editGrowthEntry(entry)">{{ label('编辑', 'Edit') }}</button>
+                    <button @click="toggleGrowthArchive(entry)">{{ entry.archived ? label('恢复', 'Restore') : label('归档', 'Archive') }}</button>
+                  </div>
+                </div>
+              </article>
+              <div v-if="!filteredGrowthEntries.length" class="empty-row">
+                {{ label('还没有匹配的职业记忆。记录一个项目、指标或反馈，后续 JD 定制可复用。', 'No matching career memories yet. Capture a project, metric, or feedback for future JD tailoring.') }}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

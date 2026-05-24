@@ -279,6 +279,55 @@ export function createStore(options = {}) {
       })
     },
 
+    async listGrowthEntries() {
+      const state = await readState()
+      return state.growthEntries
+    },
+
+    async createGrowthEntry(input = {}) {
+      return mutate((state) => {
+        const doc = input.sourceResumeId ? findDocument(state, input.sourceResumeId) : getActiveDocument(state)
+        const entry = normalizeGrowthEntry({
+          ...input,
+          id: newId('growth'),
+          sourceResumeId: doc.id,
+          sourceResumeTitle: doc.title,
+          createdAt: new Date().toISOString(),
+        }, doc)
+        state.growthEntries.unshift(entry)
+        log(state, {
+          type: 'resume',
+          tag: 'growth',
+          message: `Added growth entry: ${entry.title}`,
+          messageZh: `新增成长记录：${entry.title}`,
+          messageEn: `Added growth entry: ${entry.title}`,
+          meta: entry.type,
+          resumeId: entry.sourceResumeId,
+        })
+        return entry
+      })
+    },
+
+    async updateGrowthEntry(id, patch = {}) {
+      return mutate((state) => {
+        const entry = findGrowthEntry(state, id)
+        const doc = patch.sourceResumeId ? findDocument(state, patch.sourceResumeId) : findDocument(state, entry.sourceResumeId)
+        Object.assign(entry, normalizeGrowthEntry({ ...entry, ...patch, id: entry.id, createdAt: entry.createdAt }, doc), {
+          updatedAt: new Date().toISOString(),
+        })
+        log(state, {
+          type: 'resume',
+          tag: 'growth',
+          message: `Updated growth entry: ${entry.title}`,
+          messageZh: `更新成长记录：${entry.title}`,
+          messageEn: `Updated growth entry: ${entry.title}`,
+          meta: entry.archived ? 'archived' : entry.type,
+          resumeId: entry.sourceResumeId,
+        })
+        return entry
+      })
+    },
+
     async listPlatformRequests() {
       const state = await readState()
       return state.platformRequests
@@ -411,6 +460,9 @@ export function normalizeState(value) {
     applications: Array.isArray(value?.applications)
       ? value.applications.map((app) => normalizeApplication(app, documents.find((doc) => doc.id === app.resumeId) ?? active))
       : [],
+    growthEntries: Array.isArray(value?.growthEntries)
+      ? value.growthEntries.map((entry) => normalizeGrowthEntry(entry, documents.find((doc) => doc.id === entry.sourceResumeId) ?? active))
+      : fallback.growthEntries,
     platformRequests: Array.isArray(value?.platformRequests)
       ? value.platformRequests.map(normalizePlatformRequest)
       : fallback.platformRequests,
@@ -628,6 +680,31 @@ function normalizeTailoring(tailoring = {}, fallbackDoc, fallbackMatch, now) {
   }
 }
 
+function normalizeGrowthEntry(entry = {}, fallbackDoc) {
+  const now = new Date().toISOString()
+  const type = ['project', 'metric', 'role', 'feedback', 'skill', 'achievement'].includes(entry.type) ? entry.type : 'achievement'
+  return {
+    id: entry.id || newId('growth'),
+    date: String(entry.date ?? now.slice(0, 10)),
+    type,
+    company: String(entry.company ?? fallbackDoc?.targetCompany ?? ''),
+    project: String(entry.project ?? ''),
+    title: String(entry.title ?? '').trim() || 'Untitled growth entry',
+    content: String(entry.content ?? ''),
+    metrics: String(entry.metrics ?? ''),
+    skills: Array.isArray(entry.skills) ? [...new Set(entry.skills.map(String).map((item) => item.trim()).filter(Boolean))].slice(0, 20) : [],
+    evidenceUrl: String(entry.evidenceUrl ?? ''),
+    private: Boolean(entry.private),
+    archived: Boolean(entry.archived),
+    sourceResumeId: String(entry.sourceResumeId ?? fallbackDoc?.id ?? ''),
+    sourceResumeTitle: String(entry.sourceResumeTitle ?? fallbackDoc?.title ?? ''),
+    usedByResumeIds: Array.isArray(entry.usedByResumeIds) ? [...new Set(entry.usedByResumeIds.map(String).filter(Boolean))] : [],
+    usedByApplicationIds: Array.isArray(entry.usedByApplicationIds) ? [...new Set(entry.usedByApplicationIds.map(String).filter(Boolean))] : [],
+    createdAt: String(entry.createdAt ?? now),
+    updatedAt: String(entry.updatedAt ?? now),
+  }
+}
+
 function normalizePlatformRequest(entry = {}) {
   const now = new Date().toISOString()
   return {
@@ -676,9 +753,18 @@ function findApplication(state, id) {
   return app
 }
 
+function findGrowthEntry(state, id) {
+  const entry = state.growthEntries.find((item) => item.id === id)
+  if (!entry) throw httpError(404, 'Growth entry not found')
+  return entry
+}
+
 function syncApplicationResumeTitles(state, doc) {
   for (const app of state.applications) {
     if (app.resumeId === doc.id) app.resumeTitle = doc.title
+  }
+  for (const entry of state.growthEntries) {
+    if (entry.sourceResumeId === doc.id) entry.sourceResumeTitle = doc.title
   }
 }
 
