@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useResumeStore } from '../stores/resume'
 import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, GrowthEntry, GrowthEntryType, JobApplication, ResumeData, ResumeDocument, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
@@ -15,7 +15,7 @@ type DocumentSort = 'updated-desc' | 'created-desc' | 'title-asc' | 'application
 type PipelineFocus = 'all' | 'today' | 'overdue' | 'high-match'
 type GrowthFilter = 'active' | 'used' | 'unused' | 'archived' | 'all'
 
-const props = withDefaults(defineProps<{ mode?: AppView }>(), { mode: 'workspace' })
+const props = withDefaults(defineProps<{ mode?: AppView; focusApplicationId?: string }>(), { mode: 'workspace', focusApplicationId: '' })
 const emit = defineEmits<{
   navigate: [AppView]
   command: [string]
@@ -313,6 +313,12 @@ const activities = computed(() => store.activityLog)
 const selectedApplication = computed(() =>
   applications.value.find((app) => app.id === selectedApplicationId.value) ?? null,
 )
+
+watch(() => props.focusApplicationId, (id) => {
+  if (id && store.applications.some((app) => app.id === id)) {
+    selectedApplicationId.value = id
+  }
+}, { immediate: true })
 
 const jdSectionReviews = computed(() => {
   const draft = jdDraft.value

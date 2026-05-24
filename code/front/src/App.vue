@@ -27,6 +27,7 @@ const tr = (key: string) => t(key as never)
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
+const focusedApplicationId = ref('')
 const editorTweaksOpen = ref(false)
 const editorJdCompany = ref('')
 const editorJdRole = ref('')
@@ -228,6 +229,19 @@ function runCommand(command: string) {
     navigate('templates')
   } else if (command === 'assistant') {
     navigate('editor')
+  } else if (command === 'jd') {
+    navigate('editor')
+  } else if (command.startsWith('resume:')) {
+    store.selectResume(command.slice('resume:'.length))
+    navigate('editor')
+  } else if (command.startsWith('application:')) {
+    focusedApplicationId.value = command.slice('application:'.length)
+    navigate('pipeline')
+  } else if (command.startsWith('template:')) {
+    store.setTemplate(command.slice('template:'.length) as TemplateId)
+    navigate('templates')
+  } else if (command.startsWith('growth:')) {
+    navigate('growth')
   } else if (command === 'documents') {
     navigate('documents')
   } else if (command === 'growth') {
@@ -764,6 +778,7 @@ onUnmounted(() => {
     <main v-else class="studio-utility">
       <WorkspacePanel
         :mode="currentView"
+        :focus-application-id="focusedApplicationId"
         @navigate="navigate"
         @command="runCommand" />
     </main>

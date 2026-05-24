@@ -2,6 +2,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
+import { useResumeStore } from '../stores/resume'
+import type { TemplateId } from '../types/resume'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
@@ -9,44 +11,122 @@ const emit = defineEmits<{
   command: [string]
 }>()
 
+type CommandItem = {
+  icon: string
+  label: string
+  hint: string
+  command: string
+  keywords?: string
+}
+
+type CommandGroup = {
+  labelZh: string
+  labelEn: string
+  items: CommandItem[]
+}
+
 const query = ref('')
 const selected = ref(0)
 const inputRef = ref<HTMLInputElement>()
+const store = useResumeStore()
 const { t } = useI18n()
 const { l } = useLocaleText()
 
-const groups = [
+const templateIds: TemplateId[] = ['classic', 'modern', 'sidebar', 'compact', 'executive', 'creative', 'academic', 'technical', 'product', 'minimal']
+
+const groups = computed<CommandGroup[]>(() => [
   {
     labelZh: '快捷动作',
     labelEn: 'Quick actions',
     items: [
-      { icon: '＋', label: 'newResumeFull', hint: 'N', command: 'new' },
-      { icon: '§', label: 'openEditor', hint: 'E', command: 'editor' },
-      { icon: '↧', label: 'exportPdf', hint: '⌘E', command: 'export' },
+      { icon: '＋', label: t('newResumeFull'), hint: 'N', command: 'new', keywords: 'create blank resume 新建 空白 简历' },
+      { icon: '§', label: t('openEditor'), hint: 'E', command: 'editor', keywords: 'edit resume 编辑器' },
+      { icon: 'AI', label: l('开始 JD 定制', 'Start JD tailoring'), hint: 'JD', command: 'jd', keywords: 'jd ai tailor 定制 岗位' },
+      { icon: '↧', label: t('exportPdf'), hint: '⌘E', command: 'export', keywords: 'pdf export 导出' },
     ],
   },
   {
     labelZh: '跳转',
     labelEn: 'Jump to',
     items: [
-      { icon: '⌂', label: 'workspace', hint: '↵', command: 'workspace' },
-      { icon: '▣', label: 'documentsPage', hint: '↵', command: 'documents' },
-      { icon: '▦', label: 'templates', hint: '↵', command: 'templates' },
-      { icon: '◇', label: 'growth', hint: '↵', command: 'growth' },
-      { icon: '▤', label: 'pipeline', hint: '↵', command: 'pipeline' },
-      { icon: '↺', label: 'history', hint: '↵', command: 'history' },
-      { icon: '⌘', label: 'settings', hint: '↵', command: 'settings' },
+      { icon: '⌂', label: t('workspace'), hint: '↵', command: 'workspace' },
+      { icon: '▣', label: t('documentsPage'), hint: '↵', command: 'documents' },
+      { icon: '▦', label: t('templates'), hint: '↵', command: 'templates' },
+      { icon: '◇', label: t('growth'), hint: '↵', command: 'growth' },
+      { icon: '▤', label: t('pipeline'), hint: '↵', command: 'pipeline' },
+      { icon: '↺', label: t('history'), hint: '↵', command: 'history' },
+      { icon: '⌘', label: t('settings'), hint: '↵', command: 'settings' },
     ],
   },
-]
+  {
+    labelZh: '简历',
+    labelEn: 'Resumes',
+    items: store.documents
+      .filter((doc) => !doc.archived)
+      .slice()
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 8)
+      .map((doc) => ({
+        icon: doc.favorite ? '★' : 'R',
+        label: doc.title,
+        hint: l('打开', 'Open'),
+        command: `resume:${doc.id}`,
+        keywords: [doc.folder, doc.targetCompany, doc.targetRole, doc.data.personal.name, doc.tags.join(' ')].join(' '),
+      })),
+  },
+  {
+    labelZh: '投递',
+    labelEn: 'Applications',
+    items: store.applications
+      .slice()
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 8)
+      .map((app) => ({
+        icon: '▤',
+        label: `${app.company} · ${app.role}`,
+        hint: app.stage,
+        command: `application:${app.id}`,
+        keywords: [app.resumeTitle, app.nextAction, app.contactName, app.jobDescription?.title ?? ''].join(' '),
+      })),
+  },
+  {
+    labelZh: '职业记忆',
+    labelEn: 'Career memories',
+    items: store.growthEntries
+      .filter((entry) => !entry.archived)
+      .slice()
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 8)
+      .map((entry) => ({
+        icon: '◇',
+        label: entry.title,
+        hint: l('引用', 'Use'),
+        command: `growth:${entry.id}`,
+        keywords: [entry.company, entry.project, entry.content, entry.metrics, entry.skills.join(' ')].join(' '),
+      })),
+  },
+  {
+    labelZh: '模板',
+    labelEn: 'Templates',
+    items: templateIds.map((id) => ({
+      icon: store.config.templateId === id ? '✓' : '▦',
+      label: t(id),
+      hint: l('切换', 'Switch'),
+      command: `template:${id}`,
+      keywords: `${id} ${t(`${id}Desc` as never)}`,
+    })),
+  },
+])
 
 const filteredGroups = computed(() => {
   const q = query.value.trim().toLowerCase()
-  if (!q) return groups
-  return groups
+  if (!q) return groups.value.filter((group) => group.items.length)
+  return groups.value
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => t(item.label as never).toLowerCase().includes(q)),
+      items: group.items.filter((item) =>
+        `${item.label} ${item.keywords ?? ''} ${item.command}`.toLowerCase().includes(q),
+      ),
     }))
     .filter((group) => group.items.length)
 })
@@ -105,7 +185,7 @@ function onKeydown(e: KeyboardEvent) {
               @mouseenter="selected = flatItems.findIndex((it) => it.command === item.command)"
               @click="choose(item.command)">
               <span class="icon">{{ item.icon }}</span>
-              <span>{{ t(item.label as never) }}</span>
+              <span>{{ item.label }}</span>
               <span class="hint">{{ item.hint }}</span>
             </button>
           </div>
