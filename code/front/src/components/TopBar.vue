@@ -24,11 +24,20 @@ watch(saved, (v) => { if (!v) setTimeout(() => (saved.value = true), 600) })
 
 const syncLabel = computed(() => {
   if (store.backendStatus.connecting) return l('连接中', 'Connecting')
+  if (store.syncOperations.some((item) => item.status === 'failed')) return l('同步失败', 'Sync failed')
+  if (store.syncOperations.some((item) => item.status === 'local-only')) return l('本地待同步', 'Local queue')
   if (store.backendStatus.online) return l('云端同步', 'Synced')
   return l('本地模式', 'Local')
 })
 
 const syncTitle = computed(() => {
+  const failed = store.syncOperations.filter((item) => item.status === 'failed' || item.status === 'local-only')
+  if (failed.length) {
+    return l(
+      `${failed.length} 个操作待重试，点击重新连接并同步。`,
+      `${failed.length} operations need retry. Click to reconnect and sync.`,
+    )
+  }
   if (store.backendStatus.online) return l(`已连接 ${store.backendStatus.baseUrl}`, `Connected to ${store.backendStatus.baseUrl}`)
   return store.backendStatus.error
     ? l(`后端不可用：${store.backendStatus.error}`, `Backend unavailable: ${store.backendStatus.error}`)
@@ -36,9 +45,10 @@ const syncTitle = computed(() => {
 })
 
 async function reconnectBackend() {
-  const ok = await store.connectBackend()
+  const hasQueue = store.syncOperations.some((item) => item.status === 'failed' || item.status === 'local-only')
+  const ok = hasQueue ? await store.retryFailedSyncs() : await store.connectBackend()
   showToast(
-    ok ? l('已连接后端同步', 'Backend sync connected') : l('后端仍不可用，继续使用本地模式', 'Backend still unavailable. Continuing locally.'),
+    ok ? l('后端同步已恢复', 'Backend sync restored') : l('后端仍不可用，继续使用本地模式', 'Backend still unavailable. Continuing locally.'),
     ok ? 'success' : 'info',
     3200,
   )
@@ -150,11 +160,17 @@ function handleFileChange(e: Event) {
     </div>
 
     <button class="sync-state"
-      :class="{ online: store.backendStatus.online, pending: store.backendStatus.connecting }"
+      :class="{
+        online: store.backendStatus.online && !store.syncOperations.length,
+        pending: store.backendStatus.connecting,
+        failed: store.syncOperations.some((item) => item.status === 'failed'),
+        queued: store.syncOperations.some((item) => item.status === 'local-only')
+      }"
       :title="syncTitle"
       @click="reconnectBackend">
       <i />
       <span>{{ syncLabel }}</span>
+      <b v-if="store.syncOperations.length">{{ store.syncOperations.length }}</b>
     </button>
 
     <div class="topbar-actions">

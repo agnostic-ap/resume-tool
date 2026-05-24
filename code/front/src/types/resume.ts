@@ -183,6 +183,18 @@ export interface ActivityEvent {
   createdAt: string
 }
 
+export type SyncOperationStatus = 'pending' | 'synced' | 'failed' | 'local-only'
+
+export interface SyncOperation {
+  id: string
+  entityType: 'resume' | 'application' | 'activity' | 'settings' | 'import' | 'system'
+  operation: string
+  entityId: string
+  status: SyncOperationStatus
+  error: string
+  updatedAt: string
+}
+
 export type TemplateId =
   | 'classic'
   | 'modern'

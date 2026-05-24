@@ -18,6 +18,7 @@ import type { ResumeData, TemplateId } from './types/resume'
 
 type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
 type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
+type OnboardingTarget = 'personal' | 'title' | 'summary' | 'experience' | 'skills' | 'export'
 
 const store = useResumeStore()
 const { t } = useI18n()
@@ -109,6 +110,47 @@ const editorJdSectionReviews = computed(() => {
 const selectedEditorJdSectionCount = computed(() =>
   (Object.keys(editorJdApplySections) as JdReviewSection[]).filter((section) => editorJdApplySections[section]).length,
 )
+
+const onboardingItems = computed<Array<{ id: OnboardingTarget; label: string; done: boolean; action: string }>>(() => [
+  {
+    id: 'personal',
+    label: l('填写姓名与联系方式', 'Add name and contact'),
+    done: Boolean(store.data.personal.name.trim() && (store.data.personal.email.trim() || store.data.personal.phone.trim())),
+    action: l('去填写', 'Fill'),
+  },
+  {
+    id: 'title',
+    label: l('明确求职标题', 'Set target title'),
+    done: Boolean(store.data.personal.title.trim()),
+    action: l('定位岗位', 'Set title'),
+  },
+  {
+    id: 'summary',
+    label: l('写 2-3 句个人简介', 'Write a 2-3 sentence summary'),
+    done: store.data.personal.summary.trim().length > 20,
+    action: l('补简介', 'Add summary'),
+  },
+  {
+    id: 'experience',
+    label: l('补最近一段工作经历', 'Add recent experience'),
+    done: store.data.experience.length > 0 && store.data.experience.some((item) => item.description.trim().length > 30),
+    action: l('加经历', 'Add role'),
+  },
+  {
+    id: 'skills',
+    label: l('列出核心技能关键词', 'List core skills'),
+    done: store.data.skills.length > 0 && store.data.skills.some((item) => item.items.trim()),
+    action: l('加技能', 'Add skills'),
+  },
+  {
+    id: 'export',
+    label: l('完成导出前检查', 'Run export precheck'),
+    done: store.completeness >= 80,
+    action: l('检查导出', 'Precheck'),
+  },
+])
+
+const onboardingDoneCount = computed(() => onboardingItems.value.filter((item) => item.done).length)
 
 const viewTitle: Record<AppView, string> = {
   workspace: 'workspace',
@@ -225,6 +267,25 @@ function selectEditorResume(value: Event) {
   if (!id) return
   store.selectResume(id)
   showToast(l('已切换编辑简历', 'Editing resume switched'), 'success')
+}
+
+function runOnboardingAction(target: OnboardingTarget) {
+  if (target === 'experience' && !store.data.experience.length) store.addExperience()
+  if (target === 'skills' && !store.data.skills.length) store.addSkill()
+  if (target === 'export') {
+    window.dispatchEvent(new CustomEvent('resume-export-pdf'))
+    return
+  }
+  const labelByTarget: Record<OnboardingTarget, string> = {
+    personal: l('已打开编辑器，请先补个人信息。', 'Editor is open. Add personal info first.'),
+    title: l('在个人信息里填写目标岗位。', 'Add your target title in personal info.'),
+    summary: l('展开个人简介章节，写 2-3 句岗位定位。', 'Open Summary and add 2-3 sentences.'),
+    experience: l('已创建一段工作经历，请补公司、岗位和成果。', 'A role was created. Add company, title, and impact.'),
+    skills: l('已创建技能分类，请填关键词。', 'A skill group was created. Add keywords.'),
+    export: '',
+  }
+  showToast(labelByTarget[target], 'info', 3200)
+  document.querySelector('.editor-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function splitItems(value: string) {
@@ -371,7 +432,7 @@ function applyEditorJdDraft() {
     message: 'Applied selected editor JD-tailored sections',
     messageZh: '采纳编辑器 JD 定制草稿的所选章节',
     messageEn: 'Applied selected editor JD-tailored sections',
-    meta: `${selectedEditorJdSectionCount.value} · ${draft.match.score}/100`,
+    meta: `${draft.requestId || 'local-request'} · ${selectedEditorJdSectionCount.value} sections · ${draft.match.score}/100`,
   })
   showToast(l('已应用所选草稿章节', 'Selected draft sections applied'), 'success')
 }
@@ -496,24 +557,77 @@ onUnmounted(() => {
           <p>{{ primaryAdvice }}</p>
         </div>
 
-        <div class="inspector-card editor-ai-card">
+        <div class="inspector-card onboarding-card">
           <div class="inspector-card__head">
-            <span class="inspector-eyebrow">{{ l('AI 编辑助手', 'AI editing assistant') }}</span>
-            <button @click="generateEditorAiAdvice">{{ l('生成', 'Generate') }}</button>
+            <span class="inspector-eyebrow">{{ l('空白简历引导', 'Blank resume guide') }}</span>
+            <button @click="runOnboardingAction('export')">{{ onboardingDoneCount }}/{{ onboardingItems.length }}</button>
+          </div>
+          <div class="onboarding-list">
+            <button
+              v-for="item in onboardingItems"
+              :key="item.id"
+              :class="{ done: item.done }"
+              @click="runOnboardingAction(item.id)">
+              <i>{{ item.done ? '✓' : '·' }}</i>
+              <span>{{ item.label }}</span>
+              <b>{{ item.done ? l('完成', 'Done') : item.action }}</b>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="store.config.tweaks.showAI" class="inspector-card editor-jd-card jd-builder">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('JD 定制草稿', 'JD-tailored draft') }}</span>
+            <button :disabled="editorJdGenerating" @click="generateEditorJdDraft">
+              {{ editorJdGenerating ? l('生成中', 'Generating') : l('生成', 'Generate') }}
+            </button>
+          </div>
+          <div class="jd-builder__grid">
+            <input v-model="editorJdCompany" :placeholder="l('目标公司', 'Target company')" />
+            <input v-model="editorJdRole" :placeholder="l('目标岗位', 'Target role')" />
           </div>
           <textarea
-            v-model="editorAiPrompt"
-            rows="4"
-            :placeholder="t('aiPlaceholder')"
-            @keydown.meta.enter.prevent="generateEditorAiAdvice"
-            @keydown.ctrl.enter.prevent="generateEditorAiAdvice"></textarea>
-          <div class="editor-ai-suggestions">
-            <button v-for="suggestion in editorAiSuggestions.slice(0, 3)" :key="suggestion.id" @click="applyEditorAiAdvice(suggestion.body)">
-              <b>{{ suggestion.title }}</b>
-              <span>{{ suggestion.body }}</span>
-            </button>
-            <p v-if="!editorAiSuggestions.length">{{ l('输入目标岗位、JD 或想加强的经历，AI 会帮你生成可采纳的编辑建议。', 'Enter a target role, JD, or experience to strengthen. AI will generate advice you can apply.') }}</p>
+            v-model="editorJdText"
+            rows="6"
+            :placeholder="l('粘贴招聘 JD：职责、要求和关键词会用于生成结构化草稿。', 'Paste the JD: responsibilities, requirements, and keywords will shape a structured draft.')"
+            @keydown.meta.enter.prevent="generateEditorJdDraft"
+            @keydown.ctrl.enter.prevent="generateEditorJdDraft"></textarea>
+          <p v-if="editorJdError" class="form-error">{{ editorJdError }}</p>
+
+          <div v-if="editorJdDraft" class="jd-result">
+            <div>
+              <strong>{{ editorJdDraft.title }}</strong>
+              <span>{{ l('匹配分', 'Match') }} · {{ editorJdDraft.match.score }}/100</span>
+              <span>{{ l('命中关键词', 'Matched keywords') }} · {{ editorJdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || l('暂无', 'none') }}</span>
+              <span>{{ l('生成策略', 'Strategy') }} · {{ editorJdDraft.generation.strategy }}</span>
+            </div>
+            <div class="jd-review">
+              <div class="jd-review__head">
+                <span>{{ l('选择要应用的章节', 'Choose sections to apply') }}</span>
+                <div>
+                  <button class="mini-link" @click="resetEditorJdApplySections(true)">{{ l('全选', 'All') }}</button>
+                  <button class="mini-link" @click="resetEditorJdApplySections(false)">{{ l('清空', 'None') }}</button>
+                </div>
+              </div>
+              <label v-for="section in editorJdSectionReviews" :key="section.id" class="jd-review__item">
+                <input v-model="editorJdApplySections[section.id]" type="checkbox" />
+                <span class="jd-review__label">{{ section.label }}</span>
+                <span class="jd-review__preview">
+                  <em>{{ l('当前', 'Current') }}</em>{{ section.before }}
+                  <em>{{ l('草稿', 'Draft') }}</em>{{ section.after }}
+                </span>
+              </label>
+            </div>
+            <div class="jd-result__actions">
+              <button class="btn btn--primary" @click="applyEditorJdDraft">
+                {{ l(`应用所选 (${selectedEditorJdSectionCount})`, `Apply selected (${selectedEditorJdSectionCount})`) }}
+              </button>
+              <button class="btn btn--ghost" @click="createApplicationFromEditorJdDraft">{{ l('创建投递记录', 'Create application') }}</button>
+            </div>
           </div>
+          <p v-else class="jd-helper">
+            {{ l('这是结构化 JD 定制入口。AI 开关关闭时，本卡片会一起隐藏。', 'This is the structured JD tailoring flow. It follows the same AI visibility toggle.') }}
+          </p>
         </div>
 
         <div class="inspector-card resume-template-card">

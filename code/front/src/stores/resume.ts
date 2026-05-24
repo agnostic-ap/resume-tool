@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, SyncOperation, SyncOperationStatus } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState } from '../api/backend'
@@ -503,6 +503,7 @@ export const useResumeStore = defineStore('resume', () => {
     loadFromStorage<ActivityEvent[]>('resume-activity-log', defaultActivityLog(seedApplicationResume.id, seedApplicationResume.title))
       .map((activity) => normalizeActivity(activity, documents.value.find((doc) => doc.id === activity.resumeId) ?? seedApplicationResume)),
   )
+  const syncOperations = ref<SyncOperation[]>(loadFromStorage<SyncOperation[]>('resume-sync-operations', []))
   const backendStatus = ref({
     online: false,
     connecting: false,
@@ -558,6 +559,9 @@ export const useResumeStore = defineStore('resume', () => {
   const persistActivityLog = useDebounceFn((v: ActivityEvent[]) => {
     try { localStorage.setItem('resume-activity-log', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const persistSyncOperations = useDebounceFn((v: SyncOperation[]) => {
+    try { localStorage.setItem('resume-sync-operations', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 400)
   const syncActiveDocumentToBackend = useDebounceFn(() => {
     if (suppressBackendSync || !backendStatus.value.online) return
     const doc = activeDocument.value
@@ -565,7 +569,7 @@ export const useResumeStore = defineStore('resume', () => {
       title: doc.title,
       data: doc.data,
       config: doc.config,
-    }))
+    }), { entityType: 'resume', operation: 'update', entityId: doc.id })
   }, 700)
   const logContentEdit = useDebounceFn(() => {
     activeDocument.value.updatedAt = new Date().toISOString()
@@ -589,6 +593,7 @@ export const useResumeStore = defineStore('resume', () => {
   watch(activeResumeId, persistActiveId)
   watch(applications, persistApplications, { deep: true })
   watch(activityLog, persistActivityLog, { deep: true })
+  watch(syncOperations, persistSyncOperations, { deep: true })
   watch(() => activeDocument.value.data, () => {
     logContentEdit()
     syncActiveDocumentToBackend()
@@ -652,16 +657,104 @@ export const useResumeStore = defineStore('resume', () => {
     }
   }
 
-  async function runBackendSync<T>(task: () => Promise<T>) {
-    if (!backendStatus.value.online) return undefined
+  function recordSyncOperation(input: {
+    entityType?: SyncOperation['entityType']
+    operation?: string
+    entityId?: string
+    status: SyncOperationStatus
+    error?: string
+  }) {
+    const entityType = input.entityType ?? 'system'
+    const operation = input.operation ?? 'sync'
+    const entityId = input.entityId ?? activeResumeId.value
+    const id = `${entityType}:${operation}:${entityId}`
+    const next: SyncOperation = {
+      id,
+      entityType,
+      operation,
+      entityId,
+      status: input.status,
+      error: input.error ?? '',
+      updatedAt: new Date().toISOString(),
+    }
+    syncOperations.value = [
+      next,
+      ...syncOperations.value.filter((item) => item.id !== id),
+    ].slice(0, 30)
+    return next
+  }
+
+  function clearSyncedOperations() {
+    syncOperations.value = syncOperations.value.filter((item) => item.status === 'failed' || item.status === 'local-only')
+  }
+
+  async function runBackendSync<T>(
+    task: () => Promise<T>,
+    meta: Partial<Pick<SyncOperation, 'entityType' | 'operation' | 'entityId'>> = {},
+  ) {
+    if (!backendStatus.value.online) {
+      recordSyncOperation({
+        ...meta,
+        status: 'local-only',
+        error: backendStatus.value.error || 'Backend offline',
+      })
+      return undefined
+    }
+    recordSyncOperation({ ...meta, status: 'pending' })
     try {
       const result = await task()
       markBackendOnline()
+      recordSyncOperation({ ...meta, status: 'synced' })
+      clearSyncedOperations()
       return result
     } catch (error) {
       markBackendOffline(error)
+      recordSyncOperation({
+        ...meta,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+      logActivity({
+        type: 'system',
+        tag: 'sync',
+        message: 'Backend sync failed',
+        messageZh: '后端同步失败，已进入重试队列',
+        messageEn: 'Backend sync failed and was queued for retry',
+        meta: `${meta.entityType ?? 'system'} · ${meta.operation ?? 'sync'}`,
+      })
       return undefined
     }
+  }
+
+  async function retryFailedSyncs() {
+    const ok = backendStatus.value.online || await connectBackend()
+    if (!ok) return false
+    const doc = activeDocument.value
+    await runBackendSync(() => backendApi.updateResume(doc.id, {
+      title: doc.title,
+      data: doc.data,
+      config: doc.config,
+      folder: doc.folder,
+      targetRole: doc.targetRole,
+      targetCompany: doc.targetCompany,
+      tags: doc.tags,
+      favorite: doc.favorite,
+      archived: doc.archived,
+      careerUpdateChecklist: doc.careerUpdateChecklist,
+    }), { entityType: 'resume', operation: 'retry', entityId: doc.id })
+    await Promise.all(applications.value.map((app) =>
+      runBackendSync(() => backendApi.updateApplication(app.id, app), {
+        entityType: 'application',
+        operation: 'retry',
+        entityId: app.id,
+      }),
+    ))
+    if (backendStatus.value.online && !syncOperations.value.some((item) => item.status === 'failed')) {
+      syncOperations.value = []
+    } else {
+      syncOperations.value = syncOperations.value.filter((item) => item.status === 'failed' || item.status === 'local-only')
+    }
+    return !syncOperations.value.length
   }
 
   function replaceDocument(tempId: string, serverDoc: ResumeDocument) {
@@ -985,7 +1078,7 @@ export const useResumeStore = defineStore('resume', () => {
         targetRole: doc.targetRole,
         targetCompany: doc.targetCompany,
         tags: doc.tags,
-      })).then((serverDoc) => {
+      }), { entityType: 'resume', operation: 'create', entityId: doc.id }).then((serverDoc) => {
         if (serverDoc) replaceDocument(doc.id, serverDoc)
       }).finally(() => {
         suppressBackendSync = false
@@ -1016,7 +1109,7 @@ export const useResumeStore = defineStore('resume', () => {
     activeResumeId.value = doc.id
     logActivity({ type: 'resume', tag: 'copy', message: `Duplicated ${source.title}`, messageZh: `复制简历：${source.title}`, messageEn: `Duplicated ${source.title}`, meta: doc.title, resumeId: doc.id })
     if (syncingWithBackend) {
-      void runBackendSync(() => backendApi.duplicateResume(source.id, { title: doc.title })).then((serverDoc) => {
+      void runBackendSync(() => backendApi.duplicateResume(source.id, { title: doc.title }), { entityType: 'resume', operation: 'duplicate', entityId: doc.id }).then((serverDoc) => {
         if (serverDoc) replaceDocument(doc.id, serverDoc)
       }).finally(() => {
         suppressBackendSync = false
@@ -1044,13 +1137,13 @@ export const useResumeStore = defineStore('resume', () => {
       }
     })
     logActivity({ type: 'resume', tag: 'delete', message: `Deleted ${deletedTitle}`, messageZh: `删除简历：${deletedTitle}`, messageEn: `Deleted ${deletedTitle}`, meta: 'document removed', resumeId: activeResumeId.value })
-    void runBackendSync(() => backendApi.deleteResume(id))
+    void runBackendSync(() => backendApi.deleteResume(id), { entityType: 'resume', operation: 'delete', entityId: id })
   }
 
   function selectResume(id: string) {
     if (documents.value.some((doc) => doc.id === id)) {
       activeResumeId.value = id
-      void runBackendSync(() => backendApi.selectResume(id))
+      void runBackendSync(() => backendApi.selectResume(id), { entityType: 'resume', operation: 'select', entityId: id })
     }
   }
 
@@ -1063,7 +1156,7 @@ export const useResumeStore = defineStore('resume', () => {
       if (app.resumeId === id) app.resumeTitle = doc.title
     })
     logActivity({ type: 'resume', tag: 'rename', message: `Renamed resume to ${doc.title}`, messageZh: `重命名简历：${doc.title}`, messageEn: `Renamed resume to ${doc.title}`, meta: 'document title', resumeId: id })
-    void runBackendSync(() => backendApi.updateResume(id, { title: doc.title }))
+    void runBackendSync(() => backendApi.updateResume(id, { title: doc.title }), { entityType: 'resume', operation: 'rename', entityId: id })
   }
 
   function updateResumeMetadata(id: string, patch: Partial<Pick<ResumeDocument, 'folder' | 'targetRole' | 'targetCompany' | 'tags' | 'favorite' | 'archived'>>) {
@@ -1092,7 +1185,7 @@ export const useResumeStore = defineStore('resume', () => {
       tags: doc.tags,
       favorite: doc.favorite,
       archived: doc.archived,
-    }))
+    }), { entityType: 'resume', operation: 'metadata', entityId: id })
   }
 
   function toggleResumeFavorite(id: string) {
@@ -1116,7 +1209,7 @@ export const useResumeStore = defineStore('resume', () => {
     if (shouldLog) {
       logActivity({ type: 'resume', tag: 'career', message: 'Recorded biweekly career update', messageZh: '记录双周职业经历更新', messageEn: 'Recorded biweekly career update', meta: doc.title, resumeId: id })
     }
-    void runBackendSync(() => backendApi.markCareerUpdated(id)).then((serverDoc) => {
+    void runBackendSync(() => backendApi.markCareerUpdated(id), { entityType: 'resume', operation: 'career-update', entityId: id }).then((serverDoc) => {
       if (serverDoc) replaceDocument(id, serverDoc)
     })
   }
@@ -1132,7 +1225,7 @@ export const useResumeStore = defineStore('resume', () => {
     doc.updatedAt = new Date().toISOString()
     void runBackendSync(() => backendApi.updateResume(id, {
       careerUpdateChecklist: doc.careerUpdateChecklist,
-    }))
+    }), { entityType: 'resume', operation: 'career-checklist', entityId: id })
   }
 
   function setCareerChecklistItem(id: string, key: CareerUpdateKey, value: boolean) {
@@ -1200,6 +1293,7 @@ export const useResumeStore = defineStore('resume', () => {
       if (imported) {
         logActivity({ type: 'system', tag: 'import', message: 'Imported backup data', messageZh: '导入备份数据', messageEn: 'Imported backup data', meta: 'JSON backup' })
         showToast(config.value.locale === 'zh-CN' ? '数据导入成功' : 'Data imported', 'success')
+        recordSyncOperation({ entityType: 'import', operation: 'json', entityId: activeResumeId.value, status: 'local-only' })
         syncActiveDocumentToBackend()
       }
       else showToast(config.value.locale === 'zh-CN' ? '导入失败：未识别的文件格式' : 'Import failed: unrecognized file format', 'error')
@@ -1227,7 +1321,7 @@ export const useResumeStore = defineStore('resume', () => {
     }, doc)
     applications.value.unshift(app)
     logActivity({ type: 'application', tag: app.stage === 'saved' ? 'saved' : 'apply', message: `Added opportunity: ${app.company}`, messageZh: `新增岗位记录：${app.company}`, messageEn: `Added opportunity: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
-    void runBackendSync(() => backendApi.createApplication(app)).then((serverApp) => {
+    void runBackendSync(() => backendApi.createApplication(app), { entityType: 'application', operation: 'create', entityId: app.id }).then((serverApp) => {
       if (serverApp) replaceApplication(app.id, serverApp)
     })
     return app
@@ -1263,20 +1357,21 @@ export const useResumeStore = defineStore('resume', () => {
       updatedAt: new Date().toISOString(),
     })
     logActivity({ type: 'application', tag: 'update', message: `Updated application: ${app.company}`, messageZh: `更新投递：${app.company}`, messageEn: `Updated application: ${app.company}`, meta: `${app.role} · ${app.stage}`, resumeId: app.resumeId })
-    void runBackendSync(() => backendApi.updateApplication(id, app))
+    void runBackendSync(() => backendApi.updateApplication(id, app), { entityType: 'application', operation: 'update', entityId: id })
   }
 
   function deleteApplication(id: string) {
     const app = applications.value.find((item) => item.id === id)
     applications.value = applications.value.filter((app) => app.id !== id)
     if (app) logActivity({ type: 'application', tag: 'delete', message: `Deleted application: ${app.company}`, messageZh: `删除投递：${app.company}`, messageEn: `Deleted application: ${app.company}`, meta: app.role, resumeId: app.resumeId })
-    void runBackendSync(() => backendApi.deleteApplication(id))
+    void runBackendSync(() => backendApi.deleteApplication(id), { entityType: 'application', operation: 'delete', entityId: id })
   }
 
   return {
     documents,
     applications,
     activityLog,
+    syncOperations,
     backendStatus,
     activeResumeId,
     activeDocument,
@@ -1284,6 +1379,7 @@ export const useResumeStore = defineStore('resume', () => {
     config,
     completeness,
     connectBackend,
+    retryFailedSyncs,
     createResume,
     duplicateResume,
     deleteResume,
