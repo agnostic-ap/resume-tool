@@ -209,6 +209,16 @@ export interface ActivityEvent {
   createdAt: string
 }
 
+export type ProductEventName =
+  | 'onboarding_choice_selected'
+  | 'resume_core_field_completed'
+  | 'jd_draft_requested'
+  | 'jd_draft_generated'
+  | 'jd_section_applied'
+  | 'application_created_from_jd'
+  | 'export_precheck_completed'
+  | 'sync_operation_failed'
+
 export type SyncOperationStatus = 'pending' | 'synced' | 'failed' | 'local-only'
 
 export interface SyncOperation {

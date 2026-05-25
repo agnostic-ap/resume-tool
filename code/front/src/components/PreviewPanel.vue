@@ -148,6 +148,10 @@ function runExportPrecheck() {
     messageEn: 'Completed PDF export precheck',
     meta: `${issues.length} issues · ${issues.filter((issue) => issue.severity === 'blocking').length} blocking`,
   })
+  store.trackProductEvent('export_precheck_completed', {
+    issue_count: issues.length,
+    blocking_count: issues.filter((issue) => issue.severity === 'blocking').length,
+  })
   return issues
 }
 

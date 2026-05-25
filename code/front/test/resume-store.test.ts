@@ -96,6 +96,26 @@ test('resume store captures and tracks career memory entries', () => {
   assert.equal(exported.growthEntries[0].archived, true)
 })
 
+test('resume store records roadmap product events in activity history', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  const event = store.trackProductEvent('jd_draft_requested', {
+    resume_id: store.activeResumeId,
+    has_company: true,
+    jd_length: 640,
+  })
+
+  assert.equal(event.tag, 'event:jd_draft_requested')
+  assert.equal(event.message, 'jd_draft_requested')
+  assert.deepEqual(JSON.parse(event.meta), {
+    resume_id: store.activeResumeId,
+    has_company: true,
+    jd_length: 640,
+  })
+  assert.equal(store.activityLog[0].tag, 'event:jd_draft_requested')
+})
+
 test('resume store restores deleted resume snapshots for bulk undo', () => {
   setupStoreHarness()
   const store = useResumeStore()

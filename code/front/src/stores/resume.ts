@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, ProductEventName, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState } from '../api/backend'
@@ -768,6 +768,12 @@ export const useResumeStore = defineStore('resume', () => {
         messageEn: 'Backend sync failed and was queued for retry',
         meta: `${meta.entityType ?? 'system'} · ${meta.operation ?? 'sync'}`,
       })
+      trackProductEvent('sync_operation_failed', {
+        entity_type: meta.entityType ?? 'system',
+        operation: meta.operation ?? 'sync',
+        entity_id: meta.entityId,
+        error_code: error instanceof Error ? error.message : String(error),
+      })
       return undefined
     }
   }
@@ -844,6 +850,20 @@ export const useResumeStore = defineStore('resume', () => {
     }, activeDocument.value)
     activityLog.value = [event, ...activityLog.value].slice(0, 100)
     return event
+  }
+
+  function trackProductEvent(event: ProductEventName, properties: Record<string, unknown> = {}) {
+    const compactProperties = Object.fromEntries(
+      Object.entries(properties).filter(([, value]) => value !== undefined && value !== ''),
+    )
+    return logActivity({
+      type: 'system',
+      tag: `event:${event}`,
+      message: event,
+      messageZh: event,
+      messageEn: event,
+      meta: JSON.stringify(compactProperties),
+    })
   }
 
   function touchActive() {
@@ -1582,6 +1602,7 @@ export const useResumeStore = defineStore('resume', () => {
     updateApplication,
     deleteApplication,
     logActivity,
+    trackProductEvent,
     setTemplate,
     setLocale,
     setThemeColor,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import TopBar from './components/TopBar.vue'
 import EditorPanel from './components/EditorPanel.vue'
 import PreviewPanel from './components/PreviewPanel.vue'
@@ -36,6 +36,7 @@ const editorJdGenerating = ref(false)
 const editorJdDraft = ref<PlatformResumeDraft | null>(null)
 const editorJdError = ref('')
 const editorJdGrowthEntryIds = ref<string[]>([])
+const trackedCoreFields = new Set<string>()
 const editorJdApplySections = reactive<Record<JdReviewSection, boolean>>({
   summary: true,
   experience: true,
@@ -161,6 +162,19 @@ const onboardingItems = computed<Array<{ id: OnboardingTarget; label: string; do
 ])
 
 const onboardingDoneCount = computed(() => onboardingItems.value.filter((item) => item.done).length)
+
+watch(onboardingItems, (items) => {
+  items.forEach((item) => {
+    if (!item.done || item.id === 'export') return
+    const key = `${store.activeResumeId}:${item.id}`
+    if (trackedCoreFields.has(key)) return
+    trackedCoreFields.add(key)
+    store.trackProductEvent('resume_core_field_completed', {
+      field: item.id,
+      resume_id: store.activeResumeId,
+    })
+  })
+}, { deep: true })
 
 const viewTitle: Record<AppView, string> = {
   workspace: 'workspace',
@@ -394,9 +408,15 @@ async function generateEditorJdDraft() {
   editorJdGenerating.value = true
   editorJdError.value = ''
   editorJdDraft.value = null
+  const requestId = `front-editor-${Date.now()}`
+  store.trackProductEvent('jd_draft_requested', {
+    resume_id: store.activeResumeId,
+    has_company: Boolean(editorJdCompany.value.trim()),
+    jd_length: description.length,
+  })
   try {
     const draft = await backendApi.generateAssistantResumeDraft({
-      requestId: `front-editor-${Date.now()}`,
+      requestId,
       persist: false,
       locale: store.config.locale,
       templateId: store.config.templateId,
@@ -429,6 +449,11 @@ async function generateEditorJdDraft() {
       messageEn: 'Generated editor JD-tailored resume draft',
       meta: `${draft.title} · ${draft.match.score}/100`,
     })
+    store.trackProductEvent('jd_draft_generated', {
+      request_id: draft.requestId || requestId,
+      score: draft.match.score,
+      matched_keyword_count: draft.match.matchedKeywords.length,
+    })
     showToast(l('已生成 JD 定制草稿', 'JD-tailored draft generated'), 'success')
   } catch (error) {
     editorJdError.value = error instanceof Error ? error.message : String(error)
@@ -457,6 +482,14 @@ function applyEditorJdDraft() {
   }
   draft.generation.appliedAt = new Date().toISOString()
   store.markGrowthEntryUsed(editorJdGrowthEntryIds.value, { resumeId: store.activeResumeId })
+  ;(Object.keys(editorJdApplySections) as JdReviewSection[])
+    .filter((section) => editorJdApplySections[section])
+    .forEach((section) => {
+      store.trackProductEvent('jd_section_applied', {
+        section,
+        request_id: draft.requestId || 'local-request',
+      })
+    })
   store.logActivity({
     type: 'ai',
     tag: 'JD',
@@ -500,6 +533,10 @@ function createApplicationFromEditorJdDraft() {
     },
   })
   store.markGrowthEntryUsed(editorJdGrowthEntryIds.value, { resumeId: store.activeResumeId, applicationId: created.id })
+  store.trackProductEvent('application_created_from_jd', {
+    application_id: created.id,
+    request_id: draft.requestId || '',
+  })
   store.logActivity({
     type: 'application',
     tag: 'JD',

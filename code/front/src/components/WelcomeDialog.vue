@@ -26,6 +26,7 @@ function finishStart() {
 }
 
 function choose(action: 'demo' | 'blank') {
+  store.trackProductEvent('onboarding_choice_selected', { choice: action })
   if (action === 'blank') store.clearAll()
   finishStart()
 }
@@ -64,6 +65,7 @@ function handleImportFile(e: Event) {
 
 function confirmImport() {
   if (!importJson.value) return
+  store.trackProductEvent('onboarding_choice_selected', { choice: 'import' })
   store.importData(importJson.value)
   finishStart()
 }
