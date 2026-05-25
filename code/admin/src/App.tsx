@@ -10,6 +10,7 @@ import {
   FileTextOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Badge,
   Button,
@@ -67,31 +68,49 @@ type ApiRequestRow = {
   requestId: string
   client: string
   route: string
-  status: 'persisted' | 'draft'
+  status: string
   score: number
+  latencyMs: number
 }
 
-const resumes: ResumeRow[] = [
-  { key: 'resume-main', title: 'Frontend Engineer', owner: 'demo-user', locale: 'zh-CN', completeness: 92, status: 'active' },
-  { key: 'resume-staff', title: 'Staff Platform Draft', owner: 'demo-user', locale: 'en-US', completeness: 86, status: 'active' },
-  { key: 'resume-archive', title: '2024 Product Resume', owner: 'demo-user', locale: 'zh-CN', completeness: 74, status: 'archived' },
-]
+type BackendState = {
+  documents: Array<{
+    id: string
+    title: string
+    data: {
+      personal: { name?: string; title?: string; email?: string; phone?: string; summary?: string }
+      experience?: unknown[]
+      education?: unknown[]
+      skills?: unknown[]
+      projects?: unknown[]
+    }
+    config: { locale: string }
+    archived: boolean
+  }>
+  applications: Array<{
+    id: string
+    company: string
+    role: string
+    stage: ApplicationRow['stage']
+    match: number
+  }>
+  platformRequests: Array<{
+    id: string
+    requestId: string
+    clientId?: string
+    route: string
+    status?: string
+    persisted: boolean
+    matchScore: number
+    latencyMs?: number
+  }>
+  activityLog: unknown[]
+}
 
 const adminUsers: AdminUserRow[] = [
   { key: 'u-root', email: 'owner@example.com', role: 'super_admin', status: 'enabled', lastSeen: 'just now' },
   { key: 'u-ops', email: 'ops@example.com', role: 'ops_admin', status: 'enabled', lastSeen: '2h ago' },
   { key: 'u-viewer', email: 'audit@example.com', role: 'viewer', status: 'locked', lastSeen: '7d ago' },
-]
-
-const applications: ApplicationRow[] = [
-  { key: 'app-vercel', company: 'Vercel', role: 'Senior Frontend', stage: 'onsite', match: 92 },
-  { key: 'app-stripe', company: 'Stripe', role: 'Full-Stack Engineer', stage: 'screen', match: 84 },
-  { key: 'app-linear', company: 'Linear', role: 'Staff Engineer', stage: 'offer', match: 96 },
-]
-
-const apiRequests: ApiRequestRow[] = [
-  { key: 'req-001', requestId: 'jd-run-001', client: 'FutureHire', route: '/api/v1/resume-drafts', status: 'persisted', score: 91 },
-  { key: 'req-002', requestId: 'jd-run-002', client: 'TalentGraph', route: '/api/assistant/resume-drafts', status: 'draft', score: 82 },
 ]
 
 const resumeColumns: ColumnsType<ResumeRow> = [
@@ -122,9 +141,81 @@ const apiColumns: ColumnsType<ApiRequestRow> = [
   { title: 'Route', dataIndex: 'route' },
   { title: 'Status', dataIndex: 'status', render: (status) => <Tag color={status === 'persisted' ? 'green' : 'gold'}>{status}</Tag> },
   { title: 'Score', dataIndex: 'score' },
+  { title: 'Latency', dataIndex: 'latencyMs', render: (value) => `${value || 0}ms` },
 ]
 
+function resumeCompleteness(doc: BackendState['documents'][number]) {
+  let score = 0
+  const personal = doc.data.personal
+  if (personal.name) score += 10
+  if (personal.title) score += 10
+  if (personal.email || personal.phone) score += 10
+  if (personal.summary && personal.summary.length > 20) score += 15
+  if (doc.data.experience?.length) score += 20
+  if (doc.data.education?.length) score += 10
+  if (doc.data.skills?.length) score += 15
+  if (doc.data.projects?.length) score += 10
+  return Math.min(100, score)
+}
+
 export default function App() {
+  const [backendState, setBackendState] = useState<BackendState | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
+
+  async function loadBackendState() {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/state`)
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+      setBackendState(await response.json() as BackendState)
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadBackendState()
+  }, [])
+
+  const resumes = useMemo<ResumeRow[]>(() =>
+    (backendState?.documents ?? []).map((doc) => ({
+      key: doc.id,
+      title: doc.title,
+      owner: doc.data.personal.email || doc.data.personal.name || 'local-workspace',
+      locale: doc.config.locale,
+      completeness: resumeCompleteness(doc),
+      status: doc.archived ? 'archived' : 'active',
+    })),
+  [backendState])
+
+  const applications = useMemo<ApplicationRow[]>(() =>
+    (backendState?.applications ?? []).map((app) => ({
+      key: app.id,
+      company: app.company,
+      role: app.role,
+      stage: app.stage,
+      match: app.match,
+    })),
+  [backendState])
+
+  const apiRequests = useMemo<ApiRequestRow[]>(() =>
+    (backendState?.platformRequests ?? []).map((request) => ({
+      key: request.id,
+      requestId: request.requestId || request.id,
+      client: request.clientId || 'legacy',
+      route: request.route,
+      status: request.status || (request.persisted ? 'persisted' : 'draft'),
+      score: request.matchScore,
+      latencyMs: request.latencyMs ?? 0,
+    })),
+  [backendState])
+
+  const failedCount = apiRequests.filter((request) => request.status === 'failed').length
+
   return (
     <ConfigProvider
       theme={{
@@ -170,7 +261,7 @@ export default function App() {
             <Space>
               <Tag color="red">SUPER ADMIN</Tag>
               <Tag color="blue">API: {apiBaseUrl.replace(/^https?:\/\//, '')}</Tag>
-              <Button icon={<CloudSyncOutlined />}>同步主仓库配置</Button>
+              <Button icon={<CloudSyncOutlined />} loading={loading} onClick={loadBackendState}>刷新真实数据</Button>
             </Space>
           </Header>
 
@@ -178,24 +269,24 @@ export default function App() {
             <Row gutter={[16, 16]}>
               <Col xs={24}>
                 <Alert
-                  type="warning"
+                  type={loadError ? 'error' : 'info'}
                   showIcon
-                  message="超管入口"
-                  description="这里面向平台所有者使用，后续必须接入登录、二次确认、审计日志和按操作分级的权限控制。"
+                  message={loadError ? '后端数据连接失败' : '超管入口已接入运行态数据'}
+                  description={loadError || '简历、投递、平台调用和活动统计来自后端 /api/state；用户、权限和危险操作仍需后续接入认证、二次确认与审计。'}
                 />
               </Col>
 
               <Col xs={24} md={12} xl={6}>
-                <Card><Statistic title="用户 / 租户" value={18} suffix="个" /></Card>
+                <Card><Statistic title="工作区 / 用户" value={backendState ? 1 : 0} suffix="个" /></Card>
               </Col>
               <Col xs={24} md={12} xl={6}>
-                <Card><Statistic title="简历文档" value={128} suffix="份" /></Card>
+                <Card><Statistic title="简历文档" value={resumes.length} suffix="份" /></Card>
               </Col>
               <Col xs={24} md={12} xl={6}>
-                <Card><Statistic title="平台调用" value={319} suffix="次" /></Card>
+                <Card><Statistic title="平台调用" value={apiRequests.length} suffix="次" /></Card>
               </Col>
               <Col xs={24} md={12} xl={6}>
-                <Card><Statistic title="失败 / 待处理" value={3} suffix="项" valueStyle={{ color: '#cf1322' }} /></Card>
+                <Card><Statistic title="失败 / 待处理" value={failedCount} suffix="项" valueStyle={{ color: failedCount ? '#cf1322' : '#3f8600' }} /></Card>
               </Col>
 
               <Col xs={24} xl={14}>
@@ -219,7 +310,7 @@ export default function App() {
 
               <Col xs={24} xl={14}>
                 <Card title="简历数据巡检" extra={<Button type="link">查看全部</Button>}>
-                  <Table columns={resumeColumns} dataSource={resumes} pagination={false} size="middle" />
+                  <Table columns={resumeColumns} dataSource={resumes} pagination={false} size="middle" loading={loading} />
                 </Card>
               </Col>
 
@@ -236,13 +327,13 @@ export default function App() {
 
               <Col xs={24} xl={12}>
                 <Card title="投递数据巡检">
-                  <Table columns={applicationColumns} dataSource={applications} pagination={false} size="middle" />
+                  <Table columns={applicationColumns} dataSource={applications} pagination={false} size="middle" loading={loading} />
                 </Card>
               </Col>
 
               <Col xs={24} xl={12}>
                 <Card title="平台 API 调用审计">
-                  <Table columns={apiColumns} dataSource={apiRequests} pagination={false} size="middle" />
+                  <Table columns={apiColumns} dataSource={apiRequests} pagination={false} size="middle" loading={loading} />
                 </Card>
               </Col>
 
