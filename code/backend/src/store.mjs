@@ -395,11 +395,14 @@ export function createStore(options = {}) {
         const entry = normalizePlatformRequest({
           requestId,
           userId: input.userId,
+          clientId: meta.clientId,
           documentId: doc.id,
           matchScore: draft.match?.score,
           persisted: true,
+          status: 'persisted',
           route: meta.route,
           generatedAt: draft.generation?.generatedAt,
+          latencyMs: meta.latencyMs,
         })
         state.platformRequests = [entry, ...state.platformRequests].slice(0, 500)
         log(state, {
@@ -719,10 +722,14 @@ function normalizePlatformRequest(entry = {}) {
     id: entry.id || newId('platform'),
     requestId: String(entry.requestId ?? ''),
     userId: String(entry.userId ?? ''),
+    clientId: entry.clientId ? String(entry.clientId) : undefined,
     documentId: entry.documentId ? String(entry.documentId) : undefined,
     matchScore: Math.max(0, Math.min(100, Number(entry.matchScore ?? 0))),
     persisted: Boolean(entry.persisted),
+    status: String(entry.status ?? (entry.persisted ? 'persisted' : 'draft')),
     route: String(entry.route ?? 'platform'),
+    latencyMs: Number(entry.latencyMs ?? 0),
+    error: entry.error ? String(entry.error) : undefined,
     generatedAt: String(entry.generatedAt ?? now),
     createdAt: String(entry.createdAt ?? now),
     replayedAt: entry.replayedAt ? String(entry.replayedAt) : undefined,

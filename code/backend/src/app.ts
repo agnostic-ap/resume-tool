@@ -15,8 +15,25 @@ import { generatePlatformResume } from './platform-generator.js'
 import { httpError } from './store.mjs'
 
 type Store = ReturnType<typeof import('./store.mjs').createStore>
+type PlatformClient = {
+  id: string
+  key: string
+  scopes: string[]
+  quotaPerDay?: number
+  rateLimitPerMinute?: number
+}
+type AuthenticatedPlatformClient = Partial<PlatformClient> & {
+  id?: string
+  scopes?: string[]
+}
+type PlatformRequestLog = {
+  clientId?: string
+  createdAt?: string
+  generatedAt?: string
+}
 
 export async function buildApp(store: Store): Promise<FastifyInstance> {
+  const platformRateBuckets = new Map<string, number[]>()
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
@@ -51,6 +68,8 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     stack: 'fastify',
     dbPath: store.dbPath,
   }))
+
+  app.get('/api/v1/openapi.json', async () => platformOpenApiDocument())
 
   app.get('/api/state', async () => store.readState())
 
@@ -117,8 +136,10 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     }),
   )
   app.get('/api/v1/platform/requests', async (request) => {
-    assertPlatformAccess(request.headers)
-    return store.listPlatformRequests()
+    const client = assertPlatformAccess(request.headers, 'requests:read')
+    const requests = await store.listPlatformRequests() as PlatformRequestLog[]
+    if (!client.id || client.scopes?.includes('requests:all')) return requests
+    return requests.filter((entry: { clientId?: string }) => entry.clientId === client.id)
   })
   app.post('/api/v1/resume-drafts', async (request, reply) =>
     handleResumeDraftRequest(store, request.body, reply, {
@@ -126,6 +147,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
       allowPersist: true,
       requirePlatformAuth: true,
       headers: request.headers,
+      rateBuckets: platformRateBuckets,
     }),
   )
   app.post('/api/v1/platform/resume-drafts', async (request, reply) =>
@@ -134,6 +156,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
       allowPersist: true,
       requirePlatformAuth: true,
       headers: request.headers,
+      rateBuckets: platformRateBuckets,
     }),
   )
   app.post('/api/platform/resume-drafts', async (request, reply) =>
@@ -142,6 +165,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
       allowPersist: true,
       requirePlatformAuth: true,
       headers: request.headers,
+      rateBuckets: platformRateBuckets,
     }),
   )
 
@@ -157,20 +181,29 @@ async function handleResumeDraftRequest(
     allowPersist: boolean
     requirePlatformAuth: boolean
     headers: Record<string, unknown>
+    rateBuckets?: Map<string, number[]>
   },
 ) {
-  if (options.requirePlatformAuth) assertPlatformAccess(options.headers)
+  const startedAt = Date.now()
+  const client = options.requirePlatformAuth
+    ? assertPlatformAccess(options.headers, 'drafts:write')
+    : {}
+  if (options.requirePlatformAuth) await assertPlatformUsage(store, client, options.rateBuckets)
   const input = parseBody(platformGenerateResumeSchema, body)
   const draft = generatePlatformResume(input)
+  const latencyMs = Date.now() - startedAt
 
   if (!options.allowPersist || !input.persist) {
     await store.recordPlatformRequest({
       requestId: input.requestId,
       userId: input.userId,
+      clientId: client.id,
       matchScore: draft.match.score,
       persisted: false,
+      status: 'draft',
       route: options.route,
       generatedAt: draft.generation.generatedAt,
+      latencyMs,
     })
     return reply.send({
       ...draft,
@@ -181,7 +214,11 @@ async function handleResumeDraftRequest(
     })
   }
 
-  const persisted = await store.persistPlatformDraft(input, draft, { route: options.route })
+  const persisted = await store.persistPlatformDraft(input, draft, {
+    route: options.route,
+    clientId: client.id,
+    latencyMs: Date.now() - startedAt,
+  })
   const persistedMeta = asPersistedDraft(persisted)
   return reply.status(persistedMeta.idempotent ? 200 : 201).send({
     ...draft,
@@ -205,16 +242,73 @@ function getParam(params: unknown, key: string): string {
   return value
 }
 
-function assertPlatformAccess(headers: Record<string, unknown>) {
-  const expected = process.env.RESUME_PLATFORM_API_KEY?.trim()
-  if (!expected) return
+function assertPlatformAccess(headers: Record<string, unknown>, scope: string): AuthenticatedPlatformClient {
+  const clients = platformClients()
+  if (!clients.length) return { scopes: ['drafts:write', 'requests:read', 'requests:all'] }
 
   const apiKey = headerValue(headers['x-resume-api-key'])
   const authorization = headerValue(headers.authorization)
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+  const presented = apiKey || bearer
 
-  if (apiKey === expected || bearer === expected) return
-  throw httpError(401, 'Platform API key is required')
+  const client = clients.find((item) => item.key === presented)
+  if (!client) throw httpError(401, 'Platform API key is required')
+  if (!client.scopes.includes(scope)) throw httpError(403, `Platform API key is missing scope: ${scope}`)
+  return client
+}
+
+async function assertPlatformUsage(
+  store: Store,
+  client: AuthenticatedPlatformClient,
+  rateBuckets?: Map<string, number[]>,
+) {
+  if (!client.id) return
+  const now = Date.now()
+  if (client.rateLimitPerMinute && rateBuckets) {
+    const windowStart = now - 60_000
+    const bucket = (rateBuckets.get(client.id) ?? []).filter((time) => time >= windowStart)
+    if (bucket.length >= client.rateLimitPerMinute) throw httpError(429, 'Platform API rate limit exceeded')
+    bucket.push(now)
+    rateBuckets.set(client.id, bucket)
+  }
+  if (client.quotaPerDay) {
+    const dayStart = now - 86_400_000
+    const requests = await store.listPlatformRequests() as PlatformRequestLog[]
+    const used = requests.filter((entry) => {
+      const createdAt = new Date(entry.createdAt ?? entry.generatedAt ?? 0).getTime()
+      return entry.clientId === client.id && createdAt >= dayStart
+    }).length
+    if (used >= client.quotaPerDay) throw httpError(429, 'Platform API daily quota exceeded')
+  }
+}
+
+function platformClients(): PlatformClient[] {
+  const rawClients = process.env.RESUME_PLATFORM_CLIENTS?.trim()
+  if (rawClients) {
+    try {
+      const parsed = JSON.parse(rawClients)
+      if (!Array.isArray(parsed)) throw new Error('Expected an array')
+      return parsed
+        .map((client) => ({
+          id: String(client.id ?? '').trim(),
+          key: String(client.key ?? '').trim(),
+          scopes: Array.isArray(client.scopes) ? client.scopes.map(String) : ['drafts:write'],
+          quotaPerDay: client.quotaPerDay ? Number(client.quotaPerDay) : undefined,
+          rateLimitPerMinute: client.rateLimitPerMinute ? Number(client.rateLimitPerMinute) : undefined,
+        }))
+        .filter((client) => client.id && client.key)
+    } catch {
+      throw httpError(500, 'Invalid RESUME_PLATFORM_CLIENTS configuration')
+    }
+  }
+
+  const legacyKey = process.env.RESUME_PLATFORM_API_KEY?.trim()
+  if (!legacyKey) return []
+  return [{
+    id: 'default',
+    key: legacyKey,
+    scopes: ['drafts:write', 'requests:read', 'requests:all'],
+  }]
 }
 
 function asPersistedDraft(value: unknown): { documentId: string; idempotent: boolean } {
@@ -237,4 +331,89 @@ function allowedOrigins() {
     return process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
   }
   return [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/]
+}
+
+function platformOpenApiDocument() {
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'Resume Tool Platform API',
+      version: '0.1.0',
+      description: 'Generate JD-tailored resume drafts, optionally persist them as resume documents, and inspect platform request logs.',
+    },
+    servers: [{ url: 'http://127.0.0.1:8787' }],
+    security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+    paths: {
+      '/api/v1/resume-drafts': {
+        post: {
+          summary: 'Generate a JD-tailored resume draft',
+          description: 'Requires `drafts:write` scope. Use `requestId` for idempotent persisted drafts.',
+          operationId: 'createResumeDraft',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                examples: {
+                  minimal: {
+                    value: {
+                      requestId: 'req-001',
+                      userId: 'user-42',
+                      persist: true,
+                      workHistory: [
+                        {
+                          company: 'Acme AI',
+                          title: 'Product Engineer',
+                          achievements: ['Improved recruiter review speed by 38%'],
+                        },
+                      ],
+                      jobDescription: {
+                        company: 'FutureHire',
+                        title: 'Senior Product Engineer',
+                        description: 'Build LLM hiring workflows.',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Draft generated, or idempotent persisted replay' },
+            201: { description: 'Draft generated and persisted as a resume document' },
+            400: { description: 'Validation failed' },
+            401: { description: 'Missing or invalid API key' },
+            403: { description: 'API key missing required scope' },
+            429: { description: 'Quota or rate limit exceeded' },
+          },
+        },
+      },
+      '/api/v1/platform/requests': {
+        get: {
+          summary: 'List platform request logs',
+          description: 'Requires `requests:read` scope. Clients without `requests:all` only see their own logs.',
+          operationId: 'listPlatformRequests',
+          responses: {
+            200: { description: 'Request log list with clientId, route, status, latencyMs, matchScore, and documentId when persisted' },
+            401: { description: 'Missing or invalid API key' },
+            403: { description: 'API key missing required scope' },
+          },
+        },
+      },
+      '/api/v1/openapi.json': {
+        get: {
+          summary: 'OpenAPI contract',
+          security: [],
+          responses: { 200: { description: 'OpenAPI 3.1 document' } },
+        },
+      },
+    },
+    components: {
+      securitySchemes: {
+        ApiKeyAuth: { type: 'apiKey', in: 'header', name: 'x-resume-api-key' },
+        BearerAuth: { type: 'http', scheme: 'bearer' },
+      },
+    },
+    'x-curl-example': 'curl -X POST http://127.0.0.1:8787/api/v1/resume-drafts -H "x-resume-api-key: $RESUME_API_KEY" -H "content-type: application/json" -d @payload.json',
+    'x-idempotency': 'When persist=true and requestId repeats, the API returns the original documentId with generation.idempotent=true.',
+  }
 }

@@ -207,6 +207,111 @@ test('platform API accepts bearer auth and rejects invalid payloads', async () =
   }
 })
 
+test('platform API exposes OpenAPI and enforces client scopes, quota, and rate limits', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+  const previousApiKey = process.env.RESUME_PLATFORM_API_KEY
+  const previousClients = process.env.RESUME_PLATFORM_CLIENTS
+  delete process.env.RESUME_PLATFORM_API_KEY
+  process.env.RESUME_PLATFORM_CLIENTS = JSON.stringify([
+    {
+      id: 'futurehire',
+      key: 'futurehire-key',
+      scopes: ['drafts:write', 'requests:read'],
+      quotaPerDay: 1,
+      rateLimitPerMinute: 10,
+    },
+    {
+      id: 'readonly',
+      key: 'readonly-key',
+      scopes: ['requests:read'],
+    },
+    {
+      id: 'burst',
+      key: 'burst-key',
+      scopes: ['drafts:write'],
+      quotaPerDay: 10,
+      rateLimitPerMinute: 1,
+    },
+  ])
+
+  try {
+    const openapi = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    assert.equal(openapi.statusCode, 200)
+    assert.equal(openapi.json().openapi, '3.1.0')
+    assert.ok(openapi.json().paths['/api/v1/resume-drafts'])
+    assert.match(openapi.json()['x-curl-example'], /curl -X POST/)
+
+    const missingScope = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      headers: { 'x-resume-api-key': 'readonly-key' },
+      payload: platformPayload({ requestId: 'scope-denied', persist: false }),
+    })
+    assert.equal(missingScope.statusCode, 403)
+    assert.match(missingScope.json().error, /drafts:write/)
+
+    const generated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      headers: { 'x-resume-api-key': 'futurehire-key' },
+      payload: platformPayload({ requestId: 'futurehire-1', persist: false }),
+    })
+    assert.equal(generated.statusCode, 200)
+
+    const overQuota = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      headers: { 'x-resume-api-key': 'futurehire-key' },
+      payload: platformPayload({ requestId: 'futurehire-2', persist: false }),
+    })
+    assert.equal(overQuota.statusCode, 429)
+    assert.match(overQuota.json().error, /quota/)
+
+    const requests = await app.inject({
+      method: 'GET',
+      url: '/api/v1/platform/requests',
+      headers: { 'x-resume-api-key': 'futurehire-key' },
+    })
+    assert.equal(requests.statusCode, 200)
+    assert.equal(requests.json().length, 1)
+    assert.equal(requests.json()[0].clientId, 'futurehire')
+    assert.equal(requests.json()[0].status, 'draft')
+    assert.equal(requests.json()[0].route, 'api-v1')
+    assert.equal(typeof requests.json()[0].latencyMs, 'number')
+
+    const firstBurst = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      headers: { 'x-resume-api-key': 'burst-key' },
+      payload: platformPayload({ requestId: 'burst-1', persist: false }),
+    })
+    assert.equal(firstBurst.statusCode, 200)
+
+    const rateLimited = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      headers: { 'x-resume-api-key': 'burst-key' },
+      payload: platformPayload({ requestId: 'burst-2', persist: false }),
+    })
+    assert.equal(rateLimited.statusCode, 429)
+    assert.match(rateLimited.json().error, /rate limit/)
+  } finally {
+    if (previousApiKey === undefined) {
+      delete process.env.RESUME_PLATFORM_API_KEY
+    } else {
+      process.env.RESUME_PLATFORM_API_KEY = previousApiKey
+    }
+    if (previousClients === undefined) {
+      delete process.env.RESUME_PLATFORM_CLIENTS
+    } else {
+      process.env.RESUME_PLATFORM_CLIENTS = previousClients
+    }
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 function platformPayload(overrides: Record<string, unknown> = {}) {
   return {
     requestId: 'req-platform-1',
