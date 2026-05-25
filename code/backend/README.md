@@ -33,7 +33,27 @@ Environment variables:
 - `HOST`: bind host, defaults to `127.0.0.1`
 - `RESUME_BACKEND_DATA_DIR`: JSON data directory, defaults to `code/backend/.data`
 - `CORS_ORIGIN`: comma-separated allowed origins. Defaults to local dev origins only.
-- `RESUME_PLATFORM_API_KEY`: optional server-to-server key for external AI platforms. When set, calls to platform APIs must include `x-resume-api-key` or `Authorization: Bearer ...`.
+- `RESUME_PLATFORM_API_KEY`: optional legacy server-to-server key. When set, platform APIs accept `x-resume-api-key` or `Authorization: Bearer ...` and grant `drafts:write`, `requests:read`, and `requests:all`.
+- `RESUME_PLATFORM_CLIENTS`: optional JSON array for per-client API access. When set, it replaces the legacy single-key mode.
+
+Client config example:
+
+```json
+[
+  {
+    "id": "futurehire",
+    "key": "dev-secret",
+    "scopes": ["drafts:write", "requests:read"],
+    "quotaPerDay": 1000,
+    "rateLimitPerMinute": 60
+  },
+  {
+    "id": "ops",
+    "key": "ops-secret",
+    "scopes": ["requests:read", "requests:all"]
+  }
+]
+```
 
 ## API
 
@@ -60,6 +80,7 @@ GET    /api/activity
 POST   /api/assistant/suggestions
 POST   /api/assistant/resume-drafts
 
+GET    /api/v1/openapi.json
 GET    /api/v1/platform/requests
 POST   /api/v1/resume-drafts
 POST   /api/v1/platform/resume-drafts
@@ -112,6 +133,17 @@ curl -s -X POST http://127.0.0.1:8787/api/v1/resume-drafts \
 ```
 
 `POST /api/v1/resume-drafts` is intended for another AI platform to call after it has analyzed a user's full work history and a target JD. The response returns a generated resume-shaped draft, match metadata, selected experience indexes, and generation metadata. Set `persist: true` to save the draft as a resume document and receive `generation.documentId`.
+
+Platform product behavior:
+
+- `GET /api/v1/openapi.json` returns the public OpenAPI contract and curl/idempotency notes.
+- `drafts:write` scope is required for draft generation routes.
+- `requests:read` scope is required for `GET /api/v1/platform/requests`.
+- Clients without `requests:all` only see their own request logs.
+- `quotaPerDay` returns `429 Platform API daily quota exceeded` once the client exceeds the daily request count.
+- `rateLimitPerMinute` returns `429 Platform API rate limit exceeded` for short bursts.
+- Reusing `requestId` with `persist: true` returns the original `generation.documentId` and `generation.idempotent=true`.
+- Request logs include `clientId`, `route`, `status`, `matchScore`, `latencyMs`, persistence metadata, and replay counters.
 
 Compatibility aliases:
 
