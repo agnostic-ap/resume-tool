@@ -470,34 +470,7 @@ function applyEditorJdDraft() {
     return
   }
   const draft = editorJdDraft.value
-  store.data = {
-    ...store.data,
-    personal: {
-      ...store.data.personal,
-      summary: editorJdApplySections.summary ? draft.data.personal.summary : store.data.personal.summary,
-    },
-    experience: editorJdApplySections.experience ? draft.data.experience : store.data.experience,
-    skills: editorJdApplySections.skills ? draft.data.skills : store.data.skills,
-    projects: editorJdApplySections.projects ? draft.data.projects : store.data.projects,
-  }
-  draft.generation.appliedAt = new Date().toISOString()
-  store.markGrowthEntryUsed(editorJdGrowthEntryIds.value, { resumeId: store.activeResumeId })
-  ;(Object.keys(editorJdApplySections) as JdReviewSection[])
-    .filter((section) => editorJdApplySections[section])
-    .forEach((section) => {
-      store.trackProductEvent('jd_section_applied', {
-        section,
-        request_id: draft.requestId || 'local-request',
-      })
-    })
-  store.logActivity({
-    type: 'ai',
-    tag: 'JD',
-    message: 'Applied selected editor JD-tailored sections',
-    messageZh: '采纳编辑器 JD 定制草稿的所选章节',
-    messageEn: 'Applied selected editor JD-tailored sections',
-    meta: `${draft.requestId || 'local-request'} · ${selectedEditorJdSectionCount.value} sections · ${draft.match.score}/100`,
-  })
+  store.applyJdDraftSections(draft, editorJdApplySections, editorJdGrowthEntryIds.value)
   showToast(l('已应用所选草稿章节', 'Selected draft sections applied'), 'success')
 }
 
@@ -506,45 +479,13 @@ function createApplicationFromEditorJdDraft() {
   const draft = editorJdDraft.value
   const company = editorJdCompany.value.trim() || l('未填写公司', 'Untitled company')
   const role = editorJdRole.value.trim() || draft.data.personal.title || store.data.personal.title
-  const created = store.addApplication({
+  store.createApplicationFromJdDraft(draft, {
     company,
     role,
-    stage: 'saved',
-    resumeId: store.activeResumeId,
-    match: draft.match.score,
-    appliedAt: '',
     nextAction: l('评估 JD 定制草稿，决定是否投递', 'Review the JD-tailored draft and decide whether to apply'),
-    followUpAt: '',
-    contactName: '',
-    contactEmail: '',
-    jobPostUrl: '',
     notes: l('由编辑器 JD 定制草稿创建。', 'Created from the editor JD-tailored draft.'),
     jobDescription: currentEditorJdSnapshot(role),
-    tailoring: {
-      requestId: draft.requestId || '',
-      sourceResumeId: store.activeResumeId,
-      draftTitle: draft.title,
-      matchScore: draft.match.score,
-      matchedKeywords: draft.match.matchedKeywords,
-      selectedExperienceIds: draft.match.selectedExperienceIds,
-      strategy: draft.generation.strategy,
-      generatedAt: draft.generation.generatedAt,
-      appliedAt: draft.generation.appliedAt,
-    },
-  })
-  store.markGrowthEntryUsed(editorJdGrowthEntryIds.value, { resumeId: store.activeResumeId, applicationId: created.id })
-  store.trackProductEvent('application_created_from_jd', {
-    application_id: created.id,
-    request_id: draft.requestId || '',
-  })
-  store.logActivity({
-    type: 'application',
-    tag: 'JD',
-    message: 'Created application from editor JD-tailored draft',
-    messageZh: '从编辑器 JD 定制草稿创建投递记录',
-    messageEn: 'Created application from editor JD-tailored draft',
-    meta: `${created.company} · ${created.match}`,
-    resumeId: created.resumeId,
+    growthEntryIds: editorJdGrowthEntryIds.value,
   })
   navigate('pipeline')
   showToast(l('已创建投递记录并保存 JD 信息', 'Application created with JD details'), 'success')

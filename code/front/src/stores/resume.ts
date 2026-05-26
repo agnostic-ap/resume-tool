@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, ProductEventName, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, JobDescriptionSnapshot, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, ProductEventName, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
-import type { BackendState } from '../api/backend'
+import type { BackendState, PlatformResumeDraft } from '../api/backend'
 
 const DEFAULT_ORDER: SectionId[] = [
   'summary', 'experience', 'education', 'skills', 'projects', 'awards', 'languages', 'certifications',
@@ -20,6 +20,8 @@ const DEFAULT_VISIBLE: Record<SectionId, boolean> = {
   languages: false,
   certifications: false,
 }
+
+type JdDraftSection = 'summary' | 'experience' | 'skills' | 'projects'
 
 export const DEFAULT_TWEAKS: ResumeTweaks = {
   accent: 'ocean',
@@ -1528,6 +1530,103 @@ export const useResumeStore = defineStore('resume', () => {
     return app
   }
 
+  function selectedDraftSections(sections: Partial<Record<JdDraftSection, boolean>>) {
+    return (['summary', 'experience', 'skills', 'projects'] as JdDraftSection[])
+      .filter((section) => sections[section])
+  }
+
+  function applyJdDraftSections(
+    draft: PlatformResumeDraft,
+    sections: Partial<Record<JdDraftSection, boolean>>,
+    growthEntryIds: string[] = [],
+  ) {
+    const selected = selectedDraftSections(sections)
+    if (!selected.length) return []
+
+    data.value = {
+      ...data.value,
+      personal: {
+        ...data.value.personal,
+        summary: selected.includes('summary') ? draft.data.personal.summary : data.value.personal.summary,
+      },
+      experience: selected.includes('experience') ? draft.data.experience : data.value.experience,
+      skills: selected.includes('skills') ? draft.data.skills : data.value.skills,
+      projects: selected.includes('projects') ? draft.data.projects : data.value.projects,
+    }
+    draft.generation.appliedAt = new Date().toISOString()
+    markGrowthEntryUsed(growthEntryIds, { resumeId: activeResumeId.value })
+    selected.forEach((section) => {
+      trackProductEvent('jd_section_applied', {
+        section,
+        request_id: draft.requestId || 'local-request',
+      })
+    })
+    logActivity({
+      type: 'ai',
+      tag: 'JD',
+      message: 'Applied selected editor JD-tailored sections',
+      messageZh: '采纳编辑器 JD 定制草稿的所选章节',
+      messageEn: 'Applied selected editor JD-tailored sections',
+      meta: `${draft.requestId || 'local-request'} · ${selected.length} sections · ${draft.match.score}/100`,
+    })
+    syncActiveDocumentToBackend()
+    return selected
+  }
+
+  function createApplicationFromJdDraft(
+    draft: PlatformResumeDraft,
+    input: {
+      company: string
+      role: string
+      jobDescription: JobDescriptionSnapshot
+      growthEntryIds?: string[]
+      nextAction?: string
+      notes?: string
+    },
+  ) {
+    const app = addApplication({
+      company: input.company,
+      role: input.role,
+      stage: 'saved',
+      resumeId: activeResumeId.value,
+      match: draft.match.score,
+      appliedAt: '',
+      nextAction: input.nextAction ?? 'Review the JD-tailored draft and decide whether to apply',
+      followUpAt: '',
+      contactName: '',
+      contactEmail: '',
+      jobPostUrl: '',
+      notes: input.notes ?? 'Created from the editor JD-tailored draft.',
+      jobDescription: input.jobDescription,
+      tailoring: {
+        requestId: draft.requestId || '',
+        sourceResumeId: activeResumeId.value,
+        draftTitle: draft.title,
+        matchScore: draft.match.score,
+        matchedKeywords: draft.match.matchedKeywords,
+        selectedExperienceIds: draft.match.selectedExperienceIds,
+        strategy: draft.generation.strategy,
+        generatedAt: draft.generation.generatedAt,
+        appliedAt: draft.generation.appliedAt,
+      },
+    })
+    markGrowthEntryUsed(input.growthEntryIds ?? [], { resumeId: activeResumeId.value, applicationId: app.id })
+    trackProductEvent('application_created_from_jd', {
+      application_id: app.id,
+      request_id: draft.requestId || '',
+    })
+    logActivity({
+      type: 'application',
+      tag: 'JD',
+      message: 'Created application from editor JD-tailored draft',
+      messageZh: '从编辑器 JD 定制草稿创建投递记录',
+      messageEn: 'Created application from editor JD-tailored draft',
+      meta: `${app.company} · ${app.match}`,
+      resumeId: app.resumeId,
+    })
+    return app
+  }
+
   function updateApplication(id: string, patch: Partial<JobApplication>) {
     const app = applications.value.find((item) => item.id === id)
     if (!app) return
@@ -1599,6 +1698,8 @@ export const useResumeStore = defineStore('resume', () => {
     toggleGrowthEntryArchived,
     markGrowthEntryUsed,
     addApplication,
+    applyJdDraftSections,
+    createApplicationFromJdDraft,
     updateApplication,
     deleteApplication,
     logActivity,

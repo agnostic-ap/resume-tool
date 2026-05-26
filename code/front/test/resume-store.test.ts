@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { useResumeStore } from '../src/stores/resume'
-import type { BackendState } from '../src/api/backend'
+import { backendApi, type BackendState } from '../src/api/backend'
 
 test('resume store manages multiple resumes and biweekly update dates', () => {
   setupStoreHarness()
@@ -271,6 +271,122 @@ test('resume store supports saved opportunities before applying', () => {
 
   store.updateApplication(opportunity.id, { progressLog: [] })
   assert.equal(store.applications.find((item) => item.id === opportunity.id)?.progressLog.length, 0)
+})
+
+test('resume store covers the P0 blank-to-JD-to-application path', async () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+  store.trackProductEvent('onboarding_choice_selected', { choice: 'blank' })
+  const blank = store.createResume(true)
+
+  store.data.personal.name = 'Ada Lovelace'
+  store.data.personal.email = 'ada@example.com'
+  store.data.personal.title = 'AI Platform Engineer'
+  store.data.personal.summary = 'Platform engineer focused on reliable AI workflow systems.'
+  store.addExperience()
+  store.data.experience[0] = {
+    id: 'work-p0',
+    company: 'Analytical Engines',
+    position: 'Platform Engineer',
+    location: 'London',
+    startDate: '2024-01',
+    endDate: '',
+    current: true,
+    description: 'Built JD matching workflows and improved recruiter review speed by 38%.',
+  }
+  store.addSkill()
+  store.data.skills[0] = { id: 'skill-p0', category: 'Platform', items: 'TypeScript, Node.js, LLM workflows' }
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    requestId: 'p0-jd-1',
+    title: 'Ada Lovelace · FutureHire',
+    data: {
+      ...store.data,
+      personal: {
+        ...store.data.personal,
+        summary: 'AI platform engineer aligned to FutureHire JD matching workflows.',
+      },
+      skills: [
+        { id: 'skill-p0-draft', category: 'Target role keywords', items: 'TypeScript, Node.js, LLM, JD matching' },
+      ],
+    },
+    config: store.config,
+    match: {
+      score: 91,
+      keywords: ['TypeScript', 'LLM', 'JD matching'],
+      matchedKeywords: ['TypeScript', 'LLM'],
+      selectedExperienceIds: ['work-p0'],
+    },
+    generation: {
+      strategy: 'rule-based-jd-tailoring-v1',
+      generatedAt: '2026-05-26T00:00:00.000Z',
+      persisted: false,
+    },
+  }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
+
+  try {
+    store.trackProductEvent('jd_draft_requested', {
+      resume_id: blank.id,
+      has_company: true,
+      jd_length: 128,
+    })
+    const draft = await backendApi.generateAssistantResumeDraft({
+      requestId: 'p0-jd-1',
+      persist: false,
+      locale: store.config.locale,
+      templateId: store.config.templateId,
+      personal: store.data.personal,
+      workHistory: store.data.experience.map((item) => ({
+        id: item.id,
+        company: item.company,
+        title: item.position,
+        description: item.description,
+        skills: ['TypeScript', 'LLM'],
+      })),
+      skills: ['TypeScript', 'Node.js', 'LLM workflows'],
+      jobDescription: {
+        company: 'FutureHire',
+        title: 'AI Platform Engineer',
+        description: 'Build TypeScript and LLM workflows for JD matching.',
+      },
+    })
+    store.trackProductEvent('jd_draft_generated', {
+      request_id: draft.requestId,
+      score: draft.match.score,
+      matched_keyword_count: draft.match.matchedKeywords.length,
+    })
+
+    const applied = store.applyJdDraftSections(draft, { summary: true, skills: true })
+    assert.deepEqual(applied, ['summary', 'skills'])
+    assert.match(store.data.personal.summary, /FutureHire/)
+    assert.equal(store.data.experience[0].id, 'work-p0')
+    assert.equal(store.data.skills[0].id, 'skill-p0-draft')
+
+    const application = store.createApplicationFromJdDraft(draft, {
+      company: 'FutureHire',
+      role: 'AI Platform Engineer',
+      jobDescription: {
+        company: 'FutureHire',
+        title: 'AI Platform Engineer',
+        location: '',
+        description: 'Build TypeScript and LLM workflows for JD matching.',
+        requirements: ['TypeScript', 'LLM'],
+        url: '',
+      },
+    })
+    store.trackProductEvent('export_precheck_completed', { issue_count: 0, blocking_count: 0 })
+
+    assert.equal(application.company, 'FutureHire')
+    assert.equal(application.resumeId, blank.id)
+    assert.equal(application.tailoring?.requestId, 'p0-jd-1')
+    assert.equal(application.jobDescription?.description, 'Build TypeScript and LLM workflows for JD matching.')
+    assert.equal(store.activityLog.some((event) => event.tag === 'event:jd_section_applied' && event.meta.includes('summary')), true)
+    assert.equal(store.activityLog.some((event) => event.tag === 'event:application_created_from_jd'), true)
+    assert.equal(store.activityLog.some((event) => event.tag === 'event:export_precheck_completed'), true)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('resume store imports and exports normalized workspace data', () => {
