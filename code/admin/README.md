@@ -18,9 +18,13 @@ npm run dev
 
 Default URL: `http://127.0.0.1:5174`
 
+The backend must be started with `RESUME_ADMIN_USERS` or `RESUME_ADMIN_TOKEN`. The admin app stores the entered token in `sessionStorage` and sends it as `x-admin-token` to admin-only API routes.
+
 ## Current Scope
 
-- Super admin dashboard backed by `GET /api/state`
+- Admin login backed by `GET /api/admin/session`
+- Dashboard backed by `GET /api/admin/state`
+- Role-aware navigation: only `super_admin` can access platform clients, API request operations, deployment, and config pages
 - User, tenant, role, and API key overview
 - Resume document management overview from backend resume documents
 - Application pipeline monitoring from backend applications
@@ -31,6 +35,5 @@ Default URL: `http://127.0.0.1:5174`
 
 Still intentionally pending:
 
-- Super admin authentication and role enforcement
 - API client/key create, rotate, revoke, and hash-backed storage flows
 - Persistent audit log viewer backed by `audit_logs`

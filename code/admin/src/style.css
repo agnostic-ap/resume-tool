@@ -12,6 +12,18 @@ body {
   min-height: 100vh;
 }
 
+.admin-login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #eef3ef;
+}
+
+.admin-login__card {
+  width: min(420px, 100%);
+}
+
 .admin-sider {
   background: #fbfefd;
   border-right: 1px solid #d6e1e4;

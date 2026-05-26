@@ -33,10 +33,21 @@ Environment variables:
 - `HOST`: bind host, defaults to `127.0.0.1`
 - `RESUME_BACKEND_DATA_DIR`: JSON data directory, defaults to `code/backend/.data`
 - `CORS_ORIGIN`: comma-separated allowed origins. Defaults to local dev origins only.
+- `RESUME_ADMIN_USERS`: optional JSON array for admin console access. Each entry supports `email`, `token`, `role` (`super_admin`, `ops_admin`, `viewer`), and optional `status` (`enabled`, `locked`).
+- `RESUME_ADMIN_TOKEN`: optional legacy single super admin token. Ignored when `RESUME_ADMIN_USERS` is set.
 - `RESUME_PLATFORM_API_KEY`: optional legacy server-to-server key. When set, platform APIs accept `x-resume-api-key` or `Authorization: Bearer ...` and grant `drafts:write`, `requests:read`, and `requests:all`.
 - `RESUME_PLATFORM_CLIENTS`: optional JSON array for per-client API access. When set, it replaces the legacy single-key mode.
 
-Client config example:
+Admin config example:
+
+```json
+[
+  { "email": "owner@example.com", "token": "owner-secret", "role": "super_admin" },
+  { "email": "audit@example.com", "token": "audit-secret", "role": "viewer" }
+]
+```
+
+Platform client config example:
 
 ```json
 [
@@ -82,6 +93,8 @@ POST   /api/assistant/resume-drafts
 
 GET    /api/v1/openapi.json
 GET    /api/v1/platform/requests
+GET    /api/admin/session
+GET    /api/admin/state
 GET    /api/admin/platform-clients
 POST   /api/v1/resume-drafts
 POST   /api/v1/platform/resume-drafts

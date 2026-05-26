@@ -32,6 +32,16 @@ type PlatformRequestLog = {
   generatedAt?: string
   status?: string
 }
+type AdminRole = 'super_admin' | 'ops_admin' | 'viewer'
+type AdminUser = {
+  email: string
+  token: string
+  role: AdminRole
+  status: 'enabled' | 'locked'
+}
+type AdminSession = Omit<AdminUser, 'token'> & {
+  scopes: string[]
+}
 
 export async function buildApp(store: Store): Promise<FastifyInstance> {
   const platformRateBuckets = new Map<string, number[]>()
@@ -73,6 +83,11 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
   app.get('/api/v1/openapi.json', async () => platformOpenApiDocument())
 
   app.get('/api/state', async () => store.readState())
+  app.get('/api/admin/session', async (request) => assertAdminAccess(request.headers, 'viewer'))
+  app.get('/api/admin/state', async (request) => {
+    assertAdminAccess(request.headers, 'viewer')
+    return store.readState()
+  })
 
   app.get('/api/resumes', async () => store.listDocuments())
   app.post('/api/resumes', async (request, reply) => {
@@ -142,7 +157,8 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     if (!client.id || client.scopes?.includes('requests:all')) return requests
     return requests.filter((entry: { clientId?: string }) => entry.clientId === client.id)
   })
-  app.get('/api/admin/platform-clients', async () => {
+  app.get('/api/admin/platform-clients', async (request) => {
+    assertAdminAccess(request.headers, 'super_admin')
     const requests = await store.listPlatformRequests() as PlatformRequestLog[]
     return platformClientSummaries(requests)
   })
@@ -260,6 +276,71 @@ function assertPlatformAccess(headers: Record<string, unknown>, scope: string): 
   if (!client) throw httpError(401, 'Platform API key is required')
   if (!client.scopes.includes(scope)) throw httpError(403, `Platform API key is missing scope: ${scope}`)
   return client
+}
+
+function assertAdminAccess(headers: Record<string, unknown>, minimumRole: AdminRole): AdminSession {
+  const users = adminUsers()
+  const authorization = headerValue(headers.authorization)
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+  const presented = headerValue(headers['x-admin-token']) || bearer
+  const user = users.find((item) => item.token === presented)
+  if (!user) throw httpError(401, 'Admin token is required')
+  if (user.status !== 'enabled') throw httpError(403, 'Admin account is locked')
+  if (!adminRoleAllows(user.role, minimumRole)) throw httpError(403, `Admin role is missing permission: ${minimumRole}`)
+  return {
+    email: user.email,
+    role: user.role,
+    status: user.status,
+    scopes: adminScopes(user.role),
+  }
+}
+
+function adminUsers(): AdminUser[] {
+  const rawUsers = process.env.RESUME_ADMIN_USERS?.trim()
+  if (rawUsers) {
+    try {
+      const parsed = JSON.parse(rawUsers)
+      if (!Array.isArray(parsed)) throw new Error('Expected an array')
+      return parsed
+        .map((user) => ({
+          email: String(user.email ?? '').trim(),
+          token: String(user.token ?? '').trim(),
+          role: adminRole(user.role),
+          status: user.status === 'locked' ? 'locked' as const : 'enabled' as const,
+        }))
+        .filter((user) => user.email && user.token)
+    } catch {
+      throw httpError(500, 'Invalid RESUME_ADMIN_USERS configuration')
+    }
+  }
+
+  const legacyToken = process.env.RESUME_ADMIN_TOKEN?.trim()
+  if (!legacyToken) return []
+  return [{
+    email: 'owner@example.com',
+    token: legacyToken,
+    role: 'super_admin',
+    status: 'enabled',
+  }]
+}
+
+function adminRole(value: unknown): AdminRole {
+  return ['super_admin', 'ops_admin', 'viewer'].includes(String(value)) ? String(value) as AdminRole : 'viewer'
+}
+
+function adminRoleAllows(actual: AdminRole, minimum: AdminRole) {
+  const rank: Record<AdminRole, number> = {
+    viewer: 1,
+    ops_admin: 2,
+    super_admin: 3,
+  }
+  return rank[actual] >= rank[minimum]
+}
+
+function adminScopes(role: AdminRole) {
+  if (role === 'super_admin') return ['state:read', 'platform_clients:read', 'dangerous_actions:confirm']
+  if (role === 'ops_admin') return ['state:read']
+  return ['state:read']
 }
 
 async function assertPlatformUsage(

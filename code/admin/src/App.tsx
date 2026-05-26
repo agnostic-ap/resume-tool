@@ -19,6 +19,7 @@ import {
   ConfigProvider,
   Descriptions,
   Flex,
+  Input,
   Layout,
   Menu,
   Alert,
@@ -89,6 +90,15 @@ type PlatformClientRow = {
   requestCount: number
   failedRequestCount: number
   lastRequestAt: string | null
+}
+
+type AdminRole = 'super_admin' | 'ops_admin' | 'viewer'
+
+type AdminSession = {
+  email: string
+  role: AdminRole
+  status: 'enabled' | 'locked'
+  scopes: string[]
 }
 
 type ActivityRow = {
@@ -224,33 +234,83 @@ export default function App() {
   const [platformClients, setPlatformClients] = useState<PlatformClientRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem('resume-admin-token') ?? '')
+  const [loginToken, setLoginToken] = useState('')
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(null)
   const [selectedMenu, setSelectedMenu] = useState('overview')
   const [clientFilter, setClientFilter] = useState('all')
   const [routeFilter, setRouteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const isSuperAdmin = adminSession?.role === 'super_admin'
 
-  async function loadBackendState() {
+  function adminHeaders(token = adminToken) {
+    return { 'x-admin-token': token }
+  }
+
+  async function loadBackendState(token = adminToken, role = adminSession?.role) {
+    if (!token) return
     setLoading(true)
     setLoadError('')
     try {
-      const [stateResponse, clientsResponse] = await Promise.all([
-        fetch(`${apiBaseUrl}/api/state`),
-        fetch(`${apiBaseUrl}/api/admin/platform-clients`),
-      ])
+      const stateResponse = await fetch(`${apiBaseUrl}/api/admin/state`, { headers: adminHeaders(token) })
       if (!stateResponse.ok) throw new Error(`${stateResponse.status} ${stateResponse.statusText}`)
-      if (!clientsResponse.ok) throw new Error(`${clientsResponse.status} ${clientsResponse.statusText}`)
       setBackendState(await stateResponse.json() as BackendState)
-      const clientRows = await clientsResponse.json() as Omit<PlatformClientRow, 'key'>[]
-      setPlatformClients(clientRows.map((client) => ({ ...client, key: client.id })))
+      if (role === 'super_admin') {
+        const clientsResponse = await fetch(`${apiBaseUrl}/api/admin/platform-clients`, { headers: adminHeaders(token) })
+        if (!clientsResponse.ok) throw new Error(`${clientsResponse.status} ${clientsResponse.statusText}`)
+        const clientRows = await clientsResponse.json() as Omit<PlatformClientRow, 'key'>[]
+        setPlatformClients(clientRows.map((client) => ({ ...client, key: client.id })))
+      } else {
+        setPlatformClients([])
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
+      if (error instanceof Error && /^401|^403/.test(error.message)) logout()
     } finally {
       setLoading(false)
     }
   }
 
+  async function authenticate(token = loginToken.trim()) {
+    if (!token) {
+      setLoadError('请输入管理端访问令牌')
+      return
+    }
+    setLoading(true)
+    setLoadError('')
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/admin/session`, { headers: adminHeaders(token) })
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+      const session = await response.json() as AdminSession
+      window.sessionStorage.setItem('resume-admin-token', token)
+      setAdminToken(token)
+      setLoginToken('')
+      setAdminSession(session)
+      if (session.role !== 'super_admin' && ['permissions', 'platform', 'deploy', 'data'].includes(selectedMenu)) {
+        setSelectedMenu('overview')
+      }
+      await loadBackendState(token, session.role)
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error))
+      setAdminSession(null)
+      window.sessionStorage.removeItem('resume-admin-token')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function logout() {
+    window.sessionStorage.removeItem('resume-admin-token')
+    setAdminToken('')
+    setLoginToken('')
+    setAdminSession(null)
+    setBackendState(null)
+    setPlatformClients([])
+    setSelectedMenu('overview')
+  }
+
   useEffect(() => {
-    void loadBackendState()
+    if (adminToken) void authenticate(adminToken)
   }, [])
 
   const resumes = useMemo<ResumeRow[]>(() =>
@@ -318,6 +378,25 @@ export default function App() {
   [backendState])
 
   const latestActivity = activityRows.slice(0, 8)
+  const menuItems = [
+    { key: 'overview', icon: <AppstoreOutlined />, label: '总览' },
+    { key: 'users', icon: <TeamOutlined />, label: '用户 / 租户' },
+    ...(isSuperAdmin
+      ? [
+          { key: 'permissions', icon: <SafetyCertificateOutlined />, label: '权限与密钥' },
+          { key: 'platform', icon: <ApiOutlined />, label: '平台 API' },
+        ]
+      : []),
+    { key: 'resumes', icon: <FileTextOutlined />, label: '简历数据' },
+    { key: 'applications', icon: <BarChartOutlined />, label: '投递数据' },
+    ...(isSuperAdmin
+      ? [
+          { key: 'deploy', icon: <DeploymentUnitOutlined />, label: '部署状态' },
+          { key: 'data', icon: <DatabaseOutlined />, label: '数据与配置' },
+        ]
+      : []),
+    { key: 'audit', icon: <SafetyCertificateOutlined />, label: '审计日志' },
+  ]
 
   function renderOverview() {
     return (
@@ -471,7 +550,7 @@ export default function App() {
         <Col xs={24} xl={12}>
           <Card title="危险操作">
             <Space>
-              <Popconfirm title="确认重新拉取后端数据？" okText="确认" cancelText="取消" onConfirm={loadBackendState}>
+              <Popconfirm title="确认重新拉取后端数据？" okText="确认" cancelText="取消" onConfirm={() => void loadBackendState()}>
                 <Button danger>重新同步运行态</Button>
               </Popconfirm>
               <Popconfirm title="确认导出当前审计视图？" okText="确认" cancelText="取消">
@@ -515,6 +594,16 @@ export default function App() {
   }
 
   function renderSelectedPage() {
+    if (!isSuperAdmin && ['permissions', 'platform', 'deploy', 'data'].includes(selectedMenu)) {
+      return (
+        <Alert
+          type="warning"
+          showIcon
+          message="当前角色无权访问该页面"
+          description="只有 super_admin 可以查看平台密钥、API client、部署和配置等敏感页面。"
+        />
+      )
+    }
     if (selectedMenu === 'users') return renderUsers()
     if (selectedMenu === 'permissions') return renderPermissions()
     if (selectedMenu === 'platform') return renderPlatform()
@@ -537,6 +626,25 @@ export default function App() {
         },
       }}
     >
+      {!adminSession ? (
+        <div className="admin-login">
+          <Card title="超管登录" className="admin-login__card">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Text type="secondary">输入后端配置的管理端访问令牌，进入真实运营控制台。</Text>
+              <Input.Password
+                placeholder="Admin access token"
+                value={loginToken}
+                onChange={(event) => setLoginToken(event.target.value)}
+                onPressEnter={() => void authenticate()}
+              />
+              {loadError && <Alert type="error" showIcon message="登录失败" description={loadError} />}
+              <Button type="primary" block loading={loading} onClick={() => void authenticate()}>
+                登录
+              </Button>
+            </Space>
+          </Card>
+        </div>
+      ) : (
       <Layout className="admin-shell">
         <Sider width={236} className="admin-sider">
           <div className="admin-brand">
@@ -550,17 +658,7 @@ export default function App() {
             mode="inline"
             selectedKeys={[selectedMenu]}
             onClick={({ key }) => setSelectedMenu(key)}
-            items={[
-              { key: 'overview', icon: <AppstoreOutlined />, label: '总览' },
-              { key: 'users', icon: <TeamOutlined />, label: '用户 / 租户' },
-              { key: 'permissions', icon: <SafetyCertificateOutlined />, label: '权限与密钥' },
-              { key: 'platform', icon: <ApiOutlined />, label: '平台 API' },
-              { key: 'resumes', icon: <FileTextOutlined />, label: '简历数据' },
-              { key: 'applications', icon: <BarChartOutlined />, label: '投递数据' },
-              { key: 'deploy', icon: <DeploymentUnitOutlined />, label: '部署状态' },
-              { key: 'data', icon: <DatabaseOutlined />, label: '数据与配置' },
-              { key: 'audit', icon: <SafetyCertificateOutlined />, label: '审计日志' },
-            ]}
+            items={menuItems}
           />
         </Sider>
 
@@ -571,9 +669,11 @@ export default function App() {
               <Text type="secondary">全局用户、权限、平台调用、配置同步和部署数据入口</Text>
             </div>
             <Space>
-              <Tag color="red">SUPER ADMIN</Tag>
+              <Tag color={isSuperAdmin ? 'red' : 'blue'}>{adminSession.role}</Tag>
+              <Tag>{adminSession.email}</Tag>
               <Tag color="blue">API: {apiBaseUrl.replace(/^https?:\/\//, '')}</Tag>
-              <Button icon={<CloudSyncOutlined />} loading={loading} onClick={loadBackendState}>刷新真实数据</Button>
+              <Button icon={<CloudSyncOutlined />} loading={loading} onClick={() => void loadBackendState()}>刷新真实数据</Button>
+              <Button onClick={logout}>退出</Button>
             </Space>
           </Header>
 
@@ -584,7 +684,7 @@ export default function App() {
                   type={loadError ? 'error' : 'info'}
                   showIcon
                   message={loadError ? '后端数据连接失败' : '超管入口已接入运行态数据'}
-                  description={loadError || '简历、投递、平台调用和活动统计来自后端 /api/state；用户、权限和危险操作仍需后续接入认证、二次确认与审计。'}
+                  description={loadError || '简历、投递、平台调用和活动统计来自后端 admin API；敏感页面仅 super_admin 可访问。'}
                 />
               </Col>
               <Col xs={24}>
@@ -606,6 +706,7 @@ export default function App() {
           </Content>
         </Layout>
       </Layout>
+      )}
     </ConfigProvider>
   )
 }

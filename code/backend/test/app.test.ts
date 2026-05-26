@@ -71,6 +71,69 @@ test('fastify app exposes health and validates applications', async () => {
   }
 })
 
+test('admin API enforces token auth and super admin permissions', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+  const previousAdminUsers = process.env.RESUME_ADMIN_USERS
+  process.env.RESUME_ADMIN_USERS = JSON.stringify([
+    { email: 'owner@example.com', token: 'owner-token', role: 'super_admin' },
+    { email: 'viewer@example.com', token: 'viewer-token', role: 'viewer' },
+    { email: 'locked@example.com', token: 'locked-token', role: 'super_admin', status: 'locked' },
+  ])
+
+  try {
+    const unauthenticated = await app.inject({ method: 'GET', url: '/api/admin/state' })
+    assert.equal(unauthenticated.statusCode, 401)
+
+    const viewerSession = await app.inject({
+      method: 'GET',
+      url: '/api/admin/session',
+      headers: { 'x-admin-token': 'viewer-token' },
+    })
+    assert.equal(viewerSession.statusCode, 200)
+    assert.equal(viewerSession.json().email, 'viewer@example.com')
+    assert.equal(viewerSession.json().role, 'viewer')
+    assert.equal(viewerSession.json().token, undefined)
+
+    const viewerState = await app.inject({
+      method: 'GET',
+      url: '/api/admin/state',
+      headers: { authorization: 'Bearer viewer-token' },
+    })
+    assert.equal(viewerState.statusCode, 200)
+
+    const viewerClients = await app.inject({
+      method: 'GET',
+      url: '/api/admin/platform-clients',
+      headers: { 'x-admin-token': 'viewer-token' },
+    })
+    assert.equal(viewerClients.statusCode, 403)
+
+    const locked = await app.inject({
+      method: 'GET',
+      url: '/api/admin/session',
+      headers: { 'x-admin-token': 'locked-token' },
+    })
+    assert.equal(locked.statusCode, 403)
+
+    const superClients = await app.inject({
+      method: 'GET',
+      url: '/api/admin/platform-clients',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(superClients.statusCode, 200)
+    assert.equal(superClients.json()[0].id, 'development-open-access')
+  } finally {
+    if (previousAdminUsers === undefined) {
+      delete process.env.RESUME_ADMIN_USERS
+    } else {
+      process.env.RESUME_ADMIN_USERS = previousAdminUsers
+    }
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('platform API generates JD-tailored resume drafts', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   const app = await buildApp(createStore({ dataDir: dir }))
@@ -212,7 +275,11 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
   const app = await buildApp(createStore({ dataDir: dir }))
   const previousApiKey = process.env.RESUME_PLATFORM_API_KEY
   const previousClients = process.env.RESUME_PLATFORM_CLIENTS
+  const previousAdminUsers = process.env.RESUME_ADMIN_USERS
   delete process.env.RESUME_PLATFORM_API_KEY
+  process.env.RESUME_ADMIN_USERS = JSON.stringify([
+    { email: 'owner@example.com', token: 'owner-token', role: 'super_admin' },
+  ])
   process.env.RESUME_PLATFORM_CLIENTS = JSON.stringify([
     {
       id: 'futurehire',
@@ -283,6 +350,7 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
     const clients = await app.inject({
       method: 'GET',
       url: '/api/admin/platform-clients',
+      headers: { 'x-admin-token': 'owner-token' },
     })
     assert.equal(clients.statusCode, 200)
     assert.equal(clients.json().length, 3)
@@ -320,6 +388,11 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
       delete process.env.RESUME_PLATFORM_CLIENTS
     } else {
       process.env.RESUME_PLATFORM_CLIENTS = previousClients
+    }
+    if (previousAdminUsers === undefined) {
+      delete process.env.RESUME_ADMIN_USERS
+    } else {
+      process.env.RESUME_ADMIN_USERS = previousAdminUsers
     }
     await app.close()
     await rm(dir, { recursive: true, force: true })
