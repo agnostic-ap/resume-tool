@@ -82,6 +82,7 @@ POST   /api/assistant/resume-drafts
 
 GET    /api/v1/openapi.json
 GET    /api/v1/platform/requests
+GET    /api/admin/platform-clients
 POST   /api/v1/resume-drafts
 POST   /api/v1/platform/resume-drafts
 POST   /api/platform/resume-drafts
@@ -140,6 +141,7 @@ Platform product behavior:
 - `drafts:write` scope is required for draft generation routes.
 - `requests:read` scope is required for `GET /api/v1/platform/requests`.
 - Clients without `requests:all` only see their own request logs.
+- `GET /api/admin/platform-clients` returns redacted client metadata for the admin console, including scopes, quota, rate limit, request counts, and last request time. It never returns API key material.
 - `quotaPerDay` returns `429 Platform API daily quota exceeded` once the client exceeds the daily request count.
 - `rateLimitPerMinute` returns `429 Platform API rate limit exceeded` for short bursts.
 - Reusing `requestId` with `persist: true` returns the original `generation.documentId` and `generation.idempotent=true`.

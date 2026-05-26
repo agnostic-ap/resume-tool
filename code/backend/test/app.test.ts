@@ -280,6 +280,20 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
     assert.equal(requests.json()[0].route, 'api-v1')
     assert.equal(typeof requests.json()[0].latencyMs, 'number')
 
+    const clients = await app.inject({
+      method: 'GET',
+      url: '/api/admin/platform-clients',
+    })
+    assert.equal(clients.statusCode, 200)
+    assert.equal(clients.json().length, 3)
+    assert.equal(clients.json()[0].id, 'futurehire')
+    assert.equal(clients.json()[0].hasKey, true)
+    assert.equal(clients.json()[0].requestCount, 1)
+    assert.equal(clients.json()[0].failedRequestCount, 0)
+    assert.equal(clients.json()[0].quotaPerDay, 1)
+    assert.equal(clients.json()[0].key, undefined)
+    assert.deepEqual(clients.json()[1].scopes, ['requests:read'])
+
     const firstBurst = await app.inject({
       method: 'POST',
       url: '/api/v1/resume-drafts',

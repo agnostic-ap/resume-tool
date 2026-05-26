@@ -25,6 +25,7 @@ import {
   Progress,
   Popconfirm,
   Row,
+  Select,
   Space,
   Statistic,
   Table,
@@ -72,6 +73,22 @@ type ApiRequestRow = {
   status: string
   score: number
   latencyMs: number
+  documentId: string
+  error: string
+  replayCount: number
+  createdAt: string
+}
+
+type PlatformClientRow = {
+  key: string
+  id: string
+  scopes: string[]
+  quotaPerDay: number | null
+  rateLimitPerMinute: number | null
+  hasKey: boolean
+  requestCount: number
+  failedRequestCount: number
+  lastRequestAt: string | null
 }
 
 type ActivityRow = {
@@ -114,6 +131,10 @@ type BackendState = {
     persisted: boolean
     matchScore: number
     latencyMs?: number
+    documentId?: string
+    error?: string
+    replayCount?: number
+    createdAt?: string
   }>
   activityLog: Array<{
     id: string
@@ -164,6 +185,17 @@ const apiColumns: ColumnsType<ApiRequestRow> = [
   { title: 'Latency', dataIndex: 'latencyMs', render: (value) => `${value || 0}ms` },
 ]
 
+const platformClientColumns: ColumnsType<PlatformClientRow> = [
+  { title: 'Client', dataIndex: 'id' },
+  { title: 'Scopes', dataIndex: 'scopes', render: (scopes) => <Space wrap>{scopes.map((scope: string) => <Tag key={scope}>{scope}</Tag>)}</Space> },
+  { title: 'Daily quota', dataIndex: 'quotaPerDay', render: (value) => value ?? 'unlimited' },
+  { title: 'Rate / min', dataIndex: 'rateLimitPerMinute', render: (value) => value ?? 'unlimited' },
+  { title: 'Key', dataIndex: 'hasKey', render: (hasKey) => <Badge status={hasKey ? 'success' : 'warning'} text={hasKey ? 'configured' : 'open'} /> },
+  { title: 'Requests', dataIndex: 'requestCount' },
+  { title: 'Failed', dataIndex: 'failedRequestCount', render: (value) => <Tag color={value ? 'red' : 'green'}>{value}</Tag> },
+  { title: 'Last request', dataIndex: 'lastRequestAt', render: (value) => value ? new Date(value).toLocaleString() : 'none' },
+]
+
 const activityColumns: ColumnsType<ActivityRow> = [
   { title: '时间', dataIndex: 'createdAt', render: (value) => new Date(value).toLocaleString() },
   { title: '类型', dataIndex: 'type', render: (type) => <Tag>{type}</Tag> },
@@ -189,17 +221,27 @@ function resumeCompleteness(doc: BackendState['documents'][number]) {
 
 export default function App() {
   const [backendState, setBackendState] = useState<BackendState | null>(null)
+  const [platformClients, setPlatformClients] = useState<PlatformClientRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [selectedMenu, setSelectedMenu] = useState('overview')
+  const [clientFilter, setClientFilter] = useState('all')
+  const [routeFilter, setRouteFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   async function loadBackendState() {
     setLoading(true)
     setLoadError('')
     try {
-      const response = await fetch(`${apiBaseUrl}/api/state`)
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-      setBackendState(await response.json() as BackendState)
+      const [stateResponse, clientsResponse] = await Promise.all([
+        fetch(`${apiBaseUrl}/api/state`),
+        fetch(`${apiBaseUrl}/api/admin/platform-clients`),
+      ])
+      if (!stateResponse.ok) throw new Error(`${stateResponse.status} ${stateResponse.statusText}`)
+      if (!clientsResponse.ok) throw new Error(`${clientsResponse.status} ${clientsResponse.statusText}`)
+      setBackendState(await stateResponse.json() as BackendState)
+      const clientRows = await clientsResponse.json() as Omit<PlatformClientRow, 'key'>[]
+      setPlatformClients(clientRows.map((client) => ({ ...client, key: client.id })))
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -241,10 +283,27 @@ export default function App() {
       status: request.status || (request.persisted ? 'persisted' : 'draft'),
       score: request.matchScore,
       latencyMs: request.latencyMs ?? 0,
+      documentId: request.documentId || '',
+      error: request.error || '',
+      replayCount: request.replayCount ?? 0,
+      createdAt: request.createdAt || '',
     })),
   [backendState])
 
   const failedCount = apiRequests.filter((request) => request.status === 'failed').length
+
+  const filteredApiRequests = useMemo(() =>
+    apiRequests.filter((request) => {
+      if (clientFilter !== 'all' && request.client !== clientFilter) return false
+      if (routeFilter !== 'all' && request.route !== routeFilter) return false
+      if (statusFilter !== 'all' && request.status !== statusFilter) return false
+      return true
+    }),
+  [apiRequests, clientFilter, routeFilter, statusFilter])
+
+  const clientOptions = useMemo(() => ['all', ...Array.from(new Set(apiRequests.map((request) => request.client)))], [apiRequests])
+  const routeOptions = useMemo(() => ['all', ...Array.from(new Set(apiRequests.map((request) => request.route)))], [apiRequests])
+  const statusOptions = useMemo(() => ['all', ...Array.from(new Set(apiRequests.map((request) => request.status)))], [apiRequests])
 
   const activityRows = useMemo<ActivityRow[]>(() =>
     (backendState?.activityLog ?? []).map((event) => ({
@@ -315,6 +374,11 @@ export default function App() {
   function renderPermissions() {
     return (
       <Row gutter={[16, 16]}>
+        <Col xs={24}>
+          <Card title="平台 API Clients" extra={<Text type="secondary">密钥不会下发到管理端</Text>}>
+            <Table columns={platformClientColumns} dataSource={platformClients} pagination={false} size="middle" loading={loading} />
+          </Card>
+        </Col>
         <Col xs={24} xl={12}>
           <Card title="角色权限">
             <Table columns={adminUserColumns} dataSource={adminUsers} pagination={false} size="middle" />
@@ -322,7 +386,7 @@ export default function App() {
         </Col>
         <Col xs={24} xl={12}>
           <Card title="API Key 运维">
-            <Alert type="warning" showIcon message="密钥 CRUD 尚未接入写接口" description="当前平台 API key 由后端 RESUME_PLATFORM_CLIENTS 配置驱动；后续写操作需要接入认证、审计和密钥哈希存储。" />
+            <Alert type="info" showIcon message="Client 元数据已接入后端配置" description="当前支持查看 scopes、quota、rate limit 和调用量；新增、轮换、吊销 key 仍需后续接入认证、审计和密钥哈希存储。" />
           </Card>
         </Col>
       </Row>
@@ -333,8 +397,34 @@ export default function App() {
     return (
       <Row gutter={[16, 16]}>
         <Col xs={24}>
-          <Card title="平台 API 请求日志">
-            <Table columns={apiColumns} dataSource={apiRequests} size="middle" loading={loading} />
+          <Card
+            title="平台 API 请求日志"
+            extra={
+              <Space wrap>
+                <Select value={clientFilter} onChange={setClientFilter} style={{ width: 150 }} options={clientOptions.map((value) => ({ value, label: value === 'all' ? 'All clients' : value }))} />
+                <Select value={routeFilter} onChange={setRouteFilter} style={{ width: 170 }} options={routeOptions.map((value) => ({ value, label: value === 'all' ? 'All routes' : value }))} />
+                <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 150 }} options={statusOptions.map((value) => ({ value, label: value === 'all' ? 'All statuses' : value }))} />
+              </Space>
+            }
+          >
+            <Table
+              columns={apiColumns}
+              dataSource={filteredApiRequests}
+              size="middle"
+              loading={loading}
+              expandable={{
+                expandedRowRender: (record) => (
+                  <Descriptions column={2} size="small">
+                    <Descriptions.Item label="Request ID">{record.requestId}</Descriptions.Item>
+                    <Descriptions.Item label="Client">{record.client}</Descriptions.Item>
+                    <Descriptions.Item label="Document">{record.documentId || 'not persisted'}</Descriptions.Item>
+                    <Descriptions.Item label="Replay count">{record.replayCount}</Descriptions.Item>
+                    <Descriptions.Item label="Created at">{record.createdAt ? new Date(record.createdAt).toLocaleString() : 'unknown'}</Descriptions.Item>
+                    <Descriptions.Item label="Error">{record.error || 'none'}</Descriptions.Item>
+                  </Descriptions>
+                ),
+              }}
+            />
           </Card>
         </Col>
       </Row>

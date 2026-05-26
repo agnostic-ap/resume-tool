@@ -24,12 +24,13 @@ Default URL: `http://127.0.0.1:5174`
 - User, tenant, role, and API key overview
 - Resume document management overview from backend resume documents
 - Application pipeline monitoring from backend applications
-- Platform API request log from backend platform requests
+- Platform API request log from backend platform requests, with client/route/status filters and expandable request details
+- Redacted API client metadata from `GET /api/admin/platform-clients`, including scopes, quota, rate limit, usage, and last request time
 - Shared config visibility
+- Audit log view from backend activity events
 
 Still intentionally pending:
 
 - Super admin authentication and role enforcement
-- API client/key CRUD screens
-- Dangerous action confirmation flows
+- API client/key create, rotate, revoke, and hash-backed storage flows
 - Persistent audit log viewer backed by `audit_logs`

@@ -30,6 +30,7 @@ type PlatformRequestLog = {
   clientId?: string
   createdAt?: string
   generatedAt?: string
+  status?: string
 }
 
 export async function buildApp(store: Store): Promise<FastifyInstance> {
@@ -140,6 +141,10 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     const requests = await store.listPlatformRequests() as PlatformRequestLog[]
     if (!client.id || client.scopes?.includes('requests:all')) return requests
     return requests.filter((entry: { clientId?: string }) => entry.clientId === client.id)
+  })
+  app.get('/api/admin/platform-clients', async () => {
+    const requests = await store.listPlatformRequests() as PlatformRequestLog[]
+    return platformClientSummaries(requests)
   })
   app.post('/api/v1/resume-drafts', async (request, reply) =>
     handleResumeDraftRequest(store, request.body, reply, {
@@ -309,6 +314,43 @@ function platformClients(): PlatformClient[] {
     key: legacyKey,
     scopes: ['drafts:write', 'requests:read', 'requests:all'],
   }]
+}
+
+function platformClientSummaries(requests: PlatformRequestLog[]) {
+  const clients = platformClients()
+  if (!clients.length) {
+    return [{
+      id: 'development-open-access',
+      scopes: ['drafts:write', 'requests:read', 'requests:all'],
+      quotaPerDay: null,
+      rateLimitPerMinute: null,
+      hasKey: false,
+      requestCount: requests.length,
+      failedRequestCount: requests.filter((entry) => entry.status === 'failed').length,
+      lastRequestAt: latestRequestAt(requests),
+    }]
+  }
+  return clients.map((client) => {
+    const clientRequests = requests.filter((entry) => entry.clientId === client.id)
+    return {
+      id: client.id,
+      scopes: client.scopes,
+      quotaPerDay: client.quotaPerDay ?? null,
+      rateLimitPerMinute: client.rateLimitPerMinute ?? null,
+      hasKey: Boolean(client.key),
+      requestCount: clientRequests.length,
+      failedRequestCount: clientRequests.filter((entry) => entry.status === 'failed').length,
+      lastRequestAt: latestRequestAt(clientRequests),
+    }
+  })
+}
+
+function latestRequestAt(requests: PlatformRequestLog[]) {
+  return requests
+    .map((entry) => entry.createdAt ?? entry.generatedAt ?? '')
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null
 }
 
 function asPersistedDraft(value: unknown): { documentId: string; idempotent: boolean } {
