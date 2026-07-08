@@ -7,7 +7,7 @@ Stack:
 - Fastify for the HTTP server and plugin ecosystem
 - TypeScript for API-layer type safety
 - Zod for request body validation
-- JSON file storage for the first local-first version
+- SQLite storage via `better-sqlite3` for local persistent state
 
 Repository assets:
 
@@ -31,7 +31,7 @@ Environment variables:
 
 - `PORT`: server port, defaults to `8787`
 - `HOST`: bind host, defaults to `127.0.0.1`
-- `RESUME_BACKEND_DATA_DIR`: JSON data directory, defaults to `code/backend/.data`
+- `RESUME_BACKEND_DATA_DIR`: SQLite data directory, defaults to `code/backend/.data`
 - `CORS_ORIGIN`: comma-separated allowed origins. Defaults to local dev origins only; with `NODE_ENV=production` and no `CORS_ORIGIN`, cross-origin requests are disabled.
 - `RESUME_ADMIN_USERS`: optional JSON array for admin console access. Each entry supports `email`, `token` or `tokenHash` (sha256 hex of the token, preferred so plaintext secrets stay out of config), `role` (`super_admin`, `ops_admin`, `viewer`), and optional `status` (`enabled`, `locked`).
 - `RESUME_ADMIN_TOKEN`: optional legacy single super admin token. Ignored when `RESUME_ADMIN_USERS` is set.
@@ -43,6 +43,12 @@ Auth notes: secrets are compared in constant time, and repeated failed attempts 
 - `RESUME_LLM_BASE_URL`: OpenAI-compatible base URL, defaults to `https://api.openai.com/v1`.
 - `RESUME_LLM_MODEL`: model id, defaults to `gpt-4o-mini`.
 - `RESUME_LLM_TIMEOUT_MS`: LLM request timeout in ms, defaults to `20000`. On timeout or any error the request falls back to rule-based generation.
+
+## Persistence
+
+The backend stores local state in `<RESUME_BACKEND_DATA_DIR>/resume.db` and enables SQLite WAL mode on startup. The schema keeps the default single-user workspace as user `local-owner` and workspace `default`; all resumes, applications, growth entries, platform request logs, and activity rows are attached to that workspace so multi-account support can be added incrementally.
+
+On first open, if `<RESUME_BACKEND_DATA_DIR>/resume-state.json` exists and the SQLite database has no resume rows yet, the store imports the JSON state into SQLite and renames the original file to `resume-state.json.migrated` as a backup. HTTP response shapes are unchanged from the JSON-backed version.
 
 Admin config example:
 

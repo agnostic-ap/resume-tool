@@ -126,7 +126,7 @@ export const DEMO_RESUME_DATA = {
   certifications: [],
 }
 
-export function initialState(now = new Date()) {
+export function initialState(now: Date = new Date()) {
   const resume = {
     id: 'resume-main',
     title: 'Frontend Engineer',
@@ -176,7 +176,7 @@ export function initialState(now = new Date()) {
   }
 }
 
-export function addDays(date, days) {
+export function addDays(date: Date | string, days: number): Date {
   const next = new Date(date)
   next.setDate(next.getDate() + days)
   return next

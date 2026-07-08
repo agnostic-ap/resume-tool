@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildApp } from '../src/app.js'
-import { createStore } from '../src/store.mjs'
+import { createStore } from '../src/store.js'
 
 test('fastify app exposes health and validates applications', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))

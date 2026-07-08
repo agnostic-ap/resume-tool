@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc --outDir dist --noEmit false && cp src/*.mjs dist/",
+    "build": "tsc --outDir dist --noEmit false",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.*",
@@ -16,10 +16,12 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
+    "better-sqlite3": "^12.11.1",
     "fastify": "^5.8.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.8.0",
     "tsx": "^4.22.1",
     "typescript": "~6.0.2"

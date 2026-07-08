@@ -14,9 +14,9 @@ import {
 } from './schemas.js'
 import { generateResumeDraft } from './llm.js'
 import { summarizePlatformBilling } from './platform-billing.js'
-import { httpError } from './store.mjs'
+import { httpError } from './store.js'
 
-type Store = ReturnType<typeof import('./store.mjs').createStore>
+type Store = ReturnType<typeof import('./store.js').createStore>
 type PlatformClient = {
   id: string
   key?: string

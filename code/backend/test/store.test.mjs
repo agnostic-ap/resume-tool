@@ -1,9 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createStore } from '../src/store.mjs'
+import { createStore } from '../src/store.js'
 
 test('creates initial state on first read', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
@@ -283,6 +283,115 @@ test('lists activity, deletes applications, and creates assistant suggestions', 
     const activity = await store.listActivity()
     assert.ok(activity.some((entry) => entry.type === 'ai'))
     assert.ok(activity.some((entry) => entry.tag === 'delete'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('migrates legacy JSON state into SQLite on first open', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const legacyPath = join(dir, 'resume-state.json')
+  try {
+    const legacyState = {
+      activeResumeId: 'legacy-resume',
+      documents: [
+        {
+          id: 'legacy-resume',
+          title: 'Legacy Resume',
+          data: { personal: { name: 'Legacy User', title: 'Backend Engineer' } },
+          config: { templateId: 'modern' },
+          folder: 'Imported',
+          targetRole: 'Backend Engineer',
+          targetCompany: 'SQLite Labs',
+          tags: ['legacy', 'sqlite'],
+          origin: 'import',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+      applications: [
+        {
+          id: 'legacy-app',
+          company: 'SQLite Labs',
+          role: 'Backend Engineer',
+          resumeId: 'legacy-resume',
+          resumeTitle: 'Legacy Resume',
+          stage: 'applied',
+          createdAt: '2026-01-03T00:00:00.000Z',
+          updatedAt: '2026-01-03T00:00:00.000Z',
+        },
+      ],
+      growthEntries: [],
+      platformRequests: [
+        {
+          id: 'legacy-request',
+          requestId: 'legacy-1',
+          userId: 'legacy-user',
+          matchScore: 82,
+          persisted: false,
+          status: 'draft',
+          route: 'legacy-platform',
+          generatedAt: '2026-01-04T00:00:00.000Z',
+          createdAt: '2026-01-04T00:00:00.000Z',
+        },
+      ],
+      activityLog: [
+        {
+          id: 'legacy-activity',
+          type: 'system',
+          tag: 'legacy',
+          message: 'Imported legacy state',
+          meta: 'Legacy Resume',
+          resumeId: 'legacy-resume',
+          createdAt: '2026-01-05T00:00:00.000Z',
+        },
+      ],
+    }
+    await writeFile(legacyPath, `${JSON.stringify(legacyState, null, 2)}\n`, 'utf8')
+
+    const store = createStore({ dataDir: dir })
+    const state = await store.readState()
+
+    assert.equal(state.activeResumeId, 'legacy-resume')
+    assert.equal(state.documents[0].title, 'Legacy Resume')
+    assert.equal(state.documents[0].data.personal.name, 'Legacy User')
+    assert.equal(state.applications[0].company, 'SQLite Labs')
+    assert.equal(state.platformRequests[0].requestId, 'legacy-1')
+    assert.equal(state.activityLog[0].id, 'legacy-activity')
+    await assert.rejects(() => readFile(legacyPath, 'utf8'), /ENOENT/)
+    const migrated = JSON.parse(await readFile(`${legacyPath}.migrated`, 'utf8'))
+    assert.equal(migrated.documents[0].id, 'legacy-resume')
+    store.close()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('persists data after closing and reopening the SQLite store', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const doc = await store.createDocument({ blank: true, title: 'Persistent Resume' })
+    const app = await store.createApplication({
+      company: 'Durable Systems',
+      role: 'Database Engineer',
+      resumeId: doc.id,
+    })
+    const request = await store.recordPlatformRequest({
+      requestId: 'persisted-request',
+      userId: 'user-reopen',
+      matchScore: 91,
+      persisted: false,
+      route: 'api-v1',
+    })
+    store.close()
+
+    const reopened = createStore({ dataDir: dir })
+    const state = await reopened.readState()
+    assert.ok(state.documents.some((item) => item.id === doc.id && item.title === 'Persistent Resume'))
+    assert.ok(state.applications.some((item) => item.id === app.id && item.company === 'Durable Systems'))
+    assert.ok(state.platformRequests.some((item) => item.id === request.id && item.requestId === 'persisted-request'))
+    reopened.close()
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
