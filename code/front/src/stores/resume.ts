@@ -1,10 +1,15 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, JobDescriptionSnapshot, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, ProductEventName, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin } from '../types/resume'
+import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, JobDescriptionSnapshot, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, ProductEventName, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin, ImportDataPreview } from '../types/resume'
 import { showToast } from '../composables/toast'
 import { backendApi } from '../api/backend'
 import type { BackendState, PlatformResumeDraft } from '../api/backend'
+import { captureProductEvent, getFunnelSummary } from '../utils/analytics'
+import type { FunnelSummary } from '../utils/analytics'
+import { canConsume, createBillingState, getEntitlements, normalizeBillingState, remainingQuota } from '../utils/entitlements'
+import type { BillingState, PlanId } from '../utils/entitlements'
+import { getSyncFailedActivityCopy, getSyncUnavailableCopy } from '../utils/syncCopy'
 
 const DEFAULT_ORDER: SectionId[] = [
   'summary', 'experience', 'education', 'skills', 'projects', 'awards', 'languages', 'certifications',
@@ -112,7 +117,7 @@ const defaultResume: ResumeData = {
 const defaultConfig: ResumeConfig = {
   locale: 'zh-CN',
   templateId: 'classic',
-  themeColor: '#3E7891',
+  themeColor: '#1677FF',
   fontSize: 14,
   sectionOrder: [...DEFAULT_ORDER],
   sectionVisible: { ...DEFAULT_VISIBLE },
@@ -264,6 +269,30 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
+}
+
+function buildImportDataPreview(parsed: Record<string, unknown>): ImportDataPreview {
+  const hasDocuments = Array.isArray(parsed.documents)
+  const hasApplications = Array.isArray(parsed.applications)
+  const hasGrowthEntries = Array.isArray(parsed.growthEntries)
+  const hasActivityLog = Array.isArray(parsed.activityLog)
+  const hasLegacyResume = Boolean(parsed.data && typeof parsed.data === 'object' && !hasDocuments)
+  const hasConfig = Boolean(parsed.config && typeof parsed.config === 'object')
+  const recognized = hasDocuments || hasApplications || hasGrowthEntries || hasActivityLog || hasLegacyResume || hasConfig
+  if (!recognized) throw new Error('unrecognized')
+
+  return {
+    documents: hasDocuments ? (parsed.documents as unknown[]).length : hasLegacyResume ? 1 : 0,
+    applications: hasApplications ? (parsed.applications as unknown[]).length : 0,
+    growthEntries: hasGrowthEntries ? (parsed.growthEntries as unknown[]).length : 0,
+    activityEvents: hasActivityLog ? (parsed.activityLog as unknown[]).length : 0,
+    hasLegacyResume,
+    hasConfig,
+    hasDocuments,
+    hasApplications,
+    hasGrowthEntries,
+    hasActivityLog,
+  }
 }
 
 function addDays(date: Date, days: number) {
@@ -545,6 +574,7 @@ export const useResumeStore = defineStore('resume', () => {
       .map((activity) => normalizeActivity(activity, documents.value.find((doc) => doc.id === activity.resumeId) ?? seedApplicationResume)),
   )
   const syncOperations = ref<SyncOperation[]>(loadFromStorage<SyncOperation[]>('resume-sync-operations', []))
+  const billing = ref<BillingState>(normalizeBillingState(loadFromStorage<unknown>('resume-billing', null)))
   const backendStatus = ref({
     online: false,
     connecting: false,
@@ -552,7 +582,16 @@ export const useResumeStore = defineStore('resume', () => {
     lastSyncAt: '',
     error: '',
   })
-  let suppressBackendSync = false
+  // Counts overlapping suppression windows so concurrent backend applies /
+  // in-flight creates can't clear each other's suppression early.
+  let backendSyncSuppression = 0
+  const backendSyncSuppressed = () => backendSyncSuppression > 0
+  function suppressBackendSyncUntilFlushed() {
+    backendSyncSuppression += 1
+    void nextTick().then(() => {
+      backendSyncSuppression -= 1
+    })
+  }
 
   if (!documents.value.some((doc) => doc.id === activeResumeId.value)) {
     activeResumeId.value = documents.value[0]?.id ?? fallbackDocument.id
@@ -606,8 +645,11 @@ export const useResumeStore = defineStore('resume', () => {
   const persistSyncOperations = useDebounceFn((v: SyncOperation[]) => {
     try { localStorage.setItem('resume-sync-operations', JSON.stringify(v)) } catch { /* quota exceeded */ }
   }, 400)
+  const persistBilling = useDebounceFn((v: BillingState) => {
+    try { localStorage.setItem('resume-billing', JSON.stringify(v)) } catch { /* quota exceeded */ }
+  }, 200)
   const syncActiveDocumentToBackend = useDebounceFn(() => {
-    if (suppressBackendSync || !backendStatus.value.online) return
+    if (backendSyncSuppressed()) return
     const doc = activeDocument.value
     void runBackendSync(() => backendApi.updateResume(doc.id, {
       title: doc.title,
@@ -639,11 +681,14 @@ export const useResumeStore = defineStore('resume', () => {
   watch(growthEntries, persistGrowthEntries, { deep: true })
   watch(activityLog, persistActivityLog, { deep: true })
   watch(syncOperations, persistSyncOperations, { deep: true })
+  watch(billing, persistBilling, { deep: true })
   watch(() => activeDocument.value.data, () => {
+    if (backendSyncSuppressed()) return
     logContentEdit()
     syncActiveDocumentToBackend()
   }, { deep: true })
   watch(() => activeDocument.value.config, () => {
+    if (backendSyncSuppressed()) return
     markConfigChanged()
     syncActiveDocumentToBackend()
   }, { deep: true })
@@ -655,7 +700,7 @@ export const useResumeStore = defineStore('resume', () => {
       : incomingDocuments[0]?.id ?? activeResumeId.value
     const fallback = incomingDocuments.find((doc) => doc.id === incomingActive) ?? incomingDocuments[0] ?? activeDocument.value
 
-    suppressBackendSync = true
+    suppressBackendSyncUntilFlushed()
     documents.value = incomingDocuments
     activeResumeId.value = incomingActive
     applications.value = Array.isArray(state.applications)
@@ -667,9 +712,6 @@ export const useResumeStore = defineStore('resume', () => {
     activityLog.value = Array.isArray(state.activityLog)
       ? state.activityLog.map((activity) => normalizeActivity(activity, incomingDocuments.find((doc) => doc.id === activity.resumeId) ?? fallback))
       : []
-    window.setTimeout(() => {
-      suppressBackendSync = false
-    }, 0)
   }
 
   function markBackendOnline() {
@@ -741,10 +783,11 @@ export const useResumeStore = defineStore('resume', () => {
     meta: Partial<Pick<SyncOperation, 'entityType' | 'operation' | 'entityId'>> = {},
   ) {
     if (!backendStatus.value.online) {
+      const unavailableCopy = getSyncUnavailableCopy(backendStatus.value.error)
       recordSyncOperation({
         ...meta,
         status: 'local-only',
-        error: backendStatus.value.error || 'Backend offline',
+        error: config.value.locale === 'zh-CN' ? unavailableCopy.zh : unavailableCopy.en,
       })
       return undefined
     }
@@ -762,12 +805,13 @@ export const useResumeStore = defineStore('resume', () => {
         status: 'failed',
         error: error instanceof Error ? error.message : String(error),
       })
+      const syncFailedCopy = getSyncFailedActivityCopy()
       logActivity({
         type: 'system',
         tag: 'sync',
-        message: 'Backend sync failed',
-        messageZh: '后端同步失败，已进入重试队列',
-        messageEn: 'Backend sync failed and was queued for retry',
+        message: syncFailedCopy.en,
+        messageZh: syncFailedCopy.zh,
+        messageEn: syncFailedCopy.en,
         meta: `${meta.entityType ?? 'system'} · ${meta.operation ?? 'sync'}`,
       })
       trackProductEvent('sync_operation_failed', {
@@ -858,6 +902,8 @@ export const useResumeStore = defineStore('resume', () => {
     const compactProperties = Object.fromEntries(
       Object.entries(properties).filter(([, value]) => value !== undefined && value !== ''),
     )
+    // Forward to the analytics sink (PostHog when configured) and the local PMF buffer.
+    captureProductEvent(event, compactProperties)
     return logActivity({
       type: 'system',
       tag: `event:${event}`,
@@ -866,6 +912,58 @@ export const useResumeStore = defineStore('resume', () => {
       messageEn: event,
       meta: JSON.stringify(compactProperties),
     })
+  }
+
+  function getProductFunnel(): FunnelSummary {
+    return getFunnelSummary()
+  }
+
+  // Wave 2: freemium entitlements. `billing` is kept fresh by re-normalizing on read
+  // so usage windows (monthly exports, daily AI drafts) roll over correctly.
+  function refreshBilling() {
+    const normalized = normalizeBillingState(billing.value)
+    if (JSON.stringify(normalized) !== JSON.stringify(billing.value)) billing.value = normalized
+    return billing.value
+  }
+
+  const isPro = computed(() => billing.value.plan === 'pro')
+  const entitlements = computed(() => getEntitlements(billing.value.plan))
+  const activeResumeCount = computed(() => documents.value.filter((doc) => !doc.archived).length)
+  const exportsRemaining = computed(() => remainingQuota(entitlements.value.monthlyExports, billing.value.exports.count))
+  const aiDraftsRemaining = computed(() => remainingQuota(entitlements.value.dailyAiDrafts, billing.value.aiDrafts.count))
+  const canExport = computed(() => canConsume(entitlements.value.monthlyExports, billing.value.exports.count))
+  const canGenerateAiDraft = computed(() => canConsume(entitlements.value.dailyAiDrafts, billing.value.aiDrafts.count))
+  const canCreateResume = computed(() => canConsume(entitlements.value.maxActiveResumes, activeResumeCount.value))
+
+  function recordExportUsage() {
+    refreshBilling()
+    billing.value.exports = { ...billing.value.exports, count: billing.value.exports.count + 1 }
+  }
+
+  function recordAiDraftUsage() {
+    refreshBilling()
+    billing.value.aiDrafts = { ...billing.value.aiDrafts, count: billing.value.aiDrafts.count + 1 }
+  }
+
+  function setPlan(plan: PlanId, meta: { reason?: string; renewsAt?: string } = {}) {
+    const previous = billing.value.plan
+    billing.value = { ...billing.value, plan, renewsAt: meta.renewsAt }
+    if (previous !== plan) {
+      trackProductEvent('plan_changed', { from: previous, to: plan, reason: meta.reason })
+      logActivity({
+        type: 'system',
+        tag: 'billing',
+        message: `Plan changed to ${plan}`,
+        messageZh: plan === 'pro' ? '已升级到 Pro 套餐' : '已切换到免费套餐',
+        messageEn: `Plan changed to ${plan}`,
+        meta: meta.reason ?? plan,
+      })
+    }
+    return billing.value
+  }
+
+  function resetBilling() {
+    billing.value = createBillingState('free')
   }
 
   function touchActive() {
@@ -922,6 +1020,22 @@ export const useResumeStore = defineStore('resume', () => {
   function setThemeColor(color: string) {
     config.value.themeColor = color
     touchActive()
+    syncActiveDocumentToBackend()
+  }
+
+  function setResumeFontSize(size: number) {
+    const next = Math.min(18, Math.max(11, Math.round(size)))
+    if (config.value.fontSize === next) return
+    config.value.fontSize = next
+    touchActive()
+    logActivity({
+      type: 'edit',
+      tag: 'font-size',
+      message: `Changed resume font size to ${next}px`,
+      messageZh: `调整简历字号：${next}px`,
+      messageEn: `Changed resume font size to ${next}px`,
+      meta: activeDocument.value.title,
+    })
     syncActiveDocumentToBackend()
   }
 
@@ -1098,6 +1212,16 @@ export const useResumeStore = defineStore('resume', () => {
     }
     config.value = JSON.parse(JSON.stringify(defaultConfig))
     activeDocument.value.title = 'Untitled resume'
+    activeDocument.value.folder = 'General'
+    activeDocument.value.targetRole = ''
+    activeDocument.value.targetCompany = ''
+    activeDocument.value.tags = []
+    activeDocument.value.origin = 'blank'
+    activeDocument.value.sourceResumeId = undefined
+    activeDocument.value.sourceResumeTitle = undefined
+    activeDocument.value.favorite = false
+    activeDocument.value.archived = false
+    activeDocument.value.updatedAt = new Date().toISOString()
     markCareerUpdated(activeResumeId.value, false)
     logActivity({ type: 'resume', tag: 'blank', message: 'Cleared current resume', messageZh: '清空当前简历', messageEn: 'Cleared current resume', meta: activeDocument.value.title })
     syncActiveDocumentToBackend()
@@ -1108,7 +1232,7 @@ export const useResumeStore = defineStore('resume', () => {
     const sourceTitle = activeDocument.value.title
     const sourceId = activeResumeId.value
     const syncingWithBackend = backendStatus.value.online
-    if (syncingWithBackend) suppressBackendSync = true
+    if (syncingWithBackend) backendSyncSuppression += 1
     const doc: ResumeDocument = {
       id: newId(),
       title: blank ? 'Untitled resume' : `${activeDocument.value.title} Copy`,
@@ -1158,7 +1282,7 @@ export const useResumeStore = defineStore('resume', () => {
       }), { entityType: 'resume', operation: 'create', entityId: doc.id }).then((serverDoc) => {
         if (serverDoc) replaceDocument(doc.id, serverDoc)
       }).finally(() => {
-        suppressBackendSync = false
+        backendSyncSuppression -= 1
       })
     }
     return doc
@@ -1169,7 +1293,7 @@ export const useResumeStore = defineStore('resume', () => {
     if (!source) return
     const created = new Date()
     const syncingWithBackend = backendStatus.value.online
-    if (syncingWithBackend) suppressBackendSync = true
+    if (syncingWithBackend) backendSyncSuppression += 1
     const doc: ResumeDocument = {
       ...clone(source),
       id: newId(),
@@ -1190,7 +1314,7 @@ export const useResumeStore = defineStore('resume', () => {
       void runBackendSync(() => backendApi.duplicateResume(source.id, { title: doc.title }), { entityType: 'resume', operation: 'duplicate', entityId: doc.id }).then((serverDoc) => {
         if (serverDoc) replaceDocument(doc.id, serverDoc)
       }).finally(() => {
-        suppressBackendSync = false
+        backendSyncSuppression -= 1
       })
     }
     return doc
@@ -1270,11 +1394,13 @@ export const useResumeStore = defineStore('resume', () => {
     return restored
   }
 
-  function selectResume(id: string) {
-    if (documents.value.some((doc) => doc.id === id)) {
-      activeResumeId.value = id
-      void runBackendSync(() => backendApi.selectResume(id), { entityType: 'resume', operation: 'select', entityId: id })
-    }
+  function selectResume(id: string, options: { allowArchived?: boolean } = {}) {
+    const doc = documents.value.find((item) => item.id === id)
+    if (!doc) return false
+    if (doc.archived && !options.allowArchived) return false
+    activeResumeId.value = id
+    void runBackendSync(() => backendApi.selectResume(id), { entityType: 'resume', operation: 'select', entityId: id })
+    return true
   }
 
   function renameResume(id: string, title: string) {
@@ -1303,9 +1429,9 @@ export const useResumeStore = defineStore('resume', () => {
     logActivity({
       type: 'resume',
       tag: 'meta',
-      message: `Updated resume metadata: ${doc.title}`,
-      messageZh: `更新简历管理信息：${doc.title}`,
-      messageEn: `Updated resume metadata: ${doc.title}`,
+      message: `Updated resume details: ${doc.title}`,
+      messageZh: `更新简历信息：${doc.title}`,
+      messageEn: `Updated resume details: ${doc.title}`,
       meta: doc.folder || doc.title,
       resumeId: doc.id,
     })
@@ -1433,10 +1559,17 @@ export const useResumeStore = defineStore('resume', () => {
     })
   }
 
+  function previewImportData(json: string) {
+    const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid')
+    return buildImportDataPreview(parsed as Record<string, unknown>)
+  }
+
   function importData(json: string) {
     try {
       const parsed = JSON.parse(json)
-      if (!parsed || typeof parsed !== 'object') throw new Error('invalid')
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid')
+      buildImportDataPreview(parsed as Record<string, unknown>)
       let imported = false
       if (Array.isArray(parsed.documents)) {
         documents.value = parsed.documents.map((doc: ResumeDocument) => ({
@@ -1499,8 +1632,14 @@ export const useResumeStore = defineStore('resume', () => {
         syncActiveDocumentToBackend()
       }
       else showToast(config.value.locale === 'zh-CN' ? '导入失败：未识别的文件格式' : 'Import failed: unrecognized file format', 'error')
-    } catch {
-      showToast(config.value.locale === 'zh-CN' ? '导入失败：请确认 JSON 格式正确' : 'Import failed: check that the JSON is valid', 'error')
+    } catch (error) {
+      const unrecognized = error instanceof Error && error.message === 'unrecognized'
+      showToast(
+        unrecognized
+          ? config.value.locale === 'zh-CN' ? '导入失败：未识别的文件格式' : 'Import failed: unrecognized file format'
+          : config.value.locale === 'zh-CN' ? '导入失败：请确认 JSON 格式正确' : 'Import failed: check that the JSON is valid',
+        'error',
+      )
     }
   }
 
@@ -1704,9 +1843,25 @@ export const useResumeStore = defineStore('resume', () => {
     deleteApplication,
     logActivity,
     trackProductEvent,
+    getProductFunnel,
+    billing,
+    isPro,
+    entitlements,
+    activeResumeCount,
+    exportsRemaining,
+    aiDraftsRemaining,
+    canExport,
+    canGenerateAiDraft,
+    canCreateResume,
+    refreshBilling,
+    recordExportUsage,
+    recordAiDraftUsage,
+    setPlan,
+    resetBilling,
     setTemplate,
     setLocale,
     setThemeColor,
+    setResumeFontSize,
     setStudioTheme,
     resetStudioTheme,
     setTweak,
@@ -1722,6 +1877,7 @@ export const useResumeStore = defineStore('resume', () => {
     addLanguage, removeLanguage,
     addCertification, removeCertification,
     resetToDefault,
+    previewImportData,
     importData,
     exportData,
   }

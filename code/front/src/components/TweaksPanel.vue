@@ -16,6 +16,21 @@ const emit = defineEmits<{ close: [] }>()
 
 const store = useResumeStore()
 const { locale } = useI18n()
+const densityOptions: { id: TweakDensity; zh: string; en: string }[] = [
+  { id: 'tight', zh: '紧凑', en: 'Tight' },
+  { id: 'cozy', zh: '适中', en: 'Cozy' },
+  { id: 'loose', zh: '宽松', en: 'Loose' },
+]
+const marginaliaOptions: { id: TweakMarginalia; zh: string; en: string }[] = [
+  { id: 'notes', zh: '批注', en: 'Notes' },
+  { id: 'inline', zh: '行内', en: 'Inline' },
+  { id: 'off', zh: '关闭', en: 'Off' },
+]
+const toneOptions: { id: TweakTone; zh: string; en: string }[] = [
+  { id: 'editor', zh: '编辑', en: 'Editor' },
+  { id: 'coach', zh: '教练', en: 'Coach' },
+  { id: 'minimal', zh: '精简', en: 'Minimal' },
+]
 
 const accents: { id: TweakAccent; hex: string; label: string }[] = [
   { id: 'ocean', hex: '#3E7891', label: 'Clear ocean' },
@@ -54,15 +69,19 @@ function reset() {
     store.setTweak(key as keyof ResumeTweaks, value as never)
   })
 }
+
+function text(zh: string, en: string) {
+  return locale.value === 'zh-CN' ? zh : en
+}
 </script>
 
 <template>
   <Teleport to="body">
     <div v-if="open" class="tweaks-backdrop" @click="emit('close')"></div>
-    <aside v-if="open" class="tweaks">
+    <aside v-if="open" class="tweaks" role="dialog" aria-modal="true" aria-labelledby="tweaks-dialog-title">
       <div class="tweaks__head">
-        <h3>{{ locale === 'zh-CN' ? '编辑台微调' : 'Editor tweaks' }}<small>{{ locale === 'zh-CN' ? '只影响编辑界面，不影响 PDF 简历' : 'editor UI only, not the PDF resume' }}</small></h3>
-        <button class="tweaks__close" @click="emit('close')">×</button>
+        <h3 id="tweaks-dialog-title">{{ locale === 'zh-CN' ? '编辑台微调' : 'Editor tweaks' }}<small>{{ locale === 'zh-CN' ? '只影响编辑界面，不影响 PDF 简历' : 'editor UI only, not the PDF resume' }}</small></h3>
+        <button class="tweaks__close" :aria-label="text('关闭编辑台微调', 'Close editor tweaks')" @click="emit('close')">×</button>
       </div>
 
       <div class="tweaks__scroll">
@@ -116,9 +135,9 @@ function reset() {
           <div class="tweak-row">
             <div class="lbl">{{ locale === 'zh-CN' ? '界面密度' : 'UI density' }}</div>
             <div class="seg-radio">
-              <button v-for="density in (['tight', 'cozy', 'loose'] as TweakDensity[])" :key="density"
-                :class="{ on: store.config.tweaks.density === density }"
-                @click="setTweak('density', density)">{{ density }}</button>
+              <button v-for="density in densityOptions" :key="density.id"
+                :class="{ on: store.config.tweaks.density === density.id }"
+                @click="setTweak('density', density.id)">{{ text(density.zh, density.en) }}</button>
             </div>
           </div>
           <div class="tweak-row">
@@ -140,28 +159,28 @@ function reset() {
               @click="setTweak('showTree', !store.config.tweaks.showTree)"></button>
           </div>
           <div class="tweak-row">
-            <div class="lbl">AI dock<small>{{ locale === 'zh-CN' ? '右侧批注栏' : 'right marginalia' }}</small></div>
+            <div class="lbl">{{ locale === 'zh-CN' ? 'JD 定制栏' : 'JD tailoring panel' }}<small>{{ locale === 'zh-CN' ? '右侧定制与建议' : 'right-side tailoring help' }}</small></div>
             <button class="tgl" :class="{ on: store.config.tweaks.showAI }"
               @click="setTweak('showAI', !store.config.tweaks.showAI)"></button>
           </div>
         </div>
 
         <div class="tweak-section">
-          <div class="tweak-section__label">— {{ locale === 'zh-CN' ? 'AI 行为' : 'AI behaviour' }}</div>
+          <div class="tweak-section__label">— {{ locale === 'zh-CN' ? 'JD 辅助' : 'JD assistance' }}</div>
           <div class="tweak-row">
-            <div class="lbl">{{ locale === 'zh-CN' ? '批注方式' : 'Marginalia' }}<small>{{ locale === 'zh-CN' ? 'AI 如何展示修改' : 'how AI surfaces edits' }}</small></div>
+            <div class="lbl">{{ locale === 'zh-CN' ? '建议展示' : 'Suggestion display' }}<small>{{ locale === 'zh-CN' ? '定制建议如何出现' : 'how tailoring notes appear' }}</small></div>
             <div class="seg-radio">
-              <button v-for="mode in ([{ id: 'notes', label: 'Notes' }, { id: 'inline', label: 'Inline' }, { id: 'off', label: 'Off' }] as { id: TweakMarginalia; label: string }[])" :key="mode.id"
+              <button v-for="mode in marginaliaOptions" :key="mode.id"
                 :class="{ on: store.config.tweaks.marginaliaMode === mode.id }"
-                @click="setTweak('marginaliaMode', mode.id)">{{ mode.label }}</button>
+                @click="setTweak('marginaliaMode', mode.id)">{{ text(mode.zh, mode.en) }}</button>
             </div>
           </div>
           <div class="tweak-row">
             <div class="lbl">{{ locale === 'zh-CN' ? '语气' : 'Tone' }}<small>{{ locale === 'zh-CN' ? '文案编辑口吻' : 'copy-editing voice' }}</small></div>
             <div class="seg-radio">
-              <button v-for="tone in ([{ id: 'editor', label: 'Editor' }, { id: 'coach', label: 'Coach' }, { id: 'minimal', label: 'Minimal' }] as { id: TweakTone; label: string }[])" :key="tone.id"
+              <button v-for="tone in toneOptions" :key="tone.id"
                 :class="{ on: store.config.tweaks.aiTone === tone.id }"
-                @click="setTweak('aiTone', tone.id)">{{ tone.label }}</button>
+                @click="setTweak('aiTone', tone.id)">{{ text(tone.zh, tone.en) }}</button>
             </div>
           </div>
         </div>

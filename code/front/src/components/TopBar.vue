@@ -5,8 +5,20 @@ import { showToast } from '../composables/toast'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
+import type { ImportDataPreview, SyncOperation } from '../types/resume'
+import {
+  getSyncConnectedCopy,
+  getSyncLocalModeCopy,
+  getSyncPendingCopy,
+  getSyncQueuedCopy,
+  getSyncRestoredCopy,
+  getSyncStillUnavailableCopy,
+  getSyncUnavailableCopy,
+  type LocalizedSyncCopy,
+} from '../utils/syncCopy'
+import { getActiveResumeVersionLabel } from '../utils/resumeDisplay'
 
-defineProps<{ currentView: string }>()
+const props = defineProps<{ currentView: string }>()
 const emit = defineEmits<{
   navigate: ['workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings']
   openCommand: []
@@ -16,16 +28,42 @@ const store = useResumeStore()
 const { t } = useI18n()
 const { l } = useLocaleText()
 const fileInput = ref<HTMLInputElement>()
+const pendingImportJson = ref('')
+const pendingImportPreview = ref<ImportDataPreview | null>(null)
+const syncOpen = ref(false)
 
 // ── Auto-save indicator ──────────────────────────────────────
 const saved = ref(true)
 watch(() => store.data, () => { saved.value = false }, { deep: true })
 watch(saved, (v) => { if (!v) setTimeout(() => (saved.value = true), 600) })
 
+const hasFailedSync = computed(() => store.syncOperations.some((item) => item.status === 'failed'))
+const hasQueuedSync = computed(() => store.syncOperations.some((item) => item.status === 'local-only'))
+const hasPendingSync = computed(() => store.syncOperations.some((item) => item.status === 'pending'))
+const visibleSyncOperations = computed(() => store.syncOperations.slice(0, 6))
+const retryableSyncOperations = computed(() =>
+  store.syncOperations.filter((item) => item.status === 'failed' || item.status === 'local-only'),
+)
+const lc = (copy: LocalizedSyncCopy) => l(copy.zh, copy.en)
+const activeVersionLabel = computed(() => getActiveResumeVersionLabel(store.config.locale))
+
+const saveLabel = computed(() => {
+  if (!saved.value) return t('saving')
+  if (hasFailedSync.value || hasQueuedSync.value) return l('本地已保存', 'Saved locally')
+  return t('saved')
+})
+
+const saveTitle = computed(() => {
+  if (hasFailedSync.value) return l('本地已保存，但云端同步失败。点击右侧同步状态重试。', 'Saved locally, but cloud sync failed. Click the sync status to retry.')
+  if (hasQueuedSync.value) return lc(getSyncQueuedCopy())
+  return l('本地更改已保存', 'Local changes are saved.')
+})
+
 const syncLabel = computed(() => {
   if (store.backendStatus.connecting) return l('连接中', 'Connecting')
-  if (store.syncOperations.some((item) => item.status === 'failed')) return l('同步失败', 'Sync failed')
-  if (store.syncOperations.some((item) => item.status === 'local-only')) return l('本地待同步', 'Local queue')
+  if (hasFailedSync.value) return l('同步失败', 'Sync failed')
+  if (hasQueuedSync.value) return l('本地待同步', 'Local queue')
+  if (hasPendingSync.value) return l('同步中', 'Syncing')
   if (store.backendStatus.online) return l('云端同步', 'Synced')
   return l('本地模式', 'Local')
 })
@@ -38,26 +76,82 @@ const syncTitle = computed(() => {
       `${failed.length} operations need retry. Click to reconnect and sync.`,
     )
   }
-  if (store.backendStatus.online) return l(`已连接 ${store.backendStatus.baseUrl}`, `Connected to ${store.backendStatus.baseUrl}`)
+  if (hasPendingSync.value) return lc(getSyncPendingCopy())
+  if (store.backendStatus.online) return lc(getSyncConnectedCopy())
   return store.backendStatus.error
-    ? l(`后端不可用：${store.backendStatus.error}`, `Backend unavailable: ${store.backendStatus.error}`)
-    : l('后端不可用，数据会保存在本地', 'Backend unavailable. Data is saved locally.')
+    ? lc(getSyncUnavailableCopy(store.backendStatus.error))
+    : lc(getSyncLocalModeCopy())
 })
 
 async function reconnectBackend() {
   const hasQueue = store.syncOperations.some((item) => item.status === 'failed' || item.status === 'local-only')
   const ok = hasQueue ? await store.retryFailedSyncs() : await store.connectBackend()
   showToast(
-    ok ? l('后端同步已恢复', 'Backend sync restored') : l('后端仍不可用，继续使用本地模式', 'Backend still unavailable. Continuing locally.'),
+    ok ? lc(getSyncRestoredCopy()) : lc(getSyncStillUnavailableCopy()),
     ok ? 'success' : 'info',
     3200,
   )
+  if (ok) syncOpen.value = false
+}
+
+function viewLabel(view: string) {
+  const labels: Record<string, { zh: string; en: string }> = {
+    workspace: { zh: '工作台', en: 'Workspace' },
+    editor: { zh: '编辑器', en: 'Editor' },
+    documents: { zh: '简历库', en: 'Library' },
+    templates: { zh: '模板', en: 'Templates' },
+    growth: { zh: '职业记忆', en: 'Career memory' },
+    pipeline: { zh: '投递', en: 'Applications' },
+    history: { zh: '历史', en: 'History' },
+    settings: { zh: '设置', en: 'Settings' },
+  }
+  const label = labels[view]
+  return label ? l(label.zh, label.en) : view
+}
+
+function operationLabel(operation: SyncOperation) {
+  const typeLabels: Record<string, { zh: string; en: string }> = {
+    resume: { zh: '简历', en: 'Resume' },
+    application: { zh: '投递', en: 'Application' },
+    growth: { zh: '职业记忆', en: 'Career memory' },
+  }
+  const actionLabels: Record<string, { zh: string; en: string }> = {
+    create: { zh: '新建', en: 'Create' },
+    update: { zh: '更新', en: 'Update' },
+    delete: { zh: '删除', en: 'Delete' },
+  }
+  const type = typeLabels[operation.entityType]
+  const action = actionLabels[operation.operation]
+  return `${type ? l(type.zh, type.en) : operation.entityType} · ${action ? l(action.zh, action.en) : operation.operation}`
+}
+
+function operationStatusLabel(status: SyncOperation['status']) {
+  const labels: Record<SyncOperation['status'], { zh: string; en: string }> = {
+    pending: { zh: '同步中', en: 'Syncing' },
+    synced: { zh: '已同步', en: 'Synced' },
+    failed: { zh: '失败', en: 'Failed' },
+    'local-only': { zh: '待同步', en: 'Queued' },
+  }
+  return l(labels[status].zh, labels[status].en)
 }
 
 // ── Confirm dialog ────────────────────────────────────────────
-type ConfirmAction = 'clearAll' | 'resetDemo'
+type ConfirmAction = 'clearAll' | 'resetDemo' | 'importBackup'
 const confirmVisible = ref(false)
 const confirmAction = ref<ConfirmAction>('clearAll')
+const importPreviewSummary = computed(() => {
+  if (!pendingImportPreview.value) return l('未读取到可导入内容', 'No importable content was found')
+  const preview = pendingImportPreview.value
+  const parts = [
+    l(`${preview.documents} 份简历`, `${preview.documents} resumes`),
+    l(`${preview.applications} 条投递`, `${preview.applications} applications`),
+    l(`${preview.growthEntries} 条职业记忆`, `${preview.growthEntries} career memories`),
+    l(`${preview.activityEvents} 条历史记录`, `${preview.activityEvents} history events`),
+  ]
+  if (preview.hasLegacyResume) parts.push(l('包含旧版单简历数据', 'includes legacy single-resume data'))
+  if (preview.hasConfig) parts.push(l('包含外观和语言设置', 'includes appearance and language settings'))
+  return parts.join(' · ')
+})
 const confirmMeta = computed(() => ({
   clearAll: {
     title: l('新建空白简历', 'Create blank resume'),
@@ -67,6 +161,14 @@ const confirmMeta = computed(() => ({
   resetDemo: {
     title: l('重置为示例数据', 'Reset to demo data'),
     message: l('当前内容将被示例数据覆盖，无法撤销。确认继续？', 'The current content will be overwritten with demo data and cannot be undone. Continue?'),
+    danger: true,
+  },
+  importBackup: {
+    title: l('导入这份备份？', 'Import this backup?'),
+    message: l(
+      `将写入工作台：${importPreviewSummary.value}。备份里的同类列表会替换当前数据，确认后再导入。`,
+      `This will write to the workspace: ${importPreviewSummary.value}. Matching lists in the backup replace current data. Confirm before importing.`,
+    ),
     danger: true,
   },
 }))
@@ -82,9 +184,21 @@ function onConfirm() {
     store.createResume(true)
     showToast(l('已新建空白简历，请从个人信息开始填写', 'Created a blank resume. Start with personal info.'), 'info', 3500)
     emit('navigate', 'editor')
+  } else if (confirmAction.value === 'importBackup') {
+    if (pendingImportJson.value) store.importData(pendingImportJson.value)
+    pendingImportJson.value = ''
+    pendingImportPreview.value = null
   } else {
     store.resetToDefault()
   }
+}
+
+function closeConfirm() {
+  if (confirmAction.value === 'importBackup') {
+    pendingImportJson.value = ''
+    pendingImportPreview.value = null
+  }
+  confirmVisible.value = false
 }
 
 // ── Data import/export ────────────────────────────────────────
@@ -112,7 +226,22 @@ function handleFileChange(e: Event) {
     return
   }
   const reader = new FileReader()
-  reader.onload = (ev) => store.importData(ev.target?.result as string)
+  reader.onload = (ev) => {
+    const text = String(ev.target?.result || '')
+    try {
+      pendingImportPreview.value = store.previewImportData(text)
+      pendingImportJson.value = text
+      askConfirm('importBackup')
+    } catch (error) {
+      const unrecognized = error instanceof Error && error.message === 'unrecognized'
+      showToast(
+        unrecognized
+          ? l('导入失败：未识别的文件格式', 'Import failed: unrecognized file format')
+          : l('导入失败：请确认 JSON 格式正确', 'Import failed: check that the JSON is valid'),
+        'error',
+      )
+    }
+  }
   reader.readAsText(file)
   ;(e.target as HTMLInputElement).value = ''
 }
@@ -138,8 +267,8 @@ function handleFileChange(e: Event) {
       <span class="sep">/</span>
       <strong>{{ store.data.personal.name || l('未命名简历', 'Untitled resume') }}</strong>
       <span class="status-badge">{{ t(store.config.templateId) }}</span>
-      <span class="status-badge">{{ currentView }}</span>
-      <span class="status-badge">v1.0</span>
+      <span class="status-badge">{{ viewLabel(props.currentView) }}</span>
+      <span class="status-badge">{{ activeVersionLabel }}</span>
     </nav>
 
     <button class="topbar-button command-trigger" @click="emit('openCommand')">
@@ -154,24 +283,56 @@ function handleFileChange(e: Event) {
       {{ t('newResume') }}
     </button>
 
-    <div class="save-state" :class="{ pending: !saved }">
+    <div class="save-state"
+      :class="{ pending: !saved, queued: saved && hasQueuedSync, failed: saved && hasFailedSync }"
+      :title="saveTitle">
       <i />
-      <span>{{ saved ? t('saved') : t('saving') }}</span>
+      <span>{{ saveLabel }}</span>
     </div>
 
-    <button class="sync-state"
-      :class="{
-        online: store.backendStatus.online && !store.syncOperations.length,
-        pending: store.backendStatus.connecting,
-        failed: store.syncOperations.some((item) => item.status === 'failed'),
-        queued: store.syncOperations.some((item) => item.status === 'local-only')
-      }"
-      :title="syncTitle"
-      @click="reconnectBackend">
-      <i />
-      <span>{{ syncLabel }}</span>
-      <b v-if="store.syncOperations.length">{{ store.syncOperations.length }}</b>
-    </button>
+    <div class="sync-wrap">
+      <button class="sync-state"
+        :class="{
+          online: store.backendStatus.online && !store.syncOperations.length,
+          pending: store.backendStatus.connecting || hasPendingSync,
+          failed: hasFailedSync,
+          queued: hasQueuedSync
+        }"
+        :title="syncTitle"
+        :aria-expanded="syncOpen"
+        @click="syncOpen = !syncOpen">
+        <i />
+        <span>{{ syncLabel }}</span>
+        <b v-if="store.syncOperations.length">{{ store.syncOperations.length }}</b>
+      </button>
+
+      <div v-if="syncOpen" class="sync-popover">
+        <div class="sync-popover__head">
+          <span>{{ l('同步状态', 'Sync status') }}</span>
+          <button @click="syncOpen = false">{{ l('关闭', 'Close') }}</button>
+        </div>
+        <strong>{{ syncLabel }}</strong>
+        <p>{{ syncTitle }}</p>
+
+        <div v-if="visibleSyncOperations.length" class="sync-operation-list">
+          <div v-for="operation in visibleSyncOperations" :key="operation.id" class="sync-operation">
+            <span>{{ operationLabel(operation) }}</span>
+            <b :class="`sync-operation__status sync-operation__status--${operation.status}`">
+              {{ operationStatusLabel(operation.status) }}
+            </b>
+            <small>{{ operation.error || operation.updatedAt }}</small>
+          </div>
+        </div>
+        <p v-else class="sync-empty">{{ l('没有待处理的同步操作。', 'No pending sync operations.') }}</p>
+
+        <button
+          class="sync-retry"
+          :disabled="store.backendStatus.connecting"
+          @click="reconnectBackend">
+          {{ retryableSyncOperations.length || !store.backendStatus.online ? l('重试同步', 'Retry sync') : l('重新检查连接', 'Check connection') }}
+        </button>
+      </div>
+    </div>
 
     <div class="topbar-actions">
       <button @click="handleImportClick"
@@ -199,5 +360,5 @@ function handleFileChange(e: Event) {
     :message="confirmMeta[confirmAction].message"
     :danger="confirmMeta[confirmAction].danger"
     @confirm="onConfirm"
-    @cancel="confirmVisible = false" />
+    @cancel="closeConfirm" />
 </template>

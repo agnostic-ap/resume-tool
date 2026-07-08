@@ -15,11 +15,11 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
       class="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2">
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('技能分类', 'Skill category') }}</label>
-        <input v-model="skill.category" :class="inputCls" :placeholder="l('前端框架', 'Frontend frameworks')" />
+        <input v-model="skill.category" data-guide-field="skill-category" :class="inputCls" :placeholder="l('前端框架', 'Frontend frameworks')" />
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('技能列表（逗号分隔）', 'Skills (comma separated)') }}</label>
-        <input v-model="skill.items" :class="inputCls" placeholder="Vue3, React, TypeScript, Webpack" />
+        <input v-model="skill.items" data-guide-field="skill-items" :class="inputCls" placeholder="Vue3, React, TypeScript, Webpack" />
       </div>
       <div class="flex items-center gap-2">
         <template v-if="deletePending === skill.id">

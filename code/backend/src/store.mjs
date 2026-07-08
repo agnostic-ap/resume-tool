@@ -338,14 +338,21 @@ export function createStore(options = {}) {
     async recordPlatformRequest(input = {}) {
       return mutate((state) => {
         const entry = normalizePlatformRequest(input)
+        const failed = entry.status === 'failed'
         state.platformRequests = [entry, ...state.platformRequests].slice(0, 500)
         log(state, {
           type: 'system',
           tag: 'platform',
-          message: `Generated platform draft: ${entry.requestId || entry.userId || 'anonymous'}`,
-          messageZh: `生成平台草稿：${entry.requestId || entry.userId || '匿名请求'}`,
-          messageEn: `Generated platform draft: ${entry.requestId || entry.userId || 'anonymous'}`,
-          meta: `${entry.matchScore}/100`,
+          message: failed
+            ? `Platform draft failed: ${entry.requestId || entry.userId || 'anonymous'}`
+            : `Generated platform draft: ${entry.requestId || entry.userId || 'anonymous'}`,
+          messageZh: failed
+            ? `平台草稿失败：${entry.requestId || entry.userId || '匿名请求'}`
+            : `生成平台草稿：${entry.requestId || entry.userId || '匿名请求'}`,
+          messageEn: failed
+            ? `Platform draft failed: ${entry.requestId || entry.userId || 'anonymous'}`
+            : `Generated platform draft: ${entry.requestId || entry.userId || 'anonymous'}`,
+          meta: failed ? entry.error || 'failed' : `${entry.matchScore}/100`,
           resumeId: entry.documentId,
         })
         return entry

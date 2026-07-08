@@ -3,32 +3,35 @@ import { computed, ref } from 'vue'
 import { useResumeStore } from '../stores/resume'
 import { useLocaleText } from '../composables/useLocaleText'
 import { showToast } from '../composables/toast'
+import type { ImportDataPreview } from '../types/resume'
 const store = useResumeStore()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: [action?: 'demo' | 'blank' | 'import'] }>()
 const { l } = useLocaleText()
 const importInput = ref<HTMLInputElement>()
 const importJson = ref('')
-const importPreview = ref<{ documents: number; applications: number; hasLegacyResume: boolean } | null>(null)
+const importPreview = ref<ImportDataPreview | null>(null)
 
 const importSummary = computed(() => {
   if (!importPreview.value) return ''
   const parts = [
     l(`${importPreview.value.documents} 份简历`, `${importPreview.value.documents} resumes`),
     l(`${importPreview.value.applications} 条投递`, `${importPreview.value.applications} applications`),
+    l(`${importPreview.value.growthEntries} 条职业记忆`, `${importPreview.value.growthEntries} career memories`),
   ]
   if (importPreview.value.hasLegacyResume) parts.push(l('包含旧版单简历数据', 'includes legacy single-resume data'))
+  if (importPreview.value.hasConfig) parts.push(l('包含设置', 'includes settings'))
   return parts.join(' · ')
 })
 
-function finishStart() {
+function finishStart(action?: 'demo' | 'blank' | 'import') {
   localStorage.setItem('resume-visited', '1')
-  emit('close')
+  emit('close', action)
 }
 
 function choose(action: 'demo' | 'blank') {
   store.trackProductEvent('onboarding_choice_selected', { choice: action })
   if (action === 'blank') store.clearAll()
-  finishStart()
+  finishStart(action)
 }
 
 function chooseImport() {
@@ -46,17 +49,18 @@ function handleImportFile(e: Event) {
   reader.onload = (ev) => {
     const text = String(ev.target?.result || '')
     try {
-      const parsed = JSON.parse(text)
       importJson.value = text
-      importPreview.value = {
-        documents: Array.isArray(parsed.documents) ? parsed.documents.length : parsed.data ? 1 : 0,
-        applications: Array.isArray(parsed.applications) ? parsed.applications.length : 0,
-        hasLegacyResume: Boolean(parsed.data && !Array.isArray(parsed.documents)),
-      }
-    } catch {
+      importPreview.value = store.previewImportData(text)
+    } catch (error) {
       importJson.value = ''
       importPreview.value = null
-      showToast(l('导入失败：请确认 JSON 格式正确', 'Import failed: check that the JSON is valid'), 'error')
+      const unrecognized = error instanceof Error && error.message === 'unrecognized'
+      showToast(
+        unrecognized
+          ? l('导入失败：未识别的文件格式', 'Import failed: unrecognized file format')
+          : l('导入失败：请确认 JSON 格式正确', 'Import failed: check that the JSON is valid'),
+        'error',
+      )
     }
   }
   reader.readAsText(file)
@@ -67,16 +71,16 @@ function confirmImport() {
   if (!importJson.value) return
   store.trackProductEvent('onboarding_choice_selected', { choice: 'import' })
   store.importData(importJson.value)
-  finishStart()
+  finishStart('import')
 }
 </script>
 
 <template>
   <Teleport to="body">
     <div class="modal-backdrop">
-      <div class="welcome-dialog">
+      <div class="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-dialog-title">
         <div class="welcome-dialog__mark">R</div>
-        <h1>{{ l('欢迎使用简历工具', 'Welcome to Resume Studio') }}</h1>
+        <h1 id="welcome-dialog-title">{{ l('欢迎使用简历工具', 'Welcome to Resume Studio') }}</h1>
         <p>{{ l('请选择开始方式', 'Choose how to start') }}</p>
 
         <div class="welcome-dialog__choices">

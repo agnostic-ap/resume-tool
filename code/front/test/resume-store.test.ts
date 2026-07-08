@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { useResumeStore } from '../src/stores/resume'
-import { backendApi, type BackendState } from '../src/api/backend'
+import { backendApi, type BackendState, type PlatformResumeDraft } from '../src/api/backend'
 
 test('resume store manages multiple resumes and biweekly update dates', () => {
   setupStoreHarness()
@@ -62,6 +62,30 @@ test('resume store manages multiple resumes and biweekly update dates', () => {
   assert.equal(store.growthEntries[0].content, 'Added platform metrics.')
 })
 
+test('resume store marks the current document as blank after clearing sample data', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  store.updateResumeMetadata(store.activeResumeId, {
+    folder: 'JD Versions',
+    targetRole: 'Staff Engineer',
+    targetCompany: 'FutureHire',
+    tags: ['sample', 'targeted'],
+    favorite: true,
+  })
+  store.clearAll()
+
+  assert.equal(store.activeDocument.origin, 'blank')
+  assert.equal(store.activeDocument.folder, 'General')
+  assert.equal(store.activeDocument.targetRole, '')
+  assert.equal(store.activeDocument.targetCompany, '')
+  assert.deepEqual(store.activeDocument.tags, [])
+  assert.equal(store.activeDocument.favorite, false)
+  assert.equal(store.data.personal.name, '')
+  assert.equal(store.data.experience.length, 0)
+  assert.equal(store.completeness, 0)
+})
+
 test('resume store captures and tracks career memory entries', () => {
   setupStoreHarness()
   const store = useResumeStore()
@@ -87,6 +111,10 @@ test('resume store captures and tracks career memory entries', () => {
   store.markGrowthEntryUsed([entry.id], { resumeId, applicationId: 'app-growth-1' })
   assert.deepEqual(store.growthEntries[0].usedByResumeIds, [resumeId])
   assert.deepEqual(store.growthEntries[0].usedByApplicationIds, ['app-growth-1'])
+
+  store.applyJdDraftSections(makeDraft(store), { summary: true }, [entry.id])
+  assert.deepEqual(store.growthEntries[0].usedByResumeIds, [resumeId])
+  assert.equal(store.growthEntries[0].usedByResumeIds.length, 1)
 
   store.toggleGrowthEntryArchived(entry.id)
   assert.equal(store.growthEntries[0].archived, true)
@@ -116,6 +144,24 @@ test('resume store records roadmap product events in activity history', () => {
   assert.equal(store.activityLog[0].tag, 'event:jd_draft_requested')
 })
 
+test('resume store logs resume info updates with user-facing copy', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  store.updateResumeMetadata(store.activeResumeId, {
+    folder: 'Target roles',
+    targetRole: 'Frontend Engineer',
+    tags: ['frontend', 'jd'],
+  })
+
+  const event = store.activityLog[0]
+  assert.equal(event.tag, 'meta')
+  assert.equal(event.message.includes('metadata'), false)
+  assert.equal(event.messageEn.includes('metadata'), false)
+  assert.equal(event.messageZh.includes('简历信息'), true)
+  assert.equal(event.messageEn.includes('resume details'), true)
+})
+
 test('resume store restores deleted resume snapshots for bulk undo', () => {
   setupStoreHarness()
   const store = useResumeStore()
@@ -140,6 +186,23 @@ test('resume store restores deleted resume snapshots for bulk undo', () => {
   assert.equal(restored.length, 1)
   assert.equal(store.documents.some((doc) => doc.id === source.id), true)
   assert.equal(store.applications.find((item) => item.id === app.id)?.resumeId, source.id)
+})
+
+test('resume store does not select archived resumes unless explicitly allowed', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+  const originalId = store.activeResumeId
+  const working = store.createResume(true)
+
+  store.updateResumeMetadata(originalId, { archived: true })
+  const blocked = store.selectResume(originalId)
+
+  assert.equal(blocked, false)
+  assert.equal(store.activeResumeId, working.id)
+
+  const allowed = store.selectResume(originalId, { allowArchived: true })
+  assert.equal(allowed, true)
+  assert.equal(store.activeResumeId, originalId)
 })
 
 test('resume store keeps workspace and resume appearance colors separate', () => {
@@ -498,6 +561,36 @@ test('resume store imports and exports normalized workspace data', () => {
   assert.equal(exported.growthEntries[0].title, 'Imported growth memory')
 })
 
+test('resume store previews backup imports before applying them', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  const preview = store.previewImportData(JSON.stringify({
+    activeResumeId: 'preview-resume',
+    documents: [{ id: 'preview-resume', title: 'Preview Resume' }],
+    applications: [{ id: 'app-preview' }, { id: 'app-preview-2' }],
+    growthEntries: [{ id: 'growth-preview' }],
+    activityLog: [{ id: 'activity-preview' }],
+    config: { locale: 'en-US' },
+  }))
+
+  assert.equal(preview.documents, 1)
+  assert.equal(preview.applications, 2)
+  assert.equal(preview.growthEntries, 1)
+  assert.equal(preview.activityEvents, 1)
+  assert.equal(preview.hasConfig, true)
+  assert.equal(preview.hasLegacyResume, false)
+
+  const legacyPreview = store.previewImportData(JSON.stringify({
+    data: { personal: { name: 'Legacy User' } },
+  }))
+  assert.equal(legacyPreview.documents, 1)
+  assert.equal(legacyPreview.hasLegacyResume, true)
+
+  assert.throws(() => store.previewImportData('{}'), /unrecognized/)
+  assert.throws(() => store.previewImportData('not-json'), /Unexpected token|JSON/)
+})
+
 test('resume store connects to backend and applies remote state', async () => {
   setupStoreHarness()
   const state: BackendState = {
@@ -631,6 +724,82 @@ test('resume store connects to backend and applies remote state', async () => {
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('resume store queues active resume edits while backend is offline', async () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  store.data.personal.summary = 'Offline edit that must sync later.'
+  await nextTick()
+  await wait(760)
+
+  const operation = store.syncOperations.find((item) =>
+    item.entityType === 'resume'
+    && item.operation === 'update'
+    && item.entityId === store.activeResumeId,
+  )
+
+  assert.equal(operation?.status, 'local-only')
+  assert.equal(operation?.error?.includes('云端服务不可用'), true)
+  assert.equal(operation?.error?.includes('后端'), false)
+})
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+function makeDraft(store: ReturnType<typeof useResumeStore>): PlatformResumeDraft {
+  return {
+    requestId: 'draft-growth-memory',
+    title: 'Draft using career memory',
+    data: {
+      ...store.data,
+      personal: {
+        ...store.data.personal,
+        summary: 'Draft summary that uses a selected career memory.',
+      },
+    },
+    config: store.config,
+    match: {
+      score: 88,
+      keywords: ['career memory'],
+      matchedKeywords: ['career memory'],
+      selectedExperienceIds: [],
+    },
+    generation: {
+      strategy: 'test',
+      generatedAt: '2026-06-17T00:00:00.000Z',
+      persisted: false,
+    },
+  }
+}
+
+test('resume store enforces freemium entitlements and upgrades to pro', () => {
+  setupStoreHarness()
+  const store = useResumeStore()
+
+  assert.equal(store.isPro, false)
+  assert.equal(store.entitlements.watermark, true)
+  assert.equal(store.canExport, true)
+  assert.equal(store.exportsRemaining, 5)
+
+  for (let i = 0; i < 5; i += 1) store.recordExportUsage()
+  assert.equal(store.exportsRemaining, 0)
+  assert.equal(store.canExport, false)
+
+  for (let i = 0; i < 3; i += 1) store.recordAiDraftUsage()
+  assert.equal(store.aiDraftsRemaining, 0)
+  assert.equal(store.canGenerateAiDraft, false)
+
+  store.setPlan('pro', { reason: 'export' })
+  assert.equal(store.isPro, true)
+  assert.equal(store.canExport, true)
+  assert.equal(store.canGenerateAiDraft, true)
+  assert.equal(store.entitlements.watermark, false)
+
+  const planEvent = store.activityLog.find((event) => event.tag === 'event:plan_changed')
+  assert.ok(planEvent)
 })
 
 function setupStoreHarness() {

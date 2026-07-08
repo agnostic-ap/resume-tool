@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { getCommandPaletteFooterLabel } from '../src/utils/commandPalette'
+
+test('command palette footer uses user-facing localized product copy', () => {
+  assert.equal(getCommandPaletteFooterLabel('zh-CN'), '简历工作台')
+  assert.equal(getCommandPaletteFooterLabel('en-US'), 'Resume Studio')
+  assert.equal(getCommandPaletteFooterLabel('fr-FR'), 'Resume Studio')
+})
+
+test('command palette footer avoids slug-style developer labels', () => {
+  for (const locale of ['zh-CN', 'en-US']) {
+    const label = getCommandPaletteFooterLabel(locale)
+    assert.equal(label.includes('-'), false)
+    assert.notEqual(label, 'resume-studio', 'footer label should not be a raw product slug')
+  }
+})

@@ -8,6 +8,13 @@ import TemplateSidebar from './templates/TemplateSidebar.vue'
 import TemplateAdaptive from './templates/TemplateAdaptive.vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
+import { openPaywall } from '../composables/paywall'
+import {
+  buildExportPrecheckIssues,
+  getExportPrecheckActionEffect,
+  type ExportPrecheckActionId,
+  type ExportPrecheckIssue,
+} from '../utils/exportPrecheck'
 
 const store = useResumeStore()
 const { t, locale } = useI18n()
@@ -18,8 +25,8 @@ const userScale = ref<number | null>(null)
 const exporting = ref(false)
 const resumeHeight = ref(1123) // tracked via ResizeObserver
 const precheckOpen = ref(false)
-type ExportIssue = { id: string; severity: 'blocking' | 'warning'; title: string; fix: string }
-const precheckIssues = ref<ExportIssue[]>([])
+const precheckConfirmBlocking = ref(false)
+const precheckIssues = ref<ExportPrecheckIssue[]>([])
 
 const scale = computed(() => userScale.value ?? autoScale.value)
 
@@ -79,79 +86,33 @@ onUnmounted(() => {
 })
 
 // ── PDF export ────────────────────────────────────────────────
-function runExportPrecheck() {
-  const issues: ExportIssue[] = []
-  const personal = store.data.personal
-  const contactLength = [personal.phone, personal.email, personal.website, personal.location].join(' · ').length
-  if (!personal.name.trim()) {
-    issues.push({
-      id: 'missing-name',
-      severity: 'blocking',
-      title: l('缺少姓名', 'Missing name'),
-      fix: l('先在个人信息中补齐姓名。', 'Add your name in personal info first.'),
-    })
-  }
-  if (!personal.email.trim() && !personal.phone.trim()) {
-    issues.push({
-      id: 'missing-contact',
-      severity: 'blocking',
-      title: l('缺少联系方式', 'Missing contact'),
-      fix: l('至少填写邮箱或手机号。', 'Add at least an email or phone number.'),
-    })
-  }
-  if (!store.data.experience.length) {
-    issues.push({
-      id: 'missing-experience',
-      severity: 'blocking',
-      title: l('没有工作经历', 'No experience'),
-      fix: l('补充最近一段工作经历，或隐藏该章节后再导出。', 'Add a recent role, or hide the section before exporting.'),
-    })
-  }
-  if (!store.data.skills.length || !store.data.skills.some((item) => item.items.trim())) {
-    issues.push({
-      id: 'missing-skills',
-      severity: 'warning',
-      title: l('技能关键词为空', 'Skills are empty'),
-      fix: l('补 5-8 个岗位关键词可提升筛选通过率。', 'Add 5-8 role keywords to improve screening.'),
-    })
-  }
-  if (contactLength > 92) {
-    issues.push({
-      id: 'long-contact',
-      severity: 'warning',
-      title: l('联系方式过长', 'Contact line is long'),
-      fix: l('缩短链接或移动低优先级联系方式，避免页眉溢出。', 'Shorten links or move lower-priority contact details to avoid header overflow.'),
-    })
-  }
-  if (pageCount.value > 2) {
-    issues.push({
-      id: 'too-many-pages',
-      severity: pageCount.value > 3 ? 'blocking' : 'warning',
-      title: l(`当前约 ${pageCount.value} 页`, `About ${pageCount.value} pages`),
-      fix: l('建议切换紧凑密度、减小字号或隐藏低价值章节。', 'Try compact density, smaller font, or hide lower-value sections.'),
-    })
-  }
-  if (resumeHeight.value > 1123 && resumeHeight.value % 1123 > 980) {
-    issues.push({
-      id: 'section-near-break',
-      severity: 'warning',
-      title: l('内容靠近分页线', 'Content is close to a page break'),
-      fix: l('检查分页线附近的章节，必要时压缩描述或调整顺序。', 'Review sections near the page break and trim or reorder if needed.'),
-    })
-  }
+function collectExportPrecheckIssues() {
+  return buildExportPrecheckIssues({
+    data: store.data,
+    config: store.config,
+    pageCount: pageCount.value,
+    resumeHeight: resumeHeight.value,
+  })
+}
+
+function runExportPrecheck(track = true) {
+  const issues = collectExportPrecheckIssues()
+  precheckConfirmBlocking.value = false
   precheckIssues.value = issues
-  store.logActivity({
-    type: 'export',
-    tag: 'precheck',
-    message: 'Completed PDF export precheck',
-    messageZh: '完成 PDF 导出预检',
-    messageEn: 'Completed PDF export precheck',
-    meta: `${issues.length} issues · ${issues.filter((issue) => issue.severity === 'blocking').length} blocking`,
-  })
-  store.trackProductEvent('export_precheck_completed', {
-    issue_count: issues.length,
-    blocking_count: issues.filter((issue) => issue.severity === 'blocking').length,
-  })
+  if (track) {
+    store.logActivity({
+      type: 'export',
+      tag: 'precheck',
+      message: 'Completed PDF export precheck',
+      messageZh: '完成 PDF 导出预检',
+      messageEn: 'Completed PDF export precheck',
+      meta: `${issues.length} issues · ${issues.filter((issue) => issue.severity === 'blocking').length} blocking`,
+    })
+    store.trackProductEvent('export_precheck_completed', {
+      issue_count: issues.length,
+      blocking_count: issues.filter((issue) => issue.severity === 'blocking').length,
+    })
+  }
   return issues
 }
 
@@ -166,18 +127,28 @@ async function handleExport(eventOrForce: Event | boolean = false) {
     }
   }
   precheckOpen.value = false
+  store.refreshBilling()
+  if (!store.canExport) {
+    store.trackProductEvent('paywall_viewed', { reason: 'export' })
+    openPaywall('export')
+    return
+  }
   exporting.value = true
   showToast(l('正在生成 PDF，请稍候…', 'Generating PDF, please wait...'), 'info', 10000)
   try {
     const { exportToPDF } = await import('../utils/pdf')
-    await exportToPDF('resume-preview', `${store.data.personal.name || l('我的简历', 'My resume')}-${l('简历', 'resume')}.pdf`)
+    await exportToPDF('resume-preview', `${store.data.personal.name || l('我的简历', 'My resume')}-${l('简历', 'resume')}.pdf`, {
+      watermark: store.entitlements.watermark,
+      watermarkText: l('由 Resume Tool 免费版生成', 'Made with Resume Tool — Free'),
+    })
+    store.recordExportUsage()
     store.logActivity({
       type: 'export',
       tag: 'PDF',
       message: 'Exported resume PDF',
       messageZh: '导出 PDF 简历',
       messageEn: 'Exported resume PDF',
-      meta: `${store.config.templateId} · A4`,
+      meta: `${store.config.templateId} · A4${store.entitlements.watermark ? ' · watermark' : ''}`,
     })
     showToast(l('PDF 导出成功', 'PDF exported'), 'success')
   } catch {
@@ -196,7 +167,79 @@ async function handleExport(eventOrForce: Event | boolean = false) {
 }
 
 function continueAfterPrecheck() {
+  if (blockingPrecheckCount.value && !precheckConfirmBlocking.value) {
+    precheckConfirmBlocking.value = true
+    return
+  }
   void handleExport(true)
+}
+
+function issueTitle(issue: ExportPrecheckIssue) {
+  return l(issue.titleZh, issue.titleEn)
+}
+
+function issueFix(issue: ExportPrecheckIssue) {
+  return l(issue.fixZh, issue.fixEn)
+}
+
+function actionLabel(action: ExportPrecheckIssue['actions'][number]) {
+  return l(action.labelZh, action.labelEn)
+}
+
+function refreshPrecheckAfterFix(message: string) {
+  precheckIssues.value = collectExportPrecheckIssues()
+  precheckConfirmBlocking.value = false
+  store.logActivity({
+    type: 'export',
+    tag: 'precheck-fix',
+    message,
+    messageZh: message,
+    messageEn: message,
+    meta: `${precheckIssues.value.length} issues remaining`,
+  })
+}
+
+function applyPrecheckAction(actionId: ExportPrecheckActionId) {
+  const issueCountBefore = precheckIssues.value.length
+  const messages: Record<ExportPrecheckActionId, string> = {
+    'add-experience': l('已添加一段工作经历，请补充公司、岗位和成果。', 'Added a role. Fill company, title, and impact.'),
+    'hide-experience': l('已隐藏工作经历章节。', 'Experience section hidden.'),
+    'add-skills': l('已添加技能分类，请补充关键词。', 'Added a skill group. Fill in keywords.'),
+    'hide-skills': l('已隐藏技能章节。', 'Skills section hidden.'),
+    'reduce-font': l('已减小简历字号。', 'Resume font size reduced.'),
+    'hide-awards': l('已隐藏奖项章节。', 'Awards section hidden.'),
+    'hide-certifications': l('已隐藏证书章节。', 'Certifications section hidden.'),
+    'hide-languages': l('已隐藏语言章节。', 'Languages section hidden.'),
+  }
+
+  if (actionId === 'add-experience') store.addExperience()
+  else if (actionId === 'hide-experience' && store.config.sectionVisible.experience) store.toggleSectionVisible('experience')
+  else if (actionId === 'add-skills') store.addSkill()
+  else if (actionId === 'hide-skills' && store.config.sectionVisible.skills) store.toggleSectionVisible('skills')
+  else if (actionId === 'reduce-font') store.setResumeFontSize(store.config.fontSize - 1)
+  else if (actionId === 'hide-awards' && store.config.sectionVisible.awards) store.toggleSectionVisible('awards')
+  else if (actionId === 'hide-certifications' && store.config.sectionVisible.certifications) store.toggleSectionVisible('certifications')
+  else if (actionId === 'hide-languages' && store.config.sectionVisible.languages) store.toggleSectionVisible('languages')
+
+  const message = messages[actionId]
+  showToast(message, 'success')
+  refreshPrecheckAfterFix(message)
+  store.trackProductEvent('export_precheck_action_applied', {
+    action_id: actionId,
+    issue_count_before: issueCountBefore,
+    issue_count_after: precheckIssues.value.length,
+  })
+
+  const effect = getExportPrecheckActionEffect(actionId)
+  if (effect.closeDialog) {
+    precheckOpen.value = false
+    precheckConfirmBlocking.value = false
+  }
+  if (effect.focusTarget) {
+    window.dispatchEvent(new CustomEvent('resume-focus-onboarding-target', {
+      detail: { target: effect.focusTarget },
+    }))
+  }
 }
 
 // ── Zoom ─────────────────────────────────────────────────────
@@ -266,27 +309,44 @@ function resetZoom() { userScale.value = null }
 
   <Teleport to="body">
     <div v-if="precheckOpen" class="modal-backdrop">
-      <div class="export-precheck-dialog">
+      <div class="export-precheck-dialog" role="dialog" aria-modal="true" aria-labelledby="export-precheck-title">
         <div class="export-precheck-dialog__head">
           <div>
             <span>{{ locale === 'zh-CN' ? 'PDF 预检' : 'PDF precheck' }}</span>
-            <h3>{{ blockingPrecheckCount ? l('导出前需要先处理', 'Fix issues before export') : l('发现导出风险', 'Export risks found') }}</h3>
+            <h3 id="export-precheck-title">{{ blockingPrecheckCount ? l('导出前需要先处理', 'Fix issues before export') : l('发现导出风险', 'Export risks found') }}</h3>
           </div>
-          <button @click="precheckOpen = false">×</button>
+          <button :aria-label="l('关闭 PDF 预检', 'Close PDF precheck')" @click="precheckOpen = false">×</button>
         </div>
         <div class="export-issues">
           <article v-for="issue in precheckIssues" :key="issue.id" :class="`export-issue export-issue--${issue.severity}`">
             <b>{{ issue.severity === 'blocking' ? l('阻塞', 'Blocking') : l('提醒', 'Warning') }}</b>
             <div>
-              <strong>{{ issue.title }}</strong>
-              <p>{{ issue.fix }}</p>
+              <strong>{{ issueTitle(issue) }}</strong>
+              <p>{{ issueFix(issue) }}</p>
+              <div v-if="issue.actions.length" class="export-issue__actions">
+                <button
+                  v-for="action in issue.actions"
+                  :key="`${issue.id}-${action.id}`"
+                  @click="applyPrecheckAction(action.id)">
+                  {{ actionLabel(action) }}
+                </button>
+              </div>
             </div>
           </article>
         </div>
+        <p v-if="precheckConfirmBlocking" class="export-precheck-confirm">
+          {{ l('仍要导出这份有阻塞问题的 PDF？文件可能缺少关键信息。', 'Export this PDF with blocking issues? It may miss critical information.') }}
+        </p>
         <div class="export-precheck-dialog__actions">
-          <button class="btn btn--ghost" @click="precheckOpen = false">{{ l('返回修复', 'Back to edit') }}</button>
-          <button class="btn btn--primary" :disabled="blockingPrecheckCount > 0" @click="continueAfterPrecheck">
-            {{ blockingPrecheckCount ? l('修复后再导出', 'Fix before export') : l('继续导出', 'Continue export') }}
+          <button class="btn btn--ghost" @click="precheckOpen = false; precheckConfirmBlocking = false">{{ l('返回修复', 'Back to edit') }}</button>
+          <button class="btn btn--primary" @click="continueAfterPrecheck">
+            {{
+              blockingPrecheckCount
+                ? precheckConfirmBlocking
+                  ? l('确认继续导出', 'Confirm export')
+                  : l('仍要导出', 'Export anyway')
+                : l('继续导出', 'Continue export')
+            }}
           </button>
         </div>
       </div>

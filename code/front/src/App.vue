@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import TopBar from './components/TopBar.vue'
 import EditorPanel from './components/EditorPanel.vue'
 import PreviewPanel from './components/PreviewPanel.vue'
@@ -9,11 +9,20 @@ import WorkspacePanel from './components/WorkspacePanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TweaksPanel from './components/TweaksPanel.vue'
 import TemplateThumbnail from './components/TemplateThumbnail.vue'
+import UpgradeDialog from './components/UpgradeDialog.vue'
+import PublicResumeView from './components/PublicResumeView.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
 import { useI18n } from './i18n'
 import { useLocaleText } from './composables/useLocaleText'
 import { backendApi, type PlatformResumeDraft } from './api/backend'
+import { getDistinctId } from './utils/analytics'
+import { openPaywall } from './composables/paywall'
+import { useNextBestAction } from './composables/nextBestAction'
+import { getMobileCommandFallback } from './utils/mobileNavigation'
+import { RESUME_COLOR_PRESETS, getResumeColorLabel } from './utils/resumeTheme'
+import { getSyncRetryLaterCopy } from './utils/syncCopy'
+import { buildShareUrl, decodeResumeShare, encodeResumeShare, getReferralCode, parseRefParam, parseShareToken, type ResumeSharePayload } from './utils/share'
 import type { ResumeData, TemplateId } from './types/resume'
 
 type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
@@ -24,11 +33,19 @@ const store = useResumeStore()
 const { t } = useI18n()
 const { l } = useLocaleText()
 const tr = (key: string) => t(key as never)
+
+function readPublicShare(): ResumeSharePayload | null {
+  if (typeof window === 'undefined') return null
+  const token = parseShareToken(window.location.hash)
+  return token ? decodeResumeShare(token) : null
+}
+const publicShare = ref<ResumeSharePayload | null>(readPublicShare())
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
 const focusedApplicationId = ref('')
 const editorTweaksOpen = ref(false)
+const editorPanelRef = ref<{ focusOnboardingTarget: (target: OnboardingTarget) => void } | null>(null)
 const editorJdCompany = ref('')
 const editorJdRole = ref('')
 const editorJdText = ref('')
@@ -36,6 +53,10 @@ const editorJdGenerating = ref(false)
 const editorJdDraft = ref<PlatformResumeDraft | null>(null)
 const editorJdError = ref('')
 const editorJdGrowthEntryIds = ref<string[]>([])
+const editorJdAttention = ref(false)
+const editorJdCardRef = ref<HTMLElement | null>(null)
+const editorJdRoleRef = ref<HTMLInputElement | null>(null)
+const editorJdTextRef = ref<HTMLTextAreaElement | null>(null)
 const trackedCoreFields = new Set<string>()
 const editorJdApplySections = reactive<Record<JdReviewSection, boolean>>({
   summary: true,
@@ -44,15 +65,7 @@ const editorJdApplySections = reactive<Record<JdReviewSection, boolean>>({
   projects: true,
 })
 
-const resumeColorPresets = [
-  { hex: '#3E7891', label: 'Ocean' },
-  { hex: '#6F8A78', label: 'Sage' },
-  { hex: '#C65A3A', label: 'Terracotta' },
-  { hex: '#6F7F45', label: 'Olive' },
-  { hex: '#31566A', label: 'Deep teal' },
-  { hex: '#8F4F3F', label: 'Cedar' },
-  { hex: '#3A2A22', label: 'Walnut' },
-]
+const resumeColorPresets = RESUME_COLOR_PRESETS
 
 const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'classic', label: '经典', desc: '简洁·全页' },
@@ -114,13 +127,48 @@ const selectedEditorJdSectionCount = computed(() =>
   (Object.keys(editorJdApplySections) as JdReviewSection[]).filter((section) => editorJdApplySections[section]).length,
 )
 
-const editorJdGrowthEntries = computed(() =>
-  store.growthEntries.filter((entry) => !entry.archived).slice(0, 6),
-)
+const editorJdDiffBySection = computed(() => {
+  const map: Partial<Record<JdReviewSection, { rationale: string; confidence: number; source: string; count: number }>> = {}
+  for (const op of editorJdDraft.value?.diff ?? []) {
+    const section = op.section as JdReviewSection
+    const existing = map[section]
+    if (existing) {
+      existing.count += 1
+      continue
+    }
+    map[section] = { rationale: op.rationale, confidence: op.confidence, source: op.source, count: 1 }
+  }
+  return map
+})
+
+const editorJdStrategyLabel = computed(() => {
+  const strategy = editorJdDraft.value?.generation.strategy ?? ''
+  if (strategy.startsWith('llm')) return l('真实 AI 改写', 'AI-rewritten')
+  return l('规则兜底生成', 'Rule-based fallback')
+})
+
+const editorJdGrowthEntries = computed(() => {
+  const activeEntries = store.growthEntries.filter((entry) => !entry.archived)
+  const selectedEntries = activeEntries.filter((entry) => editorJdGrowthEntryIds.value.includes(entry.id))
+  const recentEntries = activeEntries
+    .filter((entry) => !editorJdGrowthEntryIds.value.includes(entry.id))
+    .slice(0, Math.max(0, 6 - selectedEntries.length))
+  return [...selectedEntries, ...recentEntries]
+})
 
 const selectedEditorJdGrowthEntries = computed(() =>
   store.growthEntries.filter((entry) => editorJdGrowthEntryIds.value.includes(entry.id)),
 )
+const editableDocuments = computed(() => store.documents.filter((doc) => !doc.archived))
+
+const nextBestAction = useNextBestAction(() => ({
+  locale: store.config.locale,
+  data: store.data,
+  completeness: store.completeness,
+  showAI: store.config.tweaks.showAI,
+  applications: store.applications,
+  syncOperations: store.syncOperations,
+}))
 
 const onboardingItems = computed<Array<{ id: OnboardingTarget; label: string; done: boolean; action: string }>>(() => [
   {
@@ -224,17 +272,145 @@ const editorGridStyle = computed(() => ({
   fontSize: `${store.config.tweaks.fontScale / 100}rem`,
 }))
 
+const currentViewLabel = computed(() => tr(viewTitle[currentView.value]))
+
+function isNarrowViewport() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 720px)').matches
+}
+
 function navigate(view: AppView) {
   currentView.value = view
   window.history.replaceState(null, '', `#${view}`)
 }
 
+async function focusEditorJdTailoring() {
+  await nextTick()
+  window.setTimeout(() => {
+    const card = editorJdCardRef.value
+    if (!card) return
+    const block: ScrollLogicalPosition = card.offsetHeight > window.innerHeight ? 'start' : 'center'
+    card.scrollIntoView({ behavior: 'smooth', block, inline: 'nearest' })
+    editorJdAttention.value = true
+    window.setTimeout(() => {
+      const target = editorJdRole.value.trim() ? editorJdTextRef.value : editorJdRoleRef.value
+      target?.focus({ preventScroll: true })
+    }, 180)
+    window.setTimeout(() => {
+      editorJdAttention.value = false
+    }, 2200)
+  }, 80)
+}
+
+function openEditorJdTailoring(options: { silent?: boolean } = {}) {
+  navigate('editor')
+  if (!store.config.tweaks.showAI) {
+    editorTweaksOpen.value = true
+    showToast(l('JD 定制栏已关闭，开启后才能使用 JD 定制。', 'JD tailoring panel is off. Enable it to use JD tailoring.'), 'info', 4200)
+    return
+  }
+  if (!options.silent) {
+    showToast(l('已打开 JD 定制入口，粘贴岗位 JD 后生成结构化草稿。', 'JD tailoring is open. Paste the job description to generate a structured draft.'), 'info', 3600)
+  }
+  void focusEditorJdTailoring()
+}
+
+async function retrySyncQueue() {
+  const ok = await store.retryFailedSyncs()
+  const retryLaterCopy = getSyncRetryLaterCopy()
+  showToast(
+    ok ? l('同步队列已恢复', 'Sync queue restored') : l(retryLaterCopy.zh, retryLaterCopy.en),
+    ok ? 'success' : 'info',
+    3600,
+  )
+}
+
+function runNextBestAction(source: 'workspace' | 'editor' = currentView.value === 'editor' ? 'editor' : 'workspace') {
+  const action = nextBestAction.value
+  store.trackProductEvent('next_action_clicked', {
+    kind: action.kind,
+    command: action.primaryCommand,
+    target_id: action.targetId,
+    source,
+    view: currentView.value,
+  })
+  runCommand(action.primaryCommand)
+}
+
+function useGrowthEntryForJd(entryId: string) {
+  const entry = store.growthEntries.find((item) => item.id === entryId)
+  if (!entry || entry.archived) {
+    navigate('growth')
+    showToast(l('这条职业记忆不可引用，请先确认它仍处于活跃状态。', 'This career memory cannot be referenced. Check that it is still active.'), 'error', 4200)
+    return
+  }
+  editorJdGrowthEntryIds.value = Array.from(new Set([entry.id, ...editorJdGrowthEntryIds.value]))
+  openEditorJdTailoring({ silent: true })
+  showToast(l(`已引用职业记忆：${entry.title}`, `Career memory selected: ${entry.title}`), 'success', 3600)
+}
+
+function handleWelcomeClose(action?: 'demo' | 'blank' | 'import') {
+  showWelcome.value = false
+  if (action === 'blank') {
+    if (isNarrowViewport()) {
+      navigate('documents')
+      showToast(l('已新建空白简历。手机上可先在简历库确认版本，编辑请切到桌面。', 'Created a blank resume. On mobile, review it in the library and edit on desktop.'), 'info', 4200)
+    } else {
+      navigate('editor')
+      showToast(l('已新建空白简历，请从个人信息开始填写', 'Created a blank resume. Start with personal info.'), 'info', 3500)
+      void runOnboardingAction('personal')
+    }
+  }
+}
+
+function handleMobileCommandFallback(command: string) {
+  const fallback = getMobileCommandFallback(command, isNarrowViewport())
+  if (!fallback) return false
+
+  if (fallback.reason === 'resume-selected' && command.startsWith('resume:')) {
+    const selected = store.selectResume(command.slice('resume:'.length))
+    navigate(fallback.view)
+    showToast(
+      selected
+        ? l('已选中这份简历。手机上可先在简历库管理版本，编辑和导出请切到桌面继续。', 'Resume selected. Use the library on mobile; continue editing and exporting on desktop.')
+        : l('这份简历已归档，请先在简历库恢复。', 'This resume is archived. Restore it from the library first.'),
+      'info',
+      4200,
+    )
+    return true
+  }
+
+  navigate(fallback.view)
+  showToast(
+    l(
+      '手机上可先在简历库查找和管理版本。编辑、JD 定制、投递和导出请切到桌面继续。',
+      'On mobile, use the resume library to find and manage versions. Continue editing, JD tailoring, applications, and export on desktop.',
+    ),
+    'info',
+    4600,
+  )
+  return true
+}
+
 function runCommand(command: string) {
   commandOpen.value = false
+  if (handleMobileCommandFallback(command)) return
   if (command === 'new') {
+    store.refreshBilling()
+    if (!store.canCreateResume) {
+      store.trackProductEvent('paywall_viewed', { reason: 'resumes' })
+      openPaywall('resumes')
+      return
+    }
     store.createResume(true)
-    navigate('editor')
-    showToast(l('已新建空白简历，请从个人信息开始填写', 'Created a blank resume. Start with personal info.'), 'info', 3500)
+    if (isNarrowViewport()) {
+      navigate('documents')
+      showToast(l('已新建空白简历。手机上可先在简历库确认版本，编辑请切到桌面。', 'Created a blank resume. On mobile, review it in the library and edit on desktop.'), 'info', 4200)
+    } else {
+      showToast(l('已新建空白简历，请从个人信息开始填写', 'Created a blank resume. Start with personal info.'), 'info', 3500)
+      void runOnboardingAction('personal')
+    }
   } else if (command === 'editor') {
     navigate('editor')
   } else if (command === 'workspace') {
@@ -242,12 +418,20 @@ function runCommand(command: string) {
   } else if (command === 'templates') {
     navigate('templates')
   } else if (command === 'assistant') {
-    navigate('editor')
+    openEditorJdTailoring()
   } else if (command === 'jd') {
-    navigate('editor')
+    openEditorJdTailoring()
+  } else if (command === 'sync:retry') {
+    void retrySyncQueue()
+  } else if (command.startsWith('onboarding:')) {
+    void runOnboardingAction(command.slice('onboarding:'.length) as OnboardingTarget)
   } else if (command.startsWith('resume:')) {
-    store.selectResume(command.slice('resume:'.length))
-    navigate('editor')
+    const selected = store.selectResume(command.slice('resume:'.length))
+    if (selected) navigate('editor')
+    else {
+      navigate('documents')
+      showToast(l('这份简历已归档，请先恢复后再编辑。', 'This resume is archived. Restore it before editing.'), 'info', 3600)
+    }
   } else if (command.startsWith('application:')) {
     focusedApplicationId.value = command.slice('application:'.length)
     navigate('pipeline')
@@ -255,7 +439,7 @@ function runCommand(command: string) {
     store.setTemplate(command.slice('template:'.length) as TemplateId)
     navigate('templates')
   } else if (command.startsWith('growth:')) {
-    navigate('growth')
+    useGrowthEntryForJd(command.slice('growth:'.length))
   } else if (command === 'documents') {
     navigate('documents')
   } else if (command === 'growth') {
@@ -288,8 +472,41 @@ function templateDescKey(id: TemplateId) {
     | 'minimalDesc'
 }
 
+function openUpgrade() {
+  store.trackProductEvent('paywall_viewed', { reason: 'general' })
+  openPaywall('general')
+}
+
+async function shareCurrentResume() {
+  const token = encodeResumeShare({
+    v: 1,
+    title: store.activeDocument.title,
+    data: store.data,
+    config: store.config,
+    ref: getReferralCode(getDistinctId()),
+  })
+  const url = buildShareUrl(window.location.origin, token)
+  try {
+    await navigator.clipboard?.writeText(url)
+    showToast(l('分享链接已复制，可只读查看且自带邀请。', 'Share link copied — read-only, with your invite built in.'), 'success', 3600)
+  } catch {
+    showToast(l('分享链接已生成，请手动复制。', 'Share link ready. Copy it manually.'), 'info', 3600)
+  }
+  store.trackProductEvent('resume_shared', { resume_id: store.activeResumeId, length: url.length })
+}
+
+function captureReferral() {
+  if (typeof window === 'undefined') return
+  const ref = parseRefParam(window.location.search)
+  if (!ref) return
+  const seen = localStorage.getItem('resume-referrer')
+  if (seen) return
+  localStorage.setItem('resume-referrer', ref)
+  store.trackProductEvent('referral_captured', { ref })
+}
+
 function resetResumeAppearance() {
-  store.setThemeColor('#3E7891')
+  store.setThemeColor('#1677FF')
   store.config.fontSize = 14
   showToast(l('简历外观已恢复默认', 'Resume appearance reset'), 'success')
 }
@@ -302,13 +519,18 @@ function setEditorTemplate(id: TemplateId) {
 function selectEditorResume(value: Event) {
   const id = value.target instanceof HTMLSelectElement ? value.target.value : ''
   if (!id) return
-  store.selectResume(id)
-  showToast(l('已切换编辑简历', 'Editing resume switched'), 'success')
+  if (store.selectResume(id)) {
+    showToast(l('已切换编辑简历', 'Editing resume switched'), 'success')
+  } else {
+    showToast(l('这份简历已归档，请先在简历库恢复。', 'This resume is archived. Restore it from the library first.'), 'info', 3600)
+  }
 }
 
-function runOnboardingAction(target: OnboardingTarget) {
+async function runOnboardingAction(target: OnboardingTarget) {
+  navigate('editor')
   if (target === 'experience' && !store.data.experience.length) store.addExperience()
   if (target === 'skills' && !store.data.skills.length) store.addSkill()
+  await nextTick()
   if (target === 'export') {
     window.dispatchEvent(new CustomEvent('resume-export-pdf'))
     return
@@ -322,7 +544,9 @@ function runOnboardingAction(target: OnboardingTarget) {
     export: '',
   }
   showToast(labelByTarget[target], 'info', 3200)
-  document.querySelector('.editor-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  window.setTimeout(() => {
+    editorPanelRef.value?.focusOnboardingTarget(target)
+  }, 40)
 }
 
 function splitItems(value: string) {
@@ -404,6 +628,12 @@ async function generateEditorJdDraft() {
     showToast(editorJdError.value, 'error', 4200)
     return
   }
+  store.refreshBilling()
+  if (!store.canGenerateAiDraft) {
+    store.trackProductEvent('paywall_viewed', { reason: 'ai' })
+    openPaywall('ai')
+    return
+  }
 
   editorJdGenerating.value = true
   editorJdError.value = ''
@@ -440,6 +670,7 @@ async function generateEditorJdDraft() {
       jobDescription: currentEditorJdSnapshot(role),
     })
     editorJdDraft.value = draft
+    store.recordAiDraftUsage()
     resetEditorJdApplySections(true)
     store.logActivity({
       type: 'ai',
@@ -457,7 +688,7 @@ async function generateEditorJdDraft() {
     showToast(l('已生成 JD 定制草稿', 'JD-tailored draft generated'), 'success')
   } catch (error) {
     editorJdError.value = error instanceof Error ? error.message : String(error)
-    showToast(l('生成失败，请确认后端已连接', 'Generation failed. Check backend connection.'), 'error', 4200)
+    showToast(l('生成失败，请确认云端服务已连接', 'Generation failed. Check cloud sync connection.'), 'error', 4200)
   } finally {
     editorJdGenerating.value = false
   }
@@ -479,7 +710,7 @@ function createApplicationFromEditorJdDraft() {
   const draft = editorJdDraft.value
   const company = editorJdCompany.value.trim() || l('未填写公司', 'Untitled company')
   const role = editorJdRole.value.trim() || draft.data.personal.title || store.data.personal.title
-  store.createApplicationFromJdDraft(draft, {
+  const application = store.createApplicationFromJdDraft(draft, {
     company,
     role,
     nextAction: l('评估 JD 定制草稿，决定是否投递', 'Review the JD-tailored draft and decide whether to apply'),
@@ -487,6 +718,7 @@ function createApplicationFromEditorJdDraft() {
     jobDescription: currentEditorJdSnapshot(role),
     growthEntryIds: editorJdGrowthEntryIds.value,
   })
+  focusedApplicationId.value = application.id
   navigate('pipeline')
   showToast(l('已创建投递记录并保存 JD 信息', 'Application created with JD details'), 'success')
 }
@@ -508,21 +740,36 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function onPrecheckFocusEvent(event: Event) {
+  const target = (event as CustomEvent<{ target?: OnboardingTarget }>).detail?.target
+  if (!target || target === 'export') return
+  void runOnboardingAction(target)
+}
+
 onMounted(() => {
+  getDistinctId()
+  if (publicShare.value) {
+    store.trackProductEvent('public_resume_viewed', { has_ref: Boolean(publicShare.value.ref) })
+    return
+  }
   syncHash()
+  captureReferral()
   void store.connectBackend()
   window.addEventListener('hashchange', syncHash)
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resume-focus-onboarding-target', onPrecheckFocusEvent)
 })
 
 onUnmounted(() => {
   window.removeEventListener('hashchange', syncHash)
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resume-focus-onboarding-target', onPrecheckFocusEvent)
 })
 </script>
 
 <template>
-  <div :class="shellClasses">
+  <PublicResumeView v-if="publicShare" :payload="publicShare" />
+  <div v-else :class="shellClasses" :data-view="currentView">
     <a class="skip-link" href="#main-content">{{ l('跳到主要内容', 'Skip to main content') }}</a>
     <aside class="studio-rail" aria-label="主导航">
       <div class="rail-mark">R</div>
@@ -549,15 +796,52 @@ onUnmounted(() => {
       @navigate="navigate"
       @open-command="commandOpen = true" />
 
+    <section v-if="currentView !== 'documents'" class="mobile-support-panel" aria-labelledby="mobile-support-title">
+      <div class="mobile-support-card">
+        <span class="mobile-support-eyebrow">{{ l('窄屏模式', 'Narrow screen') }}</span>
+        <h1 id="mobile-support-title">{{ l('当前页面需要更宽的工作区', 'This page needs a wider workspace') }}</h1>
+        <p>
+          {{ l(
+            '编辑器、预览和投递工作台是多栏桌面流程。请在平板或桌面继续；手机上可以先进入简历库查找、确认和管理版本。',
+            'The editor, preview, and pipeline are multi-column desktop workflows. Continue on a tablet or desktop; on mobile, use the resume library to find and manage versions.',
+          ) }}
+        </p>
+        <dl>
+          <div>
+            <dt>{{ l('当前页面', 'Current page') }}</dt>
+            <dd>{{ currentViewLabel }}</dd>
+          </div>
+          <div>
+            <dt>{{ l('建议宽度', 'Recommended width') }}</dt>
+            <dd>≥ 720px</dd>
+          </div>
+        </dl>
+        <div class="mobile-support-actions">
+          <button class="btn btn--primary" @click="navigate('documents')">{{ l('打开简历库', 'Open library') }}</button>
+          <button class="btn btn--ghost" @click="commandOpen = true">{{ l('打开命令', 'Open command') }}</button>
+        </div>
+      </div>
+    </section>
+
     <WorkspacePanel
       v-if="currentView === 'workspace'"
+      :next-action="nextBestAction"
       @navigate="navigate"
       @command="runCommand" />
 
     <main v-else-if="currentView === 'editor'" id="main-content" :class="editorClasses" :style="editorGridStyle">
-      <EditorPanel :show-tree="store.config.tweaks.showTree" />
+      <EditorPanel ref="editorPanelRef" :show-tree="store.config.tweaks.showTree" />
       <PreviewPanel />
       <aside class="inspector-panel">
+        <div class="inspector-card next-action-card" :class="`next-action-card--${nextBestAction.severity}`">
+          <span class="inspector-eyebrow">{{ l('建议下一步', 'Recommended next step') }}</span>
+          <strong>{{ nextBestAction.title }}</strong>
+          <p>{{ nextBestAction.detail }}</p>
+          <button class="btn btn--primary" @click="runNextBestAction('editor')">
+            {{ l('继续', 'Continue') }}
+          </button>
+        </div>
+
         <div v-if="store.config.tweaks.showAI" class="inspector-card score-card">
           <span class="inspector-eyebrow">{{ t('matchScore') }}</span>
           <strong>{{ store.completeness }}<small>/100</small></strong>
@@ -585,16 +869,45 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div v-if="store.config.tweaks.showAI" class="inspector-card editor-jd-card jd-builder">
+        <div class="inspector-card plan-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('套餐与额度', 'Plan & limits') }}</span>
+            <b class="plan-chip" :class="{ 'is-pro': store.isPro }">{{ store.isPro ? 'Pro' : l('免费版', 'Free') }}</b>
+          </div>
+          <dl class="compact-list">
+            <div>
+              <dt>{{ l('本月导出', 'Exports this month') }}</dt>
+              <dd>{{ store.isPro ? l('无限', 'Unlimited') : `${store.exportsRemaining} ${l('次剩余', 'left')}` }}</dd>
+            </div>
+            <div>
+              <dt>{{ l('今日 AI 定制', 'AI drafts today') }}</dt>
+              <dd>{{ store.isPro ? l('无限', 'Unlimited') : `${store.aiDraftsRemaining} ${l('次剩余', 'left')}` }}</dd>
+            </div>
+          </dl>
+          <button v-if="!store.isPro" class="btn btn--primary plan-card__cta" @click="openUpgrade">
+            {{ l('升级到 Pro', 'Upgrade to Pro') }}
+          </button>
+        </div>
+
+        <div
+          v-if="store.config.tweaks.showAI"
+          ref="editorJdCardRef"
+          class="inspector-card editor-jd-card jd-builder"
+          :class="{ 'is-attention': editorJdAttention }">
           <div class="inspector-card__head">
             <span class="inspector-eyebrow">{{ l('JD 定制草稿', 'JD-tailored draft') }}</span>
             <button :disabled="editorJdGenerating" @click="generateEditorJdDraft">
               {{ editorJdGenerating ? l('生成中', 'Generating') : l('生成', 'Generate') }}
             </button>
           </div>
+          <div class="jd-steps" :aria-label="l('JD 定制步骤', 'JD tailoring steps')">
+            <span class="on">1 {{ l('粘贴 JD', 'Paste JD') }}</span>
+            <span :class="{ on: editorJdGenerating || editorJdDraft }">2 {{ l('查看草稿', 'Review draft') }}</span>
+            <span :class="{ on: editorJdDraft }">3 {{ l('应用或记录', 'Apply or log') }}</span>
+          </div>
           <div class="jd-builder__grid">
             <input v-model="editorJdCompany" :placeholder="l('目标公司', 'Target company')" />
-            <input v-model="editorJdRole" :placeholder="l('目标岗位', 'Target role')" />
+            <input ref="editorJdRoleRef" v-model="editorJdRole" :placeholder="l('目标岗位', 'Target role')" />
           </div>
           <div v-if="editorJdGrowthEntries.length" class="jd-growth-picker">
             <div class="jd-review__head">
@@ -611,6 +924,7 @@ onUnmounted(() => {
             </button>
           </div>
           <textarea
+            ref="editorJdTextRef"
             v-model="editorJdText"
             rows="6"
             :placeholder="l('粘贴招聘 JD：职责、要求和关键词会用于生成结构化草稿。', 'Paste the JD: responsibilities, requirements, and keywords will shape a structured draft.')"
@@ -623,7 +937,7 @@ onUnmounted(() => {
               <strong>{{ editorJdDraft.title }}</strong>
               <span>{{ l('匹配分', 'Match') }} · {{ editorJdDraft.match.score }}/100</span>
               <span>{{ l('命中关键词', 'Matched keywords') }} · {{ editorJdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || l('暂无', 'none') }}</span>
-              <span>{{ l('生成策略', 'Strategy') }} · {{ editorJdDraft.generation.strategy }}</span>
+              <span>{{ l('生成方式', 'Mode') }} · <b class="jd-strategy-chip" :class="{ 'is-llm': editorJdDraft.generation.strategy.startsWith('llm') }">{{ editorJdStrategyLabel }}</b></span>
             </div>
             <div class="jd-review">
               <div class="jd-review__head">
@@ -639,6 +953,10 @@ onUnmounted(() => {
                 <span class="jd-review__preview">
                   <em>{{ l('当前', 'Current') }}</em>{{ section.before }}
                   <em>{{ l('草稿', 'Draft') }}</em>{{ section.after }}
+                </span>
+                <span v-if="editorJdDiffBySection[section.id]" class="jd-review__rationale">
+                  {{ editorJdDiffBySection[section.id]!.rationale }}
+                  · {{ l('置信度', 'Confidence') }} {{ Math.round(editorJdDiffBySection[section.id]!.confidence * 100) }}%
                 </span>
               </label>
             </div>
@@ -681,11 +999,14 @@ onUnmounted(() => {
           <label class="inspector-field">
             <span>{{ l('当前编辑简历', 'Current resume') }}</span>
             <select :value="store.activeResumeId" @change="selectEditorResume">
-              <option v-for="doc in store.documents" :key="doc.id" :value="doc.id">
-                {{ doc.title }}{{ doc.archived ? l('（已归档）', ' (archived)') : '' }}
+              <option v-for="doc in editableDocuments" :key="doc.id" :value="doc.id">
+                {{ doc.title }}
               </option>
             </select>
           </label>
+          <button class="btn btn--ghost inspector-share-btn" @click="shareCurrentResume">
+            {{ l('复制公开分享链接', 'Copy public share link') }}
+          </button>
         </div>
 
         <div class="inspector-card resume-style-card">
@@ -701,13 +1022,13 @@ onUnmounted(() => {
             <button v-for="color in resumeColorPresets" :key="color.hex"
               :class="{ on: store.config.themeColor.toLowerCase() === color.hex.toLowerCase() }"
               :style="{ background: color.hex }"
-              :title="color.label"
+              :title="getResumeColorLabel(color, store.config.locale)"
               @click="store.setThemeColor(color.hex)"></button>
           </div>
           <label class="inspector-field">
             <span>{{ t('fontSize') }}</span>
             <input type="range" min="12" max="18" :value="store.config.fontSize"
-              @input="(e) => store.config.fontSize = Number((e.target as HTMLInputElement).value)" />
+              @input="(e) => store.setResumeFontSize(Number((e.target as HTMLInputElement).value))" />
             <small>{{ store.config.fontSize }}px</small>
           </label>
           <div class="resume-mini-preview">
@@ -747,8 +1068,8 @@ onUnmounted(() => {
           </ul>
         </div>
       </aside>
-      <button class="tweaks-fab" @click="editorTweaksOpen = true" aria-label="Open editor tweaks">
-        Tw
+      <button class="tweaks-fab" @click="editorTweaksOpen = true" :aria-label="l('打开编辑台微调', 'Open editor tweaks')">
+        {{ l('微调', 'Tune') }}
         <span class="ind"></span>
       </button>
     </main>
@@ -757,6 +1078,7 @@ onUnmounted(() => {
       <WorkspacePanel
         :mode="currentView"
         :focus-application-id="focusedApplicationId"
+        :next-action="nextBestAction"
         @navigate="navigate"
         @command="runCommand" />
     </main>
@@ -769,6 +1091,7 @@ onUnmounted(() => {
       :open="editorTweaksOpen"
       @close="editorTweaksOpen = false" />
     <ToastContainer />
-    <WelcomeDialog v-if="showWelcome" @close="showWelcome = false" />
+    <UpgradeDialog />
+    <WelcomeDialog v-if="showWelcome" @close="handleWelcomeClose" />
   </div>
 </template>

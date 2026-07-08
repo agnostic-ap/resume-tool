@@ -1,21 +1,26 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useResumeStore } from '../stores/resume'
-import type { ActivityEvent, ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, GrowthEntry, GrowthEntryType, JobApplication, ResumeData, ResumeDocument, StudioTheme, TemplateId, TweakAccent, TweakDensity, TweakFont, TweakPaper } from '../types/resume'
+import type { ApplicationProgressEvent, ApplicationStage, CareerUpdateKey, GrowthEntry, GrowthEntryType, JobApplication, JobDescriptionSnapshot, ResumeDocument, TailoringMetadata, TemplateId } from '../types/resume'
 import TemplateThumbnail from './TemplateThumbnail.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import WorkspaceHistoryPanel from './workspace/WorkspaceHistoryPanel.vue'
+import WorkspaceSettingsPanel from './workspace/WorkspaceSettingsPanel.vue'
 import { showToast } from '../composables/toast'
 import { useI18n } from '../i18n'
-import { backendApi, type PlatformResumeDraft } from '../api/backend'
+import { getApplicationFollowUpState, getLocalDateKey } from '../utils/pipeline'
+import { filterDocumentsForLibrary, getApplicationResumeOptions, getDocumentApplications, getDocumentLibraryNavigationTarget, type DocumentLibraryFilter, type DocumentLibrarySort, type DocumentOriginFilter } from '../utils/documentLibrary'
+import { APPLICATION_STAGE_OPTIONS, getApplicationStageLabel } from '../utils/applicationStage'
+import { getApplicationDeleteMessage } from '../utils/applicationCopy'
+import { buildTailoringDisplayRows, getJobDescriptionSnapshotText, getJobDescriptionSnapshotTitle } from '../utils/tailoringDisplay'
+import { getActiveResumeVersionLabel, getResumeLanguageLabel } from '../utils/resumeDisplay'
+import type { NextBestAction } from '../composables/nextBestAction'
 
 type AppView = 'workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings'
-type JdReviewSection = 'summary' | 'experience' | 'skills' | 'projects'
-type DocumentFilter = 'active' | 'favorites' | 'archived' | 'all'
-type DocumentSort = 'updated-desc' | 'created-desc' | 'title-asc' | 'applications-desc'
 type PipelineFocus = 'all' | 'today' | 'overdue' | 'high-match'
 type GrowthFilter = 'active' | 'used' | 'unused' | 'archived' | 'all'
 
-const props = withDefaults(defineProps<{ mode?: AppView; focusApplicationId?: string }>(), { mode: 'workspace', focusApplicationId: '' })
+const props = withDefaults(defineProps<{ mode?: AppView; focusApplicationId?: string; nextAction?: NextBestAction | null }>(), { mode: 'workspace', focusApplicationId: '', nextAction: null })
 const emit = defineEmits<{
   navigate: [AppView]
   command: [string]
@@ -27,22 +32,9 @@ const pipelineFilter = ref('all')
 const pipelineFocus = ref<PipelineFocus>('all')
 const pipelineSearch = ref('')
 const pipelineSort = ref<'applied-desc' | 'match-desc' | 'company-asc'>('applied-desc')
-const assistantPrompt = ref('')
 const growthSearch = ref('')
 const growthFilter = ref<GrowthFilter>('active')
 const growthEditId = ref('')
-const jdCompany = ref('')
-const jdRole = ref('')
-const jdText = ref('')
-const jdGenerating = ref(false)
-const jdDraft = ref<PlatformResumeDraft | null>(null)
-const jdError = ref('')
-const jdApplySections = reactive<Record<JdReviewSection, boolean>>({
-  summary: true,
-  experience: true,
-  skills: true,
-  projects: true,
-})
 const renameId = ref('')
 const renameDraft = ref('')
 const applicationFormOpen = ref(false)
@@ -58,6 +50,15 @@ const progressEventDraft = reactive({
   happenedAt: '',
 })
 const pendingDeleteResume = ref<{ id: string; title: string } | null>(null)
+const pendingDeleteApplication = ref<JobApplication | null>(null)
+const pendingDeleteProgressEvent = ref<{
+  applicationId: string
+  applicationLabel: string
+  eventId: string
+  eventTitle: string
+  happenedAt: string
+} | null>(null)
+const pendingResetDemo = ref(false)
 const applicationDraft = reactive({
   company: '',
   location: '',
@@ -88,34 +89,11 @@ const growthDraft = reactive({
   private: false,
   sourceResumeId: '',
 })
-type AssistantSuggestion = {
-  id: string
-  zh: string
-  en: string
-  summaryZh: string
-  summaryEn: string
-}
-const assistantSuggestions = ref<AssistantSuggestion[]>([
-  {
-    id: 'summary-structure',
-    zh: '把个人简介改成“岗位定位 + 技术栈 + 量化结果”的三段式。',
-    en: 'Rewrite the summary as role focus + stack + measurable impact.',
-    summaryZh: '聚焦目标岗位，突出核心技术栈，并补充可量化的业务结果。',
-    summaryEn: 'Focus on the target role, highlight the core stack, and add measurable business impact.',
-  },
-  {
-    id: 'bullet-metrics',
-    zh: '工作经历每条 bullet 至少保留一个数字，弱相关职责移到项目里。',
-    en: 'Keep at least one metric in each experience bullet and move weaker duties into projects.',
-    summaryZh: '强化工作经历中的量化成果，压缩弱相关职责，让简历更贴近目标岗位。',
-    summaryEn: 'Strengthen measurable outcomes in experience bullets and trim weaker responsibilities for the target role.',
-  },
-])
-
 const documents = computed(() => store.documents)
-const documentFilter = ref<DocumentFilter>('active')
+const documentFilter = ref<DocumentLibraryFilter>('active')
+const documentOriginFilter = ref<DocumentOriginFilter>('all')
 const documentSearch = ref('')
-const documentSort = ref<DocumentSort>('updated-desc')
+const documentSort = ref<DocumentLibrarySort>('updated-desc')
 const selectedDocumentIds = ref<string[]>([])
 const bulkDeleteSnapshot = ref<{ documents: ResumeDocument[]; applications: JobApplication[]; activeResumeId: string } | null>(null)
 const pendingBulkDelete = ref<{ ids: string[]; titles: string[] } | null>(null)
@@ -128,44 +106,73 @@ const metaDraft = reactive({
 })
 
 const visibleDocuments = computed(() => {
-  const query = documentSearch.value.trim().toLowerCase()
-  return documents.value
-    .filter((doc) => {
-      if (documentFilter.value === 'favorites') return doc.favorite && !doc.archived
-      if (documentFilter.value === 'archived') return doc.archived
-      if (documentFilter.value === 'all') return true
-      return !doc.archived
-    })
-    .filter((doc) => {
-      if (!query) return true
-      const appText = documentApplications(doc.id).map((app) => `${app.company} ${app.role}`).join(' ')
-      return [
-        doc.title,
-        doc.folder,
-        doc.targetCompany,
-        doc.targetRole,
-        doc.data.personal.name,
-        doc.data.personal.title,
-        doc.sourceResumeTitle ?? '',
-        doc.tags.join(' '),
-        appText,
-      ].some((value) => value.toLowerCase().includes(query))
-    })
-    .slice()
-    .sort((a, b) => {
-      if (documentSort.value === 'title-asc') return a.title.localeCompare(b.title)
-      if (documentSort.value === 'created-desc') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      if (documentSort.value === 'applications-desc') return documentApplications(b.id).length - documentApplications(a.id).length
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    })
+  return filterDocumentsForLibrary({
+    documents: documents.value,
+    applications: applications.value,
+    filter: documentFilter.value,
+    origin: documentOriginFilter.value,
+    query: documentSearch.value,
+    sort: documentSort.value,
+  })
 })
+const applicationResumeOptions = computed(() =>
+  getApplicationResumeOptions(documents.value, applicationDraft.resumeId),
+)
 
-const documentFilters = computed<Array<{ id: DocumentFilter; label: string; count: number }>>(() => [
+const documentFilters = computed<Array<{ id: DocumentLibraryFilter; label: string; count: number }>>(() => [
   { id: 'active', label: label('活跃', 'Active'), count: documents.value.filter((doc) => !doc.archived).length },
   { id: 'favorites', label: label('收藏', 'Favorites'), count: documents.value.filter((doc) => doc.favorite && !doc.archived).length },
   { id: 'archived', label: label('归档', 'Archived'), count: documents.value.filter((doc) => doc.archived).length },
   { id: 'all', label: label('全部', 'All'), count: documents.value.length },
 ])
+
+const documentOriginFilters = computed<Array<{ id: DocumentOriginFilter; label: string; count: number }>>(() => {
+  const baseDocuments = filterDocumentsForLibrary({
+    documents: documents.value,
+    applications: applications.value,
+    filter: documentFilter.value,
+    origin: 'all',
+    query: '',
+    sort: documentSort.value,
+  })
+  const origins: Array<{ id: Exclude<DocumentOriginFilter, 'all'>; label: string }> = [
+    { id: 'blank', label: label('空白', 'Blank') },
+    { id: 'import', label: label('导入', 'Import') },
+    { id: 'copy', label: label('复制', 'Copy') },
+    { id: 'jd-draft', label: label('JD 草稿', 'JD draft') },
+    { id: 'platform', label: label('平台', 'Platform') },
+    { id: 'sample', label: label('示例', 'Sample') },
+  ]
+  return [
+    { id: 'all', label: label('全部来源', 'All sources'), count: baseDocuments.length },
+    ...origins.map((origin) => ({
+      ...origin,
+      count: baseDocuments.filter((doc) => doc.origin === origin.id).length,
+    })),
+  ]
+})
+
+const documentLibraryUnsearchedCount = computed(() =>
+  filterDocumentsForLibrary({
+    documents: documents.value,
+    applications: applications.value,
+    filter: documentFilter.value,
+    origin: documentOriginFilter.value,
+    query: '',
+    sort: documentSort.value,
+  }).length,
+)
+
+const documentLibrarySummary = computed(() => {
+  const query = documentSearch.value.trim()
+  if (!query && documentOriginFilter.value === 'all') {
+    return label(`显示 ${visibleDocuments.value.length} 份简历`, `Showing ${visibleDocuments.value.length} resumes`)
+  }
+  return label(
+    `显示 ${visibleDocuments.value.length} / ${documentLibraryUnsearchedCount.value} 份简历`,
+    `Showing ${visibleDocuments.value.length} of ${documentLibraryUnsearchedCount.value} resumes`,
+  )
+})
 
 const selectedDocuments = computed(() =>
   documents.value.filter((doc) => selectedDocumentIds.value.includes(doc.id)),
@@ -238,14 +245,7 @@ const filteredGrowthEntries = computed(() =>
 
 const applications = computed(() => store.applications)
 
-const stageOptions: { id: ApplicationStage; zh: string; en: string }[] = [
-  { id: 'saved', zh: '待投递', en: 'Saved' },
-  { id: 'applied', zh: '已投递', en: 'Applied' },
-  { id: 'screen', zh: '初筛', en: 'Screening' },
-  { id: 'onsite', zh: '面试', en: 'On-site' },
-  { id: 'offer', zh: 'Offer', en: 'Offer' },
-  { id: 'rejected', zh: '已关闭', en: 'Closed' },
-]
+const stageOptions = APPLICATION_STAGE_OPTIONS
 
 const filters = computed(() => [
   { id: 'all', label: label('全部', 'All') },
@@ -308,52 +308,30 @@ const pipelineStats = computed(() => {
   return { saved, applied, offer, active, closed }
 })
 
-const activities = computed(() => store.activityLog)
-
 const selectedApplication = computed(() =>
   applications.value.find((app) => app.id === selectedApplicationId.value) ?? null,
 )
+
+const pendingDeleteApplicationMessage = computed(() => {
+  const app = pendingDeleteApplication.value
+  if (!app) return ''
+  return getApplicationDeleteMessage(applicationDisplayName(app), app.progressLog.length, locale.value)
+})
+
+const pendingDeleteProgressEventMessage = computed(() => {
+  const pending = pendingDeleteProgressEvent.value
+  if (!pending) return ''
+  return label(
+    `“${pending.eventTitle}”（${progressWhen(pending.happenedAt)}）会从 ${pending.applicationLabel} 的时间线移除，岗位记录会保留。`,
+    `"${pending.eventTitle}" (${progressWhen(pending.happenedAt)}) will be removed from ${pending.applicationLabel}'s timeline. The opportunity stays untouched.`,
+  )
+})
 
 watch(() => props.focusApplicationId, (id) => {
   if (id && store.applications.some((app) => app.id === id)) {
     selectedApplicationId.value = id
   }
 }, { immediate: true })
-
-const jdSectionReviews = computed(() => {
-  const draft = jdDraft.value
-  if (!draft) return []
-  return [
-    {
-      id: 'summary' as const,
-      label: label('个人简介', 'Summary'),
-      before: previewText(store.data.personal.summary),
-      after: previewText(draft.data.personal.summary),
-    },
-    {
-      id: 'experience' as const,
-      label: label('工作经历', 'Experience'),
-      before: previewExperience(store.data.experience),
-      after: previewExperience(draft.data.experience),
-    },
-    {
-      id: 'skills' as const,
-      label: label('技能', 'Skills'),
-      before: previewSkills(store.data.skills),
-      after: previewSkills(draft.data.skills),
-    },
-    {
-      id: 'projects' as const,
-      label: label('项目', 'Projects'),
-      before: previewProjects(store.data.projects),
-      after: previewProjects(draft.data.projects),
-    },
-  ]
-})
-
-const selectedJdSectionCount = computed(() =>
-  (Object.keys(jdApplySections) as JdReviewSection[]).filter((section) => jdApplySections[section]).length,
-)
 
 const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'classic', label: '经典', desc: '简洁·全页' },
@@ -368,64 +346,36 @@ const templates: { id: TemplateId; label: string; desc: string }[] = [
   { id: 'minimal', label: '极简', desc: '留白·轻量现代' },
 ]
 
-const accents: { id: TweakAccent; hex: string; label: string }[] = [
-  { id: 'ocean', hex: '#3E7891', label: 'Clear ocean' },
-  { id: 'sage', hex: '#7D8F73', label: 'Soft sage' },
-  { id: 'prussian', hex: '#31566A', label: 'Deep teal' },
-  { id: 'amber', hex: '#B9812F', label: 'Amber' },
-  { id: 'coral', hex: '#D96B5C', label: 'Warm coral' },
-  { id: 'rosewood', hex: '#9B4D5C', label: 'Rosewood' },
-  { id: 'moss', hex: '#6F7F45', label: 'Olive moss' },
-  { id: 'vermillion', hex: '#C65A3A', label: 'Terracotta' },
-  { id: 'lilac', hex: '#7B6A9B', label: 'Dusty lilac' },
-  { id: 'ink-only', hex: '#3A2A22', label: 'Walnut ink' },
-]
-
-const papers: { id: TweakPaper; hex: string; label: string }[] = [
-  { id: 'mist', hex: '#EEF3EF', label: 'Sage mist' },
-  { id: 'snow', hex: '#FFFAF4', label: 'Soft white' },
-  { id: 'stone', hex: '#F2F0EC', label: 'Warm stone' },
-  { id: 'cream', hex: '#FBF4EA', label: 'Warm cream' },
-  { id: 'newsprint', hex: '#F3EADC', label: 'Newsprint' },
-  { id: 'blush', hex: '#FBEDEA', label: 'Blush paper' },
-]
-
-const interfaceFonts: { id: TweakFont; name: string; meta: string; className: string }[] = [
-  { id: 'serif', name: 'Serif', meta: 'editorial · warm', className: 'serif-stack' },
-  { id: 'sans', name: 'Sans', meta: 'neutral · crisp', className: 'sans-stack' },
-  { id: 'mono', name: 'Mono', meta: 'technical · compact', className: 'mono-stack' },
-]
-
-const densities: TweakDensity[] = ['tight', 'cozy', 'loose']
-
 function label(zh: string, en: string) {
   return locale.value === 'zh-CN' ? zh : en
 }
 
-function activityMessage(event: ActivityEvent) {
-  return locale.value === 'zh-CN'
-    ? event.messageZh || event.message
-    : event.messageEn || event.message
+function activeVersionLabel() {
+  return getActiveResumeVersionLabel(locale.value)
 }
 
-function activityWhen(date: string) {
-  const diff = Math.max(0, Date.now() - new Date(date).getTime())
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return label('刚刚', 'now')
-  if (minutes < 60) return label(`${minutes} 分钟前`, `${minutes}m`)
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return label(`${hours} 小时前`, `${hours}h`)
-  const days = Math.floor(hours / 24)
-  return label(`${days} 天前`, `${days}d`)
+function resumeLanguageLabel(resumeLocale: string) {
+  return getResumeLanguageLabel(resumeLocale, locale.value)
 }
 
-function activityHash(id: string) {
-  return id.replace(/^activity-/, '').slice(-7)
+function applicationDisplayName(app: JobApplication) {
+  return `${app.company || label('未填写公司', 'Untitled company')} · ${app.role || label('未填写岗位', 'Untitled role')}`
 }
 
 function stageLabel(stage: ApplicationStage) {
-  const item = stageOptions.find((option) => option.id === stage)
-  return item ? label(item.zh, item.en) : stage
+  return getApplicationStageLabel(stage, locale.value)
+}
+
+function tailoringDisplayRows(tailoring: TailoringMetadata) {
+  return buildTailoringDisplayRows(tailoring, locale.value)
+}
+
+function jobDescriptionSnapshotTitle() {
+  return getJobDescriptionSnapshotTitle(locale.value)
+}
+
+function jobDescriptionSnapshotText(snapshot: JobDescriptionSnapshot) {
+  return getJobDescriptionSnapshotText(snapshot, locale.value)
 }
 
 function templateDescKey(id: TemplateId) {
@@ -477,19 +427,8 @@ function daysAgo(date: string) {
   return `${diff}d ago`
 }
 
-function localDateKey(date = new Date()) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function followUpState(app: JobApplication): 'none' | 'today' | 'overdue' | 'future' {
-  if (!app.followUpAt || app.stage === 'offer' || app.stage === 'rejected') return 'none'
-  const today = localDateKey()
-  if (app.followUpAt < today) return 'overdue'
-  if (app.followUpAt === today) return 'today'
-  return 'future'
+function followUpState(app: JobApplication) {
+  return getApplicationFollowUpState(app)
 }
 
 function followUpLabel(app: JobApplication) {
@@ -565,15 +504,39 @@ function saveApplication() {
   closeApplicationForm()
 }
 
-function removeApplication(id: string) {
-  if (selectedApplicationId.value === id) selectedApplicationId.value = ''
-  store.deleteApplication(id)
+function requestRemoveApplication(app: JobApplication) {
+  pendingDeleteApplication.value = app
+}
+
+function confirmRemoveApplication() {
+  const app = pendingDeleteApplication.value
+  if (!app) return
+  if (selectedApplicationId.value === app.id) selectedApplicationId.value = ''
+  store.deleteApplication(app.id)
+  pendingDeleteApplication.value = null
   showToast(label('岗位记录已删除', 'Opportunity deleted'), 'success')
 }
 
 function openApplicationDetail(app: JobApplication) {
   selectedApplicationId.value = app.id
   editingProgressEventId.value = ''
+}
+
+function isApplicationRowAction(event: MouseEvent | KeyboardEvent) {
+  const target = event.target
+  return target instanceof HTMLElement
+    && Boolean(target.closest('button, a, input, select, textarea, [data-row-action]'))
+}
+
+function handleApplicationRowClick(event: MouseEvent, app: JobApplication) {
+  if (isApplicationRowAction(event)) return
+  openApplicationDetail(app)
+}
+
+function handleApplicationRowKeydown(event: KeyboardEvent, app: JobApplication) {
+  if (isApplicationRowAction(event) || (event.key !== 'Enter' && event.key !== ' ')) return
+  event.preventDefault()
+  openApplicationDetail(app)
 }
 
 function closeApplicationDetail() {
@@ -630,7 +593,7 @@ function startProgressEventEdit(event: ApplicationProgressEvent) {
   progressEventDraft.stage = event.stage
   progressEventDraft.title = event.title
   progressEventDraft.note = event.note
-  progressEventDraft.happenedAt = event.happenedAt || localDateKey()
+  progressEventDraft.happenedAt = event.happenedAt || getLocalDateKey()
 }
 
 function cancelProgressEventEdit() {
@@ -662,11 +625,29 @@ function saveProgressEvent(app: JobApplication) {
   showToast(label('时间线事件已更新', 'Timeline event updated'), 'success')
 }
 
-function deleteProgressEvent(app: JobApplication, eventId: string) {
+function requestDeleteProgressEvent(app: JobApplication, event: ApplicationProgressEvent) {
+  pendingDeleteProgressEvent.value = {
+    applicationId: app.id,
+    applicationLabel: applicationDisplayName(app),
+    eventId: event.id,
+    eventTitle: event.title || label('未命名事件', 'Untitled event'),
+    happenedAt: event.happenedAt,
+  }
+}
+
+function confirmDeleteProgressEvent() {
+  const pending = pendingDeleteProgressEvent.value
+  if (!pending) return
+  const app = store.applications.find((item) => item.id === pending.applicationId)
+  if (!app) {
+    pendingDeleteProgressEvent.value = null
+    return
+  }
   store.updateApplication(app.id, {
-    progressLog: app.progressLog.filter((event) => event.id !== eventId),
+    progressLog: app.progressLog.filter((event) => event.id !== pending.eventId),
   })
-  if (editingProgressEventId.value === eventId) cancelProgressEventEdit()
+  if (editingProgressEventId.value === pending.eventId) cancelProgressEventEdit()
+  pendingDeleteProgressEvent.value = null
   showToast(label('时间线事件已删除', 'Timeline event deleted'), 'success')
 }
 
@@ -676,7 +657,7 @@ function createProgressEvent(app: JobApplication) {
     stage: app.stage,
     title: label('新的进度事件', 'New timeline event'),
     note: '',
-    happenedAt: localDateKey(),
+    happenedAt: getLocalDateKey(),
     createdAt: new Date().toISOString(),
   }
   store.updateApplication(app.id, {
@@ -689,19 +670,62 @@ function openEditor() {
   emit('navigate', 'editor')
 }
 
+function isNarrowViewport() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 720px)').matches
+}
+
+function documentLibraryNavigationTarget() {
+  return getDocumentLibraryNavigationTarget(isNarrowViewport())
+}
+
 function createBlank() {
   store.createResume(true)
-  emit('navigate', 'editor')
-  showToast(locale.value === 'zh-CN' ? '已创建新的空白简历' : 'Created a new blank resume', 'success')
+  const target = documentLibraryNavigationTarget()
+  emit('navigate', target)
+  showToast(
+    target === 'documents'
+      ? label('已新建空白简历。手机上可先在简历库确认版本，编辑请切到桌面。', 'Created a blank resume. On mobile, review it in the library and edit on desktop.')
+      : label('已创建新的空白简历', 'Created a new blank resume'),
+    'success',
+    target === 'documents' ? 4200 : undefined,
+  )
 }
 
 function openDocument(id: string) {
+  const doc = store.documents.find((item) => item.id === id)
+  if (doc?.archived) {
+    showToast(label('这份简历已归档。请先恢复，避免误改旧版本。', 'This resume is archived. Restore it first to avoid editing an old version.'), 'info', 3600)
+    return
+  }
+  if (store.selectResume(id)) {
+    const target = documentLibraryNavigationTarget()
+    emit('navigate', target)
+    if (target === 'documents') {
+      showToast(label('已选中这份简历。编辑和导出请切到桌面继续。', 'Resume selected. Continue editing and exporting on desktop.'), 'info', 4200)
+    }
+  }
+}
+
+function restoreAndOpenDocument(id: string) {
+  const doc = store.documents.find((item) => item.id === id)
+  if (!doc) return
+  store.updateResumeMetadata(id, { archived: false })
   store.selectResume(id)
-  emit('navigate', 'editor')
+  const target = documentLibraryNavigationTarget()
+  emit('navigate', target)
+  showToast(
+    target === 'documents'
+      ? label('已恢复并选中这份简历。编辑请切到桌面继续。', 'Resume restored and selected. Continue editing on desktop.')
+      : label('已恢复并打开这份简历', 'Resume restored and opened'),
+    'success',
+    target === 'documents' ? 4200 : undefined,
+  )
 }
 
 function documentApplications(id: string) {
-  return store.applications.filter((app) => app.resumeId === id || app.tailoring?.sourceResumeId === id)
+  return getDocumentApplications(id, store.applications)
 }
 
 function documentLastExport(doc: ResumeDocument) {
@@ -724,6 +748,11 @@ function documentOriginLabel(doc: ResumeDocument) {
 function formatShortDate(value?: string) {
   if (!value) return label('暂无', 'None')
   return value.slice(0, 10)
+}
+
+function clearDocumentLibraryFilters() {
+  documentSearch.value = ''
+  documentOriginFilter.value = 'all'
 }
 
 function toggleDocumentSelection(id: string, checked: boolean) {
@@ -837,7 +866,7 @@ function saveMetadataEdit() {
     tags: splitItems(metaDraft.tags),
   })
   cancelMetadataEdit()
-  showToast(label('简历标签已更新', 'Resume metadata updated'), 'success')
+  showToast(label('简历信息已更新', 'Resume details updated'), 'success')
 }
 
 function duplicateDocument(id: string) {
@@ -961,13 +990,14 @@ function setTemplate(id: TemplateId) {
   showToast(locale.value === 'zh-CN' ? `已切换到${t(id)}模板` : `Switched to ${t(id)} template`, 'success')
 }
 
-function setStudioTheme<K extends keyof StudioTheme>(key: K, value: StudioTheme[K]) {
-  store.setStudioTheme(key, value)
+function requestResetDemo() {
+  pendingResetDemo.value = true
 }
 
-function resetStudioTheme() {
-  store.resetStudioTheme()
-  showToast(locale.value === 'zh-CN' ? '页面主题已恢复默认' : 'Page theme reset to defaults', 'success')
+function confirmResetDemo() {
+  store.resetToDefault()
+  pendingResetDemo.value = false
+  showToast(label('已恢复当前简历的示例数据', 'Demo data restored for the current resume'), 'success')
 }
 
 function splitItems(value: string) {
@@ -982,229 +1012,6 @@ function splitBullets(value: string) {
     .split('\n')
     .map((line) => line.replace(/^[•\-\*]\s*/, '').trim())
     .filter(Boolean)
-}
-
-function previewText(value: string) {
-  const text = value.trim().replace(/\s+/g, ' ')
-  return text || label('暂无内容', 'No content yet')
-}
-
-function previewExperience(items: ResumeData['experience']) {
-  if (!items.length) return label('暂无工作经历', 'No experience yet')
-  return items
-    .slice(0, 2)
-    .map((item) => `${item.company || label('未填写公司', 'Untitled company')} · ${item.position || label('未填写岗位', 'Untitled role')}`)
-    .join('\n')
-}
-
-function previewSkills(items: ResumeData['skills']) {
-  if (!items.length) return label('暂无技能', 'No skills yet')
-  return items
-    .slice(0, 3)
-    .map((item) => `${item.category || label('技能', 'Skills')}: ${item.items}`)
-    .join('\n')
-}
-
-function previewProjects(items: ResumeData['projects']) {
-  if (!items.length) return label('暂无项目', 'No projects yet')
-  return items
-    .slice(0, 2)
-    .map((item) => `${item.name || label('未命名项目', 'Untitled project')} · ${item.tech || item.role}`)
-    .join('\n')
-}
-
-function currentJdSnapshot(role = jdRole.value.trim() || store.data.personal.title.trim()) {
-  return {
-    company: jdCompany.value.trim(),
-    title: role,
-    location: '',
-    description: jdText.value.trim(),
-    requirements: splitBullets(jdText.value),
-    url: '',
-  }
-}
-
-async function generateJdDraft() {
-  const role = jdRole.value.trim() || store.data.personal.title.trim()
-  const description = jdText.value.trim()
-  if (!role || !description) {
-    jdError.value = label('请至少填写目标岗位和 JD 内容。', 'Add a target role and JD text first.')
-    return
-  }
-  if (!store.data.experience.length) {
-    jdError.value = label('请先补充至少一段工作经历，再生成定制草稿。', 'Add at least one work experience before generating a draft.')
-    return
-  }
-
-  jdGenerating.value = true
-  jdError.value = ''
-  jdDraft.value = null
-  try {
-    const draft = await backendApi.generateAssistantResumeDraft({
-      requestId: `front-${Date.now()}`,
-      persist: false,
-      locale: store.config.locale,
-      templateId: store.config.templateId,
-      personal: store.data.personal,
-      workHistory: store.data.experience.map((item) => ({
-        id: item.id,
-        company: item.company || label('未填写公司', 'Untitled company'),
-        title: item.position || label('未填写岗位', 'Untitled role'),
-        location: item.location,
-        startDate: item.startDate,
-        endDate: item.endDate,
-        current: item.current,
-        description: item.description,
-        achievements: splitBullets(item.description),
-        skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
-      })),
-      education: store.data.education,
-      skills: store.data.skills.flatMap((skill) => splitItems(skill.items)),
-      projects: store.data.projects,
-      jobDescription: currentJdSnapshot(role),
-    })
-    jdDraft.value = draft
-    resetJdApplySections(true)
-    store.logActivity({
-      type: 'ai',
-      tag: 'JD',
-      message: 'Generated JD-tailored resume draft',
-      messageZh: '生成 JD 定制简历草稿',
-      messageEn: 'Generated JD-tailored resume draft',
-      meta: draft.title,
-    })
-    showToast(label('已生成 JD 定制草稿', 'JD-tailored draft generated'), 'success')
-  } catch (error) {
-    jdError.value = error instanceof Error ? error.message : String(error)
-    showToast(label('生成失败，请确认后端已连接', 'Generation failed. Check backend connection.'), 'error', 4200)
-  } finally {
-    jdGenerating.value = false
-  }
-}
-
-function resetJdApplySections(value: boolean) {
-  ;(Object.keys(jdApplySections) as JdReviewSection[]).forEach((section) => {
-    jdApplySections[section] = value
-  })
-}
-
-function applyJdDraft() {
-  if (!jdDraft.value) return
-  if (!selectedJdSectionCount.value) {
-    showToast(label('请至少选择一个要应用的章节', 'Select at least one section to apply'), 'error')
-    return
-  }
-  const nextData = {
-    ...store.data,
-    personal: {
-      ...store.data.personal,
-      summary: jdApplySections.summary ? jdDraft.value.data.personal.summary : store.data.personal.summary,
-    },
-    experience: jdApplySections.experience ? jdDraft.value.data.experience : store.data.experience,
-    skills: jdApplySections.skills ? jdDraft.value.data.skills : store.data.skills,
-    projects: jdApplySections.projects ? jdDraft.value.data.projects : store.data.projects,
-  }
-  store.data = nextData
-  jdDraft.value.generation.appliedAt = new Date().toISOString()
-  store.logActivity({
-    type: 'ai',
-    tag: 'JD',
-    message: 'Applied selected JD-tailored resume sections',
-    messageZh: '采纳 JD 定制草稿的所选章节',
-    messageEn: 'Applied selected JD-tailored resume sections',
-    meta: `${selectedJdSectionCount.value} · ${jdDraft.value.match.score}/100`,
-  })
-  emit('navigate', 'editor')
-  showToast(label('已应用所选草稿章节', 'Selected draft sections applied'), 'success')
-}
-
-function createApplicationFromJdDraft() {
-  if (!jdDraft.value) return
-  const company = jdCompany.value.trim() || label('未填写公司', 'Untitled company')
-  const role = jdRole.value.trim() || jdDraft.value.data.personal.title || store.data.personal.title
-  const created = store.addApplication({
-    company,
-    role,
-    resumeId: store.activeResumeId,
-    match: jdDraft.value.match.score,
-    appliedAt: new Date().toISOString().slice(0, 10),
-    nextAction: label('跟进 JD 定制投递结果', 'Follow up on the JD-tailored application'),
-    followUpAt: '',
-    contactName: '',
-    contactEmail: '',
-    jobPostUrl: '',
-    notes: label('由 JD 定制草稿创建。', 'Created from JD-tailored draft.'),
-    jobDescription: currentJdSnapshot(role),
-    tailoring: {
-      requestId: jdDraft.value.requestId || '',
-      sourceResumeId: store.activeResumeId,
-      draftTitle: jdDraft.value.title,
-      matchScore: jdDraft.value.match.score,
-      matchedKeywords: jdDraft.value.match.matchedKeywords,
-      selectedExperienceIds: jdDraft.value.match.selectedExperienceIds,
-      strategy: jdDraft.value.generation.strategy,
-      generatedAt: jdDraft.value.generation.generatedAt,
-      appliedAt: jdDraft.value.generation.appliedAt,
-    },
-  })
-  pipelineFilter.value = 'all'
-  pipelineSearch.value = created.company
-  store.logActivity({
-    type: 'application',
-    tag: 'JD',
-    message: 'Created application from JD-tailored draft',
-    messageZh: '从 JD 定制草稿创建投递记录',
-    messageEn: 'Created application from JD-tailored draft',
-    meta: `${created.company} · ${created.match}`,
-    resumeId: created.resumeId,
-  })
-  emit('navigate', 'pipeline')
-  showToast(label('已创建投递记录并保存 JD 信息', 'Application created with JD details'), 'success')
-}
-
-function runAssistant() {
-  if (!assistantPrompt.value.trim()) {
-    showToast(locale.value === 'zh-CN' ? '先输入想优化的方向' : 'Enter an optimization goal first', 'info', 3500)
-    return
-  }
-  const prompt = assistantPrompt.value.trim()
-  assistantSuggestions.value.unshift({
-    id: `suggestion-${Date.now()}`,
-    zh: `根据“${prompt}”重写个人简介，并保留一页版式。`,
-    en: `Rewrite the summary for "${prompt}" and keep the resume to one page.`,
-    summaryZh: `面向“${prompt}”优化个人简介，突出最近经历、关键技术和可验证成果。`,
-    summaryEn: `Tailor the summary for "${prompt}", emphasizing recent experience, key technologies, and verifiable outcomes.`,
-  })
-  store.logActivity({
-    type: 'ai',
-    tag: 'AI',
-    message: 'Generated local resume advice',
-    messageZh: '生成本地简历优化建议',
-    messageEn: 'Generated local resume advice',
-    meta: prompt,
-  })
-  showToast(locale.value === 'zh-CN' ? '已生成优化建议，可直接采纳到个人简介' : 'Advice generated. You can apply it to the summary.', 'success', 3500)
-  assistantPrompt.value = ''
-}
-
-function applySuggestion(suggestion: AssistantSuggestion) {
-  const current = store.data.personal.summary.trim()
-  const fallback = locale.value === 'zh-CN'
-    ? '前端开发工程师，熟悉 Vue3、TypeScript 与工程化体系。'
-    : 'Frontend engineer experienced with Vue, TypeScript, and modern web tooling.'
-  const addition = locale.value === 'zh-CN' ? suggestion.summaryZh : suggestion.summaryEn
-  const joiner = locale.value === 'zh-CN' ? ' ' : ' '
-  store.data.personal.summary = `${current || fallback}${joiner}${addition}`.trim()
-  store.logActivity({
-    type: 'ai',
-    tag: 'AI',
-    message: 'Applied AI suggestion to summary',
-    messageZh: '采纳 AI 建议到个人简介',
-    messageEn: 'Applied AI suggestion to summary',
-    meta: 'summary.mdx',
-  })
-  emit('navigate', 'editor')
-  showToast(locale.value === 'zh-CN' ? '建议已写入个人简介' : 'Advice applied to the summary', 'success')
 }
 
 function matchClass(score: number) {
@@ -1234,13 +1041,13 @@ function matchClass(score: number) {
             <div class="hero__eyebrow">
               <span class="dot"></span>
               <span>{{ t('nowEditing') }}</span>
-            <span class="version">{{ store.activeDocument.title }} · v1.0</span>
+              <span class="version">{{ store.activeDocument.title }} · {{ activeVersionLabel() }}</span>
             </div>
             <h1 class="hero__title">
               {{ store.data.personal.title || label('目标岗位', 'Target role') }} <em>{{ store.data.personal.name || label('未命名简历', 'Untitled resume') }}</em>
             </h1>
             <div class="hero__sub">
-              <span class="pill">{{ store.config.locale }}</span>
+              <span class="pill">{{ resumeLanguageLabel(store.config.locale) }}</span>
               <span>{{ t(store.config.templateId) }} · {{ label('模板', 'template') }}</span>
               <span>·</span>
                 <span>{{ label('完整度', 'Complete') }} {{ store.completeness }}%</span>
@@ -1269,9 +1076,18 @@ function matchClass(score: number) {
               </div>
             </div>
 
+            <div v-if="props.nextAction" class="next-action-banner" :class="`next-action-banner--${props.nextAction.severity}`">
+              <span>{{ label('建议下一步', 'Recommended next step') }}</span>
+              <strong>{{ props.nextAction.title }}</strong>
+              <p>{{ props.nextAction.detail }}</p>
+              <button class="btn btn--primary" @click="emit('command', props.nextAction.primaryCommand)">
+                {{ label('继续', 'Continue') }}
+              </button>
+            </div>
+
             <div class="hero__actions">
               <button class="btn btn--primary" @click="openEditor">{{ t('openEditor') }} <kbd>E</kbd></button>
-              <button class="btn" @click="emit('navigate', 'editor')">{{ t('tailorWithAI') }}</button>
+              <button v-if="store.config.tweaks.showAI" class="btn" @click="emit('command', 'jd')">{{ t('tailorWithAI') }}</button>
               <button class="btn btn--ghost" @click="emit('navigate', 'documents')">{{ t('documentsPage') }}</button>
               <button class="btn btn--ghost" @click="emit('navigate', 'growth')">{{ t('growth') }}</button>
               <button class="btn btn--ghost" @click="emit('command', 'export')">{{ t('exportPdf') }}</button>
@@ -1282,11 +1098,11 @@ function matchClass(score: number) {
           <div class="hero__right">
             <div class="preview__bar">
               <div class="tabs">
-                <span class="on">preview.pdf</span>
-                <span>header.mdx</span>
-                <span>experience.mdx</span>
+                <span class="on">{{ label('简历预览', 'Resume preview') }}</span>
+                <span>{{ label('个人信息', 'Profile') }}</span>
+                <span>{{ label('工作经历', 'Experience') }}</span>
               </div>
-              <span>A4 · live</span>
+              <span>A4 · {{ label('实时', 'live') }}</span>
             </div>
             <div class="preview">
               <div class="preview__paper">
@@ -1339,7 +1155,7 @@ function matchClass(score: number) {
           </div>
           <div class="meta">
             <span>{{ growthEntries.length }} {{ label('条职业记忆', 'career memories') }}</span>
-            <button @click="emit('navigate', 'editor')">{{ t('tailorWithAI') }} →</button>
+            <button v-if="store.config.tweaks.showAI" @click="emit('command', 'jd')">{{ t('tailorWithAI') }} →</button>
           </div>
         </div>
         <div class="career-reminder" :class="{ due: careerUpdateDays <= 0 }">
@@ -1458,6 +1274,7 @@ function matchClass(score: number) {
                   <small>{{ label('来源', 'From') }} · {{ entry.sourceResumeTitle }}</small>
                   <div>
                     <a v-if="entry.evidenceUrl" :href="entry.evidenceUrl" target="_blank" rel="noreferrer">{{ label('证据', 'Evidence') }}</a>
+                    <button v-if="store.config.tweaks.showAI && !entry.archived" @click="emit('command', `growth:${entry.id}`)">{{ label('用于 JD', 'Use in JD') }}</button>
                     <button @click="editGrowthEntry(entry)">{{ label('编辑', 'Edit') }}</button>
                     <button @click="toggleGrowthArchive(entry)">{{ entry.archived ? label('恢复', 'Restore') : label('归档', 'Archive') }}</button>
                   </div>
@@ -1501,6 +1318,15 @@ function matchClass(score: number) {
               <option value="title-asc">{{ label('标题 A-Z', 'Title A-Z') }}</option>
             </select>
           </div>
+          <div class="doc-source-filter" :aria-label="label('按来源筛选', 'Filter by source')">
+            <button
+              v-for="origin in documentOriginFilters"
+              :key="origin.id"
+              :class="{ on: documentOriginFilter === origin.id }"
+              @click="documentOriginFilter = origin.id">
+              {{ origin.label }}<span>{{ origin.count }}</span>
+            </button>
+          </div>
           <div class="doc-bulk-actions">
             <button @click="selectAllVisibleDocuments">
               {{ selectedVisibleDocumentCount === visibleDocuments.length && visibleDocuments.length ? label('取消全选', 'Clear visible') : label('选择当前', 'Select visible') }}
@@ -1509,6 +1335,10 @@ function matchClass(score: number) {
             <button :disabled="!selectedDocuments.length" @click="bulkArchiveDocuments(false)">{{ label('批量恢复', 'Restore') }}</button>
             <button class="danger-link" :disabled="!selectedDocuments.length" @click="requestBulkDeleteDocuments">{{ label('批量删除', 'Delete') }}</button>
           </div>
+        </div>
+        <div class="doc-library-summary">
+          <span>{{ documentLibrarySummary }}</span>
+          <button v-if="documentSearch.trim() || documentOriginFilter !== 'all'" @click="clearDocumentLibraryFilters">{{ label('清除搜索和来源筛选', 'Clear search and source') }}</button>
         </div>
         <div v-if="bulkDeleteSnapshot" class="doc-undo">
           <span>{{ label('刚刚删除了简历', 'Recently deleted resumes') }} · {{ bulkDeleteSnapshot.documents.length }}</span>
@@ -1523,8 +1353,8 @@ function matchClass(score: number) {
                   :checked="selectedDocumentIds.includes(doc.id)"
                   @change="toggleDocumentSelectionFromEvent(doc.id, $event)" />
               </label>
-              <span class="lang">{{ doc.favorite ? '★' : doc.config.locale === 'zh-CN' ? 'ZH' : 'EN' }}</span>
-              <span class="menu">{{ doc.id === store.activeResumeId ? 'LIVE' : '···' }}</span>
+              <span class="lang">{{ doc.favorite ? '★' : resumeLanguageLabel(doc.config.locale) }}</span>
+              <span class="menu">{{ doc.archived ? label('归档', 'Archived') : doc.id === store.activeResumeId ? label('当前', 'Current') : '···' }}</span>
             </div>
             <div>
               <input v-if="renameId === doc.id" v-model="renameDraft" class="doc-rename" @click.stop @keydown.enter="finishRename" @keydown.esc="cancelRename" @blur="finishRename" />
@@ -1562,6 +1392,7 @@ function matchClass(score: number) {
               <span class="push">{{ locale === 'zh-CN' ? '更新' : 'due' }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}{{ locale === 'zh-CN' ? '天' : 'd' }}</span>
             </div>
             <div class="doc-actions" @click.stop>
+              <button v-if="doc.archived" @click="restoreAndOpenDocument(doc.id)">{{ label('恢复并编辑', 'Restore & edit') }}</button>
               <button @click="toggleFavoriteDocument(doc.id)">{{ doc.favorite ? label('取消收藏', 'Unstar') : label('收藏', 'Star') }}</button>
               <button @click="startRename(doc.id, doc.title)">{{ locale === 'zh-CN' ? '重命名' : 'Rename' }}</button>
               <button @click="startMetadataEdit(doc.id)">{{ label('标签', 'Meta') }}</button>
@@ -1625,7 +1456,10 @@ function matchClass(score: number) {
           <form v-if="applicationFormOpen" class="application-form" @submit.prevent="saveApplication">
             <div class="application-form__head">
               <strong>{{ editingApplicationId ? label('编辑岗位记录', 'Edit opportunity') : label('新增岗位记录', 'New opportunity') }}</strong>
-              <button type="button" @click="closeApplicationForm">×</button>
+              <button
+                type="button"
+                :aria-label="editingApplicationId ? label('关闭编辑岗位表单', 'Close edit opportunity form') : label('关闭新增岗位表单', 'Close new opportunity form')"
+                @click="closeApplicationForm">×</button>
             </div>
             <p v-if="applicationError" class="form-error">{{ applicationError }}</p>
             <div class="application-form__grid">
@@ -1648,7 +1482,9 @@ function matchClass(score: number) {
               <label>
                 <span>{{ t('resumeUsed') }}</span>
                 <select v-model="applicationDraft.resumeId">
-                  <option v-for="doc in documents" :key="doc.id" :value="doc.id">{{ doc.title }}</option>
+                  <option v-for="doc in applicationResumeOptions" :key="doc.id" :value="doc.id">
+                    {{ doc.archived ? label(`${doc.title}（已归档）`, `${doc.title} (archived)`) : doc.title }}
+                  </option>
                 </select>
               </label>
               <label>
@@ -1714,7 +1550,15 @@ function matchClass(score: number) {
             </thead>
             <tbody>
               <template v-for="app in filteredApplications" :key="app.id">
-                <tr :class="`follow-${followUpState(app)}`">
+                <tr
+                  class="application-row"
+                  :class="[`follow-${followUpState(app)}`, { 'application-row--selected': selectedApplicationId === app.id }]"
+                  tabindex="0"
+                  :aria-label="label(`打开 ${applicationDisplayName(app)} 投递详情`, `Open application details for ${applicationDisplayName(app)}`)"
+                  :title="label('打开投递详情', 'Open application details')"
+                  @click="handleApplicationRowClick($event, app)"
+                  @keydown="handleApplicationRowKeydown($event, app)"
+                >
                   <td>
                     <div class="co">
                       <div class="co__logo">{{ app.companyMono }}</div>
@@ -1754,9 +1598,9 @@ function matchClass(score: number) {
                     <div class="row-actions">
                       <button v-if="app.stage === 'saved'" @click="markApplicationApplied(app)">{{ label('标记投递', 'Mark applied') }}</button>
                       <button v-else-if="app.stage !== 'offer' && app.stage !== 'rejected'" @click="advanceApplication(app)">{{ label('推进', 'Advance') }}</button>
-                      <button @click="openApplicationDetail(app)">{{ label('详情', 'Details') }}</button>
-                      <button @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
-                      <button @click="removeApplication(app.id)">{{ label('删除', 'Delete') }}</button>
+                      <button :aria-label="label(`打开 ${applicationDisplayName(app)} 投递详情`, `Open details for ${applicationDisplayName(app)}`)" @click="openApplicationDetail(app)">{{ label('详情', 'Details') }}</button>
+                      <button :aria-label="label(`编辑 ${applicationDisplayName(app)}`, `Edit ${applicationDisplayName(app)}`)" @click="openApplicationForm(app)">{{ label('编辑', 'Edit') }}</button>
+                      <button :aria-label="label(`删除 ${applicationDisplayName(app)}`, `Delete ${applicationDisplayName(app)}`)" @click="requestRemoveApplication(app)">{{ label('删除', 'Delete') }}</button>
                     </div>
                   </td>
                 </tr>
@@ -1795,14 +1639,14 @@ function matchClass(score: number) {
 
           <Teleport to="body">
             <div v-if="selectedApplication" class="application-detail-backdrop" @click.self="closeApplicationDetail">
-              <aside class="application-detail-drawer">
+              <aside class="application-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="application-detail-title">
                 <div class="application-detail__head">
                   <div>
                     <span>{{ label('投递详情', 'Application detail') }}</span>
-                    <h3>{{ selectedApplication.company }} · {{ selectedApplication.role || label('未填写岗位', 'Untitled role') }}</h3>
+                    <h3 id="application-detail-title">{{ selectedApplication.company }} · {{ selectedApplication.role || label('未填写岗位', 'Untitled role') }}</h3>
                     <p>{{ selectedApplication.resumeTitle }} · {{ stageLabel(selectedApplication.stage) }} · {{ selectedApplication.match }}/100</p>
                   </div>
-                  <button @click="closeApplicationDetail">×</button>
+                  <button :aria-label="label('关闭投递详情', 'Close application detail')" @click="closeApplicationDetail">×</button>
                 </div>
 
                 <div class="application-detail__actions">
@@ -1833,21 +1677,22 @@ function matchClass(score: number) {
 
                 <section v-if="selectedApplication.jobDescription" class="application-detail__section">
                   <div class="detail-section-head">
-                    <span>{{ label('JD 快照', 'JD snapshot') }}</span>
+                    <span>{{ jobDescriptionSnapshotTitle() }}</span>
                     <a v-if="selectedApplication.jobDescription.url" :href="selectedApplication.jobDescription.url" target="_blank" rel="noreferrer">{{ label('打开链接', 'Open link') }}</a>
                   </div>
-                  <p class="jd-snapshot">{{ selectedApplication.jobDescription.description || selectedApplication.jobDescription.requirements.join(' · ') || label('已保存 JD 元数据', 'JD metadata saved') }}</p>
+                  <p class="jd-snapshot">{{ jobDescriptionSnapshotText(selectedApplication.jobDescription) }}</p>
                 </section>
 
                 <section v-if="selectedApplication.tailoring" class="application-detail__section">
                   <div class="detail-section-head">
-                    <span>{{ label('定制元数据', 'Tailoring metadata') }}</span>
+                    <span>{{ label('JD 定制依据', 'JD tailoring basis') }}</span>
                     <b>JD {{ selectedApplication.tailoring.matchScore }}</b>
                   </div>
                   <dl class="detail-meta-list">
-                    <div><dt>request id</dt><dd>{{ selectedApplication.tailoring.requestId || label('未返回', 'missing') }}</dd></div>
-                    <div><dt>{{ label('生成策略', 'strategy') }}</dt><dd>{{ selectedApplication.tailoring.strategy }}</dd></div>
-                    <div><dt>{{ label('命中关键词', 'keywords') }}</dt><dd>{{ selectedApplication.tailoring.matchedKeywords.join(' · ') || label('暂无', 'none') }}</dd></div>
+                    <div v-for="row in tailoringDisplayRows(selectedApplication.tailoring)" :key="row.key">
+                      <dt>{{ row.label }}</dt>
+                      <dd>{{ row.value }}</dd>
+                    </div>
                   </dl>
                 </section>
 
@@ -1879,7 +1724,7 @@ function matchClass(score: number) {
                         <p>{{ event.note || selectedApplication.nextAction || label('暂无备注', 'No note') }}</p>
                         <div class="detail-progress-event__actions">
                           <button @click="startProgressEventEdit(event)">{{ label('编辑', 'Edit') }}</button>
-                          <button @click="deleteProgressEvent(selectedApplication, event.id)">{{ label('删除', 'Delete') }}</button>
+                          <button @click="requestDeleteProgressEvent(selectedApplication, event)">{{ label('删除', 'Delete') }}</button>
                         </div>
                       </div>
                     </article>
@@ -1899,214 +1744,14 @@ function matchClass(score: number) {
         </div>
       </section>
 
-      <section v-if="props.mode === 'history'" class="section">
-        <div class="lower">
-          <div class="panel">
-            <div class="panel__head">
-              <div class="ttl">{{ t('commits') }} · <em>{{ store.activeDocument.title }}</em></div>
-              <button @click="emit('navigate', 'history')">{{ t('fullLog') }} →</button>
-            </div>
-            <div class="timeline">
-              <div v-for="event in activities" :key="event.id" class="commit" :class="`commit--${event.type}`">
-                <div class="commit__graph"><span class="commit__dot"></span></div>
-                <div class="commit__body">
-                  <div class="commit__msg"><span class="tag" :class="`tag--${event.type}`">{{ event.tag }}</span>{{ activityMessage(event) }}</div>
-                  <div class="commit__meta">{{ event.meta }}</div>
-                </div>
-                <div class="commit__sha"><div class="hash">{{ activityHash(event.id) }}</div><div>{{ activityWhen(event.createdAt) }}</div></div>
-              </div>
-              <div v-if="!activities.length" class="empty-row">
-                {{ label('还没有历史记录。编辑简历、导出或记录投递后会自动出现。', 'No history yet. Edits, exports, and applications will appear here.') }}
-              </div>
-            </div>
-          </div>
+      <WorkspaceHistoryPanel
+        v-if="props.mode === 'history'"
+        :active-title="store.activeDocument.title"
+        :activities="store.activityLog"
+        @navigate="emit('navigate', 'history')"
+      />
 
-          <div v-if="false" class="panel ai-panel">
-            <div class="panel__head">
-              <div class="ttl">AI · <em>{{ t('coEditor') }}</em></div>
-              <div class="live">{{ label('会话', 'SESSION') }} · {{ t('ready') }}</div>
-            </div>
-            <div class="ai">
-              <div class="ai__convo">
-                <div class="ai__msg ai__msg--user">
-                  <div class="gut">›</div>
-                  <div class="body">{{ label('针对目标岗位优化这份简历，保持一页，优先强化最近经历。', 'Tailor this resume for the target role, keep it to one page, and prioritize recent experience.') }}</div>
-                </div>
-                <div class="ai__msg ai__msg--ai">
-                  <div class="gut">∗</div>
-                  <div class="body">
-                    {{ label('我会检查摘要、经历和项目三块。当前完整度', 'I will review the summary, experience, and projects. Current completeness') }} <strong>{{ store.completeness }}</strong>{{ label('，建议先补量化结果，再压缩弱相关内容。', '. Add measurable outcomes first, then trim weaker details.') }}
-                    <div class="ai__tool">
-                      <div class="ai__tool__head"><span class="name">read_resume</span><span class="status">{{ label('完成', 'DONE') }}</span></div>
-                      <div class="ai__tool__body">
-                        <div class="row"><span class="k">{{ label('章节', 'sections') }}</span><span class="v">{{ store.config.sectionOrder.length }} {{ label('块', 'blocks') }}</span></div>
-                        <div class="row"><span class="k">{{ label('模板', 'template') }}</span><span class="v">{{ t(store.config.templateId) }}</span></div>
-                      </div>
-                    </div>
-                    <div class="jd-builder">
-                      <div class="jd-builder__head">
-                        <span>{{ label('JD 定制草稿', 'JD-tailored draft') }}</span>
-                        <b>{{ jdDraft ? `${jdDraft?.match.score}/100` : label('待生成', 'ready') }}</b>
-                      </div>
-                      <div class="jd-builder__grid">
-                        <input v-model="jdCompany" :placeholder="label('目标公司', 'Target company')" />
-                        <input v-model="jdRole" :placeholder="label('目标岗位', 'Target role')" />
-                      </div>
-                      <textarea v-model="jdText" rows="5" :placeholder="label('粘贴招聘 JD：职责、要求、关键词都会用于排序经历和生成摘要。', 'Paste the JD: responsibilities, requirements, and keywords will rank experience and shape the summary.')" />
-                      <p v-if="jdError" class="form-error">{{ jdError }}</p>
-                      <div v-if="jdDraft" class="jd-result">
-                        <div>
-                          <strong>{{ jdDraft?.title }}</strong>
-                          <span>{{ label('命中关键词', 'Matched keywords') }} · {{ jdDraft?.match.matchedKeywords.slice(0, 8).join(' · ') || label('暂无', 'none') }}</span>
-                        </div>
-                        <div class="jd-review">
-                          <div class="jd-review__head">
-                            <span>{{ label('选择要应用的章节', 'Choose sections to apply') }}</span>
-                            <div>
-                              <button class="mini-link" @click="resetJdApplySections(true)">{{ label('全选', 'All') }}</button>
-                              <button class="mini-link" @click="resetJdApplySections(false)">{{ label('清空', 'None') }}</button>
-                            </div>
-                          </div>
-                          <label v-for="section in jdSectionReviews" :key="section.id" class="jd-review__item">
-                            <input v-model="jdApplySections[section.id]" type="checkbox" />
-                            <span class="jd-review__label">{{ section.label }}</span>
-                            <span class="jd-review__preview">
-                              <em>{{ label('当前', 'Current') }}</em>{{ section.before }}
-                              <em>{{ label('草稿', 'Draft') }}</em>{{ section.after }}
-                            </span>
-                          </label>
-                        </div>
-                        <div class="jd-result__actions">
-                          <button class="btn btn--primary" @click="applyJdDraft">
-                            {{ label(`应用所选 (${selectedJdSectionCount})`, `Apply selected (${selectedJdSectionCount})`) }}
-                          </button>
-                          <button class="btn btn--ghost" @click="createApplicationFromJdDraft">{{ label('记录投递', 'Log application') }}</button>
-                        </div>
-                      </div>
-                      <button class="btn" :disabled="jdGenerating" @click="generateJdDraft">
-                        {{ jdGenerating ? label('生成中...', 'Generating...') : label('根据 JD 生成草稿', 'Generate from JD') }}
-                      </button>
-                    </div>
-                    <div class="ai-suggestions">
-                      <button v-for="suggestion in assistantSuggestions" :key="suggestion.id" @click="applySuggestion(suggestion)">
-                        <span>{{ locale === 'zh-CN' ? suggestion.zh : suggestion.en }}</span>
-                        <b>{{ t('apply') }}</b>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="ai__compose">
-                <input v-model="assistantPrompt" :placeholder="t('aiPlaceholder')" @keydown.enter="runAssistant" />
-                <button class="btn btn--primary" @click="runAssistant">{{ t('generateAdvice') }}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="props.mode === 'settings'" class="section">
-        <div class="section__head">
-          <div>
-            <div class="num">01 · {{ t('settings') }}</div>
-            <h2>{{ t('studioPrefs') }}</h2>
-          </div>
-        </div>
-        <div class="settings-panel">
-          <section class="settings-card settings-card--wide settings-card--app">
-            <div class="settings-card__head">
-              <div>
-                <em>{{ label('网站应用风格', 'Website style') }}</em>
-                <span>{{ label('工作台外观', 'Workspace appearance') }}</span>
-                <strong>{{ label('只影响导航、页面、表单和面板，不会改变导出的简历', 'Only affects navigation, pages, forms, and panels. It will not change exported resumes.') }}</strong>
-              </div>
-              <button class="btn btn--ghost" @click="resetStudioTheme">{{ label('恢复默认', 'Reset') }}</button>
-            </div>
-
-            <div class="settings-rows">
-              <div class="settings-row">
-                <div class="settings-row__copy">
-                  <span>{{ label('强调色', 'Accent') }}</span>
-                  <small>{{ label('网站导航、按钮、提示和分数条', 'Website navigation, buttons, toasts, and meters') }}</small>
-                </div>
-                <div class="settings-swatches">
-                  <button v-for="accent in accents" :key="accent.id"
-                    class="settings-swatch"
-                    :class="{ on: store.config.studioTheme.accent === accent.id }"
-                    :style="{ background: accent.hex }"
-                    :title="accent.label"
-                    @click="setStudioTheme('accent', accent.id)"></button>
-                </div>
-              </div>
-
-              <div class="settings-row">
-                <div class="settings-row__copy">
-                  <span>{{ label('纸张', 'Paper') }}</span>
-                  <small>{{ label('整站背景和面板底色', 'App background and panels') }}</small>
-                </div>
-                <div class="settings-swatches">
-                  <button v-for="paper in papers" :key="paper.id"
-                    class="settings-swatch"
-                    :class="{ on: store.config.studioTheme.paper === paper.id }"
-                    :style="{ background: paper.hex }"
-                    :title="paper.label"
-                    @click="setStudioTheme('paper', paper.id)"></button>
-                </div>
-              </div>
-
-              <div class="settings-row">
-                <div class="settings-row__copy">
-                  <span>{{ label('全局辅助线', 'Global rule lines') }}</span>
-                  <small>{{ label('工作台背景参考线', 'Workspace background guides') }}</small>
-                </div>
-                <button class="tgl" :class="{ on: store.config.studioTheme.ruleLines }"
-                  @click="setStudioTheme('ruleLines', !store.config.studioTheme.ruleLines)"></button>
-              </div>
-
-              <div class="settings-row settings-row--fonts">
-                <div class="settings-row__copy">
-                  <span>{{ label('界面字体', 'Interface font') }}</span>
-                  <small>{{ label('仅影响工作台界面', 'Workspace UI only') }}</small>
-                </div>
-                <div class="settings-fonts">
-                  <button v-for="font in interfaceFonts" :key="font.id"
-                    class="font-swatch"
-                    :class="[font.className, { on: store.config.studioTheme.font === font.id }]"
-                    @click="setStudioTheme('font', font.id)">
-                    <div>
-                      <div class="name">{{ font.name }}</div>
-                      <div class="meta">{{ font.meta }}</div>
-                    </div>
-                    <div class="meta">Aa</div>
-                  </button>
-                </div>
-              </div>
-
-              <div class="settings-row">
-                <div class="settings-row__copy">
-                  <span>{{ label('页面密度', 'Page density') }}</span>
-                  <small>{{ label('控制工作台间距', 'Controls workspace spacing') }}</small>
-                </div>
-                <div class="seg-radio">
-                  <button v-for="density in densities" :key="density"
-                    :class="{ on: store.config.studioTheme.density === density }"
-                    @click="setStudioTheme('density', density)">{{ density }}</button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section class="settings-card">
-            <div class="settings-card__head">
-              <div>
-                <span>{{ label('数据', 'Data') }}</span>
-                <strong>{{ label('恢复示例会覆盖当前简历内容', 'Restoring demo content overwrites the current resume') }}</strong>
-              </div>
-            </div>
-            <button class="btn btn--ghost settings-danger" @click="store.resetToDefault()">{{ t('restoreDemo') }}</button>
-          </section>
-        </div>
-      </section>
+      <WorkspaceSettingsPanel v-if="props.mode === 'settings'" @reset-demo="requestResetDemo" />
     </div>
     <ConfirmDialog v-if="pendingDeleteResume"
       :title="label('删除这份简历？', 'Delete this resume?')"
@@ -2120,5 +1765,23 @@ function matchClass(score: number) {
       danger
       @confirm="confirmBulkDeleteDocuments"
       @cancel="pendingBulkDelete = null" />
+    <ConfirmDialog v-if="pendingDeleteApplication"
+      :title="label('删除这条岗位记录？', 'Delete this opportunity?')"
+      :message="pendingDeleteApplicationMessage"
+      danger
+      @confirm="confirmRemoveApplication"
+      @cancel="pendingDeleteApplication = null" />
+    <ConfirmDialog v-if="pendingDeleteProgressEvent"
+      :title="label('删除这条时间线事件？', 'Delete this timeline event?')"
+      :message="pendingDeleteProgressEventMessage"
+      danger
+      @confirm="confirmDeleteProgressEvent"
+      @cancel="pendingDeleteProgressEvent = null" />
+    <ConfirmDialog v-if="pendingResetDemo"
+      :title="label('恢复当前简历为示例数据？', 'Restore demo data for this resume?')"
+      :message="label('当前正在编辑的简历内容和简历外观会被示例数据覆盖；简历库、投递记录和职业记忆不会被清空。此操作无法撤销。', 'The current resume content and resume appearance will be overwritten with demo data. Documents, applications, and career memories are not cleared. This cannot be undone.')"
+      danger
+      @confirm="confirmResetDemo"
+      @cancel="pendingResetDemo = false" />
   </main>
 </template>

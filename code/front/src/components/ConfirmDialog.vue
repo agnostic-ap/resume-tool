@@ -9,9 +9,9 @@ const { l } = useLocaleText()
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" @click.self="emit('cancel')">
-      <div class="confirm-dialog">
+      <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
         <div class="confirm-dialog__body">
-          <h3>{{ title }}</h3>
+          <h3 id="confirm-dialog-title">{{ title }}</h3>
           <p>{{ message }}</p>
         </div>
         <div class="confirm-dialog__actions">

@@ -36,11 +36,11 @@ function autoBullet(exp: { description: string }) {
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('公司名称', 'Company') }}</label>
-          <input v-model="exp.company" :class="inputCls" :placeholder="l('某科技有限公司', 'Acme Inc.')" />
+          <input v-model="exp.company" data-guide-field="experience-company" :class="inputCls" :placeholder="l('某科技有限公司', 'Acme Inc.')" />
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('职位', 'Title') }}</label>
-          <input v-model="exp.position" :class="inputCls" :placeholder="l('前端开发工程师', 'Frontend Engineer')" />
+          <input v-model="exp.position" data-guide-field="experience-title" :class="inputCls" :placeholder="l('前端开发工程师', 'Frontend Engineer')" />
         </div>
       </div>
 
@@ -96,7 +96,7 @@ function autoBullet(exp: { description: string }) {
           <p>{{ l('• 主导[项目]，协调N人团队，X周内按时交付', '• Led [project], coordinated N people, and shipped in X weeks') }}</p>
         </div>
 
-        <textarea v-model="exp.description" rows="4" :class="inputCls" style="resize:vertical"
+        <textarea v-model="exp.description" rows="4" data-guide-field="experience-description" :class="inputCls" style="resize:vertical"
           :placeholder="l('• 负责核心模块的设计与开发\n• 优化性能，将加载时间从Xs降至Ys\n• 主导推进XX项目，按时交付并获得好评', '• Designed and built a core module\n• Improved performance, reducing load time from Xs to Ys\n• Led delivery of XX project on schedule')" />
       </div>
 

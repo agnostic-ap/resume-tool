@@ -12,12 +12,14 @@ const { l } = useLocaleText()
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('姓名', 'Name') }}</label>
         <input v-model="store.data.personal.name"
+          data-guide-field="name"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
           :placeholder="l('张明', 'Alex Chen')" />
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('求职岗位', 'Target role') }}</label>
         <input v-model="store.data.personal.title"
+          data-guide-field="title"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
           :placeholder="l('前端开发工程师', 'Frontend Engineer')" />
       </div>
@@ -27,12 +29,14 @@ const { l } = useLocaleText()
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('手机', 'Phone') }}</label>
         <input v-model="store.data.personal.phone"
+          data-guide-field="phone"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
           placeholder="138-0000-0000" />
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">{{ l('邮箱', 'Email') }}</label>
         <input v-model="store.data.personal.email" type="email"
+          data-guide-field="email"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
           placeholder="your@email.com" />
       </div>

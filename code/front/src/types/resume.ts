@@ -195,6 +195,19 @@ export interface JobApplication {
   updatedAt: string
 }
 
+export interface ImportDataPreview {
+  documents: number
+  applications: number
+  growthEntries: number
+  activityEvents: number
+  hasLegacyResume: boolean
+  hasConfig: boolean
+  hasDocuments: boolean
+  hasApplications: boolean
+  hasGrowthEntries: boolean
+  hasActivityLog: boolean
+}
+
 export type ActivityType = 'edit' | 'ai' | 'application' | 'resume' | 'export' | 'system'
 
 export interface ActivityEvent {
@@ -217,7 +230,15 @@ export type ProductEventName =
   | 'jd_section_applied'
   | 'application_created_from_jd'
   | 'export_precheck_completed'
+  | 'export_precheck_action_applied'
+  | 'next_action_clicked'
   | 'sync_operation_failed'
+  | 'paywall_viewed'
+  | 'upgrade_started'
+  | 'plan_changed'
+  | 'resume_shared'
+  | 'referral_captured'
+  | 'public_resume_viewed'
 
 export type SyncOperationStatus = 'pending' | 'synced' | 'failed' | 'local-only'
 

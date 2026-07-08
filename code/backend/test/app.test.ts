@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -238,7 +239,7 @@ test('platform API accepts bearer auth and rejects invalid payloads', async () =
       method: 'POST',
       url: '/api/v1/platform/resume-drafts',
       headers: { authorization: 'Bearer bearer-secret' },
-      payload: { jobDescription: { title: '' }, workHistory: [] },
+      payload: { requestId: 'invalid-payload', userId: 'user-invalid', jobDescription: { title: '' }, workHistory: [] },
     })
     assert.equal(invalid.statusCode, 400)
     assert.equal(invalid.json().error, 'Validation failed')
@@ -259,6 +260,17 @@ test('platform API accepts bearer auth and rejects invalid payloads', async () =
     })
     assert.equal(assistant.statusCode, 200)
     assert.equal(assistant.json().generation.persisted, false)
+
+    const requests = await app.inject({
+      method: 'GET',
+      url: '/api/v1/platform/requests',
+      headers: { authorization: 'Bearer bearer-secret' },
+    })
+    assert.equal(requests.statusCode, 200)
+    const failed = requests.json().find((request: { requestId?: string }) => request.requestId === 'invalid-payload')
+    assert.equal(failed.status, 'failed')
+    assert.equal(failed.route, 'api-v1-platform')
+    assert.equal(failed.error, 'Validation failed')
   } finally {
     if (previousApiKey === undefined) {
       delete process.env.RESUME_PLATFORM_API_KEY
@@ -287,6 +299,8 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
       scopes: ['drafts:write', 'requests:read'],
       quotaPerDay: 1,
       rateLimitPerMinute: 10,
+      pricePerDraft: 0.5,
+      currency: 'USD',
     },
     {
       id: 'readonly',
@@ -305,9 +319,33 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
   try {
     const openapi = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
     assert.equal(openapi.statusCode, 200)
-    assert.equal(openapi.json().openapi, '3.1.0')
-    assert.ok(openapi.json().paths['/api/v1/resume-drafts'])
-    assert.match(openapi.json()['x-curl-example'], /curl -X POST/)
+    const openapiBody = openapi.json()
+    assert.equal(openapiBody.openapi, '3.1.0')
+    assert.ok(openapiBody.paths['/api/v1/resume-drafts'])
+    assert.equal(
+      openapiBody.paths['/api/v1/resume-drafts'].post.requestBody.content['application/json'].schema.$ref,
+      '#/components/schemas/ResumeDraftRequest',
+    )
+    assert.equal(
+      openapiBody.paths['/api/v1/resume-drafts'].post.responses[201].content['application/json'].schema.$ref,
+      '#/components/schemas/ResumeDraftResponse',
+    )
+    assert.equal(
+      openapiBody.paths['/api/v1/resume-drafts'].post.responses[400].content['application/json'].schema.$ref,
+      '#/components/schemas/PlatformError',
+    )
+    assert.equal(
+      openapiBody.paths['/api/v1/platform/requests'].get.responses[200].content['application/json'].schema.items.$ref,
+      '#/components/schemas/PlatformRequestLog',
+    )
+    assert.deepEqual(openapiBody.components.schemas.ResumeDraftRequest.required, ['workHistory', 'jobDescription'])
+    assert.match(openapiBody.components.schemas.ResumeDraftRequest.properties.requestId.description, /idempotent/)
+    assert.ok(openapiBody.components.schemas.ResumeDraftResponse.properties.generation.properties.idempotent)
+    assert.ok(openapiBody.components.schemas.PlatformRequestLog.properties.error)
+    assert.deepEqual(openapiBody.components.schemas.PlatformError.required, ['error'])
+    assert.match(openapiBody['x-curl-example'], /curl -X POST/)
+    assert.match(openapiBody['x-idempotency'], /persist=true/)
+    assert.match(openapiBody['x-authentication'], /x-resume-api-key/)
 
     const missingScope = await app.inject({
       method: 'POST',
@@ -341,11 +379,15 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
       headers: { 'x-resume-api-key': 'futurehire-key' },
     })
     assert.equal(requests.statusCode, 200)
-    assert.equal(requests.json().length, 1)
-    assert.equal(requests.json()[0].clientId, 'futurehire')
-    assert.equal(requests.json()[0].status, 'draft')
-    assert.equal(requests.json()[0].route, 'api-v1')
-    assert.equal(typeof requests.json()[0].latencyMs, 'number')
+    assert.equal(requests.json().length, 2)
+    const quotaFailure = requests.json().find((request: { requestId?: string }) => request.requestId === 'futurehire-2')
+    assert.equal(quotaFailure.clientId, 'futurehire')
+    assert.equal(quotaFailure.status, 'failed')
+    assert.equal(quotaFailure.route, 'api-v1')
+    assert.match(quotaFailure.error, /quota/)
+    const successfulRequest = requests.json().find((request: { requestId?: string }) => request.requestId === 'futurehire-1')
+    assert.equal(successfulRequest.status, 'draft')
+    assert.equal(typeof successfulRequest.latencyMs, 'number')
 
     const clients = await app.inject({
       method: 'GET',
@@ -356,11 +398,45 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
     assert.equal(clients.json().length, 3)
     assert.equal(clients.json()[0].id, 'futurehire')
     assert.equal(clients.json()[0].hasKey, true)
-    assert.equal(clients.json()[0].requestCount, 1)
-    assert.equal(clients.json()[0].failedRequestCount, 0)
+    assert.equal(clients.json()[0].requestCount, 2)
+    assert.equal(clients.json()[0].failedRequestCount, 1)
     assert.equal(clients.json()[0].quotaPerDay, 1)
     assert.equal(clients.json()[0].key, undefined)
     assert.deepEqual(clients.json()[1].scopes, ['requests:read'])
+
+    const adminUsage = await app.inject({
+      method: 'GET',
+      url: '/api/admin/platform-usage',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(adminUsage.statusCode, 200)
+    const usageBody = adminUsage.json()
+    assert.equal(usageBody.totals.clients, 3)
+    const futurehireUsage = usageBody.clients.find((client: { clientId: string }) => client.clientId === 'futurehire')
+    assert.equal(futurehireUsage.totalRequests, 2)
+    assert.equal(futurehireUsage.failedRequests, 1)
+    assert.equal(futurehireUsage.billableRequests, 1)
+    assert.equal(futurehireUsage.estimatedCost, 0.5)
+    assert.equal(futurehireUsage.currency, 'USD')
+
+    const clientUsage = await app.inject({
+      method: 'GET',
+      url: '/api/v1/platform/usage',
+      headers: { 'x-resume-api-key': 'futurehire-key' },
+    })
+    assert.equal(clientUsage.statusCode, 200)
+    assert.equal(clientUsage.json().clients.length, 1)
+    assert.equal(clientUsage.json().clients[0].clientId, 'futurehire')
+
+    const adminState = await app.inject({
+      method: 'GET',
+      url: '/api/admin/state',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(adminState.statusCode, 200)
+    const adminFailure = adminState.json().platformRequests.find((request: { requestId?: string }) => request.requestId === 'futurehire-2')
+    assert.equal(adminFailure.status, 'failed')
+    assert.match(adminFailure.error, /quota/)
 
     const firstBurst = await app.inject({
       method: 'POST',
@@ -394,6 +470,114 @@ test('platform API exposes OpenAPI and enforces client scopes, quota, and rate l
     } else {
       process.env.RESUME_ADMIN_USERS = previousAdminUsers
     }
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('resume drafts return a structured diff and fall back to rule-based without an LLM key', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+  const previousKey = process.env.RESUME_LLM_API_KEY
+  delete process.env.RESUME_LLM_API_KEY
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/assistant/resume-drafts',
+      payload: platformPayload({ persist: false }),
+    })
+
+    assert.equal(response.statusCode, 200)
+    const draft = response.json()
+    assert.equal(draft.generation.strategy, 'rule-based-jd-tailoring-v1')
+    assert.ok(Array.isArray(draft.diff))
+    assert.ok(draft.diff.length > 0)
+
+    const summaryOp = draft.diff.find((op: { section: string }) => op.section === 'summary')
+    assert.ok(summaryOp)
+    assert.equal(summaryOp.source, 'rule-based')
+    assert.equal(summaryOp.field, 'personal.summary')
+    assert.ok(summaryOp.after.length > 0)
+    assert.ok(typeof summaryOp.confidence === 'number')
+    assert.notEqual(summaryOp.before, summaryOp.after)
+  } finally {
+    if (previousKey === undefined) delete process.env.RESUME_LLM_API_KEY
+    else process.env.RESUME_LLM_API_KEY = previousKey
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('auth accepts sha256-hashed secrets and rate limits failed attempts', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+  const previousAdminUsers = process.env.RESUME_ADMIN_USERS
+  const previousClients = process.env.RESUME_PLATFORM_CLIENTS
+  const previousApiKey = process.env.RESUME_PLATFORM_API_KEY
+  delete process.env.RESUME_PLATFORM_API_KEY
+  process.env.RESUME_ADMIN_USERS = JSON.stringify([
+    {
+      email: 'hashed@example.com',
+      tokenHash: createHash('sha256').update('hashed-admin-token').digest('hex'),
+      role: 'super_admin',
+    },
+  ])
+  process.env.RESUME_PLATFORM_CLIENTS = JSON.stringify([
+    {
+      id: 'hashed-client',
+      keyHash: createHash('sha256').update('hashed-platform-key').digest('hex'),
+      scopes: ['requests:read'],
+    },
+  ])
+
+  try {
+    const session = await app.inject({
+      method: 'GET',
+      url: '/api/admin/session',
+      headers: { 'x-admin-token': 'hashed-admin-token' },
+    })
+    assert.equal(session.statusCode, 200)
+    assert.equal(session.json().email, 'hashed@example.com')
+
+    const requests = await app.inject({
+      method: 'GET',
+      url: '/api/v1/platform/requests',
+      headers: { 'x-resume-api-key': 'hashed-platform-key' },
+    })
+    assert.equal(requests.statusCode, 200)
+
+    const wrongKey = await app.inject({
+      method: 'GET',
+      url: '/api/v1/platform/requests',
+      headers: { 'x-resume-api-key': 'wrong-key' },
+    })
+    assert.equal(wrongKey.statusCode, 401)
+
+    let lastStatus = 0
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const failed = await app.inject({
+        method: 'GET',
+        url: '/api/admin/session',
+        headers: { 'x-admin-token': 'wrong-token' },
+      })
+      lastStatus = failed.statusCode
+    }
+    assert.equal(lastStatus, 429)
+
+    const lockedOut = await app.inject({
+      method: 'GET',
+      url: '/api/admin/session',
+      headers: { 'x-admin-token': 'hashed-admin-token' },
+    })
+    assert.equal(lockedOut.statusCode, 429)
+  } finally {
+    if (previousAdminUsers === undefined) delete process.env.RESUME_ADMIN_USERS
+    else process.env.RESUME_ADMIN_USERS = previousAdminUsers
+    if (previousClients === undefined) delete process.env.RESUME_PLATFORM_CLIENTS
+    else process.env.RESUME_PLATFORM_CLIENTS = previousClients
+    if (previousApiKey === undefined) delete process.env.RESUME_PLATFORM_API_KEY
+    else process.env.RESUME_PLATFORM_API_KEY = previousApiKey
     await app.close()
     await rm(dir, { recursive: true, force: true })
   }

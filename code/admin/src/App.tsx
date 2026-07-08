@@ -92,6 +92,28 @@ type PlatformClientRow = {
   lastRequestAt: string | null
 }
 
+type PlatformUsageRow = {
+  key: string
+  clientId: string
+  currency: string
+  pricePerDraft: number
+  totalRequests: number
+  billableRequests: number
+  failedRequests: number
+  todayRequests: number
+  quotaUtilization: number | null
+  avgLatencyMs: number
+  p95LatencyMs: number
+  estimatedCost: number
+}
+
+type PlatformBillingSummary = {
+  generatedAt: string
+  currency: string
+  totals: { clients: number; billableRequests: number; failedRequests: number; estimatedCost: number }
+  clients: Omit<PlatformUsageRow, 'key'>[]
+}
+
 type AdminRole = 'super_admin' | 'ops_admin' | 'viewer'
 
 type AdminSession = {
@@ -206,6 +228,17 @@ const platformClientColumns: ColumnsType<PlatformClientRow> = [
   { title: 'Last request', dataIndex: 'lastRequestAt', render: (value) => value ? new Date(value).toLocaleString() : 'none' },
 ]
 
+const platformUsageColumns: ColumnsType<PlatformUsageRow> = [
+  { title: 'Client', dataIndex: 'clientId' },
+  { title: 'Billable', dataIndex: 'billableRequests' },
+  { title: 'Failed', dataIndex: 'failedRequests', render: (value) => <Tag color={value ? 'red' : 'green'}>{value}</Tag> },
+  { title: 'Today', dataIndex: 'todayRequests' },
+  { title: 'Quota use', dataIndex: 'quotaUtilization', render: (value) => value == null ? 'n/a' : `${Math.round(value * 100)}%` },
+  { title: 'Avg ms', dataIndex: 'avgLatencyMs' },
+  { title: 'p95 ms', dataIndex: 'p95LatencyMs' },
+  { title: 'Est. cost', dataIndex: 'estimatedCost', render: (value, row) => `${row.currency} ${value.toFixed(2)}` },
+]
+
 const activityColumns: ColumnsType<ActivityRow> = [
   { title: '时间', dataIndex: 'createdAt', render: (value) => new Date(value).toLocaleString() },
   { title: '类型', dataIndex: 'type', render: (type) => <Tag>{type}</Tag> },
@@ -232,6 +265,7 @@ function resumeCompleteness(doc: BackendState['documents'][number]) {
 export default function App() {
   const [backendState, setBackendState] = useState<BackendState | null>(null)
   const [platformClients, setPlatformClients] = useState<PlatformClientRow[]>([])
+  const [platformBilling, setPlatformBilling] = useState<PlatformBillingSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem('resume-admin-token') ?? '')
@@ -260,8 +294,12 @@ export default function App() {
         if (!clientsResponse.ok) throw new Error(`${clientsResponse.status} ${clientsResponse.statusText}`)
         const clientRows = await clientsResponse.json() as Omit<PlatformClientRow, 'key'>[]
         setPlatformClients(clientRows.map((client) => ({ ...client, key: client.id })))
+        const usageResponse = await fetch(`${apiBaseUrl}/api/admin/platform-usage`, { headers: adminHeaders(token) })
+        if (!usageResponse.ok) throw new Error(`${usageResponse.status} ${usageResponse.statusText}`)
+        setPlatformBilling(await usageResponse.json() as PlatformBillingSummary)
       } else {
         setPlatformClients([])
+        setPlatformBilling(null)
       }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
@@ -286,7 +324,7 @@ export default function App() {
       setAdminToken(token)
       setLoginToken('')
       setAdminSession(session)
-      if (session.role !== 'super_admin' && ['permissions', 'platform', 'deploy', 'data'].includes(selectedMenu)) {
+      if (session.role !== 'super_admin' && ['permissions', 'platform', 'billing', 'deploy', 'data'].includes(selectedMenu)) {
         setSelectedMenu('overview')
       }
       await loadBackendState(token, session.role)
@@ -306,6 +344,7 @@ export default function App() {
     setAdminSession(null)
     setBackendState(null)
     setPlatformClients([])
+    setPlatformBilling(null)
     setSelectedMenu('overview')
   }
 
@@ -385,6 +424,7 @@ export default function App() {
       ? [
           { key: 'permissions', icon: <SafetyCertificateOutlined />, label: '权限与密钥' },
           { key: 'platform', icon: <ApiOutlined />, label: '平台 API' },
+          { key: 'billing', icon: <BarChartOutlined />, label: '平台计费' },
         ]
       : []),
     { key: 'resumes', icon: <FileTextOutlined />, label: '简历数据' },
@@ -510,6 +550,38 @@ export default function App() {
     )
   }
 
+  function renderBilling() {
+    const usageRows: PlatformUsageRow[] = (platformBilling?.clients ?? []).map((client) => ({ ...client, key: client.clientId }))
+    return (
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={8}>
+          <Card><Statistic title="计费客户" value={platformBilling?.totals.clients ?? 0} suffix="个" /></Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card><Statistic title="计费调用" value={platformBilling?.totals.billableRequests ?? 0} suffix="次" /></Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card><Statistic title="预估账单" value={platformBilling?.totals.estimatedCost ?? 0} prefix={platformBilling?.currency ?? 'USD'} precision={2} /></Card>
+        </Col>
+        <Col xs={24}>
+          <Card
+            title="按客户用量与计费"
+            extra={<Text type="secondary">{platformBilling ? `更新于 ${new Date(platformBilling.generatedAt).toLocaleString()}` : ''}</Text>}
+          >
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="计费基于非失败调用数 × 单次价格"
+              description="单次价格、币种来自 RESUME_PLATFORM_CLIENTS 的 pricePerDraft / currency；失败调用不计费。这是 B2B 第二曲线的用量与对账基础。"
+            />
+            <Table columns={platformUsageColumns} dataSource={usageRows} pagination={false} size="middle" loading={loading} />
+          </Card>
+        </Col>
+      </Row>
+    )
+  }
+
   function renderResumes() {
     return (
       <Row gutter={[16, 16]}>
@@ -594,7 +666,7 @@ export default function App() {
   }
 
   function renderSelectedPage() {
-    if (!isSuperAdmin && ['permissions', 'platform', 'deploy', 'data'].includes(selectedMenu)) {
+    if (!isSuperAdmin && ['permissions', 'platform', 'billing', 'deploy', 'data'].includes(selectedMenu)) {
       return (
         <Alert
           type="warning"
@@ -607,6 +679,7 @@ export default function App() {
     if (selectedMenu === 'users') return renderUsers()
     if (selectedMenu === 'permissions') return renderPermissions()
     if (selectedMenu === 'platform') return renderPlatform()
+    if (selectedMenu === 'billing') return renderBilling()
     if (selectedMenu === 'resumes') return renderResumes()
     if (selectedMenu === 'applications') return renderApplications()
     if (selectedMenu === 'deploy') return renderDeploy()

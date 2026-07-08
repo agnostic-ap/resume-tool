@@ -47,12 +47,24 @@ export interface PlatformGenerateResumeInput {
   }
 }
 
+export interface DraftDiffOperation {
+  section: 'summary' | 'experience' | 'skills' | 'projects'
+  field: string
+  targetId?: string
+  before: string
+  after: string
+  rationale: string
+  confidence: number
+  source: 'llm' | 'rule-based'
+}
+
 export interface PlatformResumeDraft {
   requestId?: string
   userId?: string
   title: string
   data: ResumeData
   config: ResumeConfig
+  diff?: DraftDiffOperation[]
   match: {
     score: number
     keywords: string[]

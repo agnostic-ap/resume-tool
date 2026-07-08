@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
 import { useResumeStore } from '../stores/resume'
+import { getApplicationStageLabel } from '../utils/applicationStage'
+import { getCommandPaletteFooterLabel } from '../utils/commandPalette'
 import type { TemplateId } from '../types/resume'
 
 const props = defineProps<{ open: boolean }>()
@@ -41,7 +43,9 @@ const groups = computed<CommandGroup[]>(() => [
     items: [
       { icon: '＋', label: t('newResumeFull'), hint: 'N', command: 'new', keywords: 'create blank resume 新建 空白 简历' },
       { icon: '§', label: t('openEditor'), hint: 'E', command: 'editor', keywords: 'edit resume 编辑器' },
-      { icon: 'AI', label: l('开始 JD 定制', 'Start JD tailoring'), hint: 'JD', command: 'jd', keywords: 'jd ai tailor 定制 岗位' },
+      ...(store.config.tweaks.showAI
+        ? [{ icon: 'AI', label: l('开始 JD 定制', 'Start JD tailoring'), hint: 'JD', command: 'jd', keywords: 'jd ai tailor 定制 岗位' }]
+        : []),
       { icon: '↧', label: t('exportPdf'), hint: '⌘E', command: 'export', keywords: 'pdf export 导出' },
     ],
   },
@@ -84,7 +88,7 @@ const groups = computed<CommandGroup[]>(() => [
       .map((app) => ({
         icon: '▤',
         label: `${app.company} · ${app.role}`,
-        hint: app.stage,
+        hint: getApplicationStageLabel(app.stage, store.config.locale),
         command: `application:${app.id}`,
         keywords: [app.resumeTitle, app.nextAction, app.contactName, app.jobDescription?.title ?? ''].join(' '),
       })),
@@ -100,7 +104,7 @@ const groups = computed<CommandGroup[]>(() => [
       .map((entry) => ({
         icon: '◇',
         label: entry.title,
-        hint: l('引用', 'Use'),
+        hint: l('用于 JD', 'Use in JD'),
         command: `growth:${entry.id}`,
         keywords: [entry.company, entry.project, entry.content, entry.metrics, entry.skills.join(' ')].join(' '),
       })),
@@ -198,7 +202,7 @@ function onKeydown(e: KeyboardEvent) {
             <span><kbd>↵</kbd>{{ l('选择', 'select') }}</span>
             <span><kbd>ESC</kbd>{{ l('关闭', 'close') }}</span>
           </div>
-          <span>resume-studio</span>
+          <span>{{ getCommandPaletteFooterLabel(store.config.locale) }}</span>
         </div>
       </div>
     </div>

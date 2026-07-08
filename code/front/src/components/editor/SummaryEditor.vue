@@ -8,6 +8,7 @@ const { l } = useLocaleText()
 <template>
   <div>
     <textarea v-model="store.data.personal.summary" rows="4"
+      data-guide-field="summary"
       class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
       style="resize:vertical"
       :placeholder="l('简短介绍自己的核心优势、技术方向和职业目标...', 'Briefly describe your strengths, technical focus, and career goal...')" />
