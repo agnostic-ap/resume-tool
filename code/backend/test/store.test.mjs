@@ -396,3 +396,74 @@ test('persists data after closing and reopening the SQLite store', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('creates user workspaces and isolates scoped data', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const alice = await store.createUserWorkspace({
+      email: 'Alice@Example.com',
+      displayName: 'Alice',
+      passwordHash: 'hash-alice',
+    })
+    const bob = await store.createUserWorkspace({
+      email: 'bob@example.com',
+      displayName: 'Bob',
+      passwordHash: 'hash-bob',
+    })
+
+    assert.equal(alice.user.email, 'alice@example.com')
+    assert.equal(alice.workspace.role, 'owner')
+    assert.notEqual(alice.workspace.id, bob.workspace.id)
+
+    const aliceContext = { userId: alice.user.id, workspaceId: alice.workspace.id }
+    const bobContext = { userId: bob.user.id, workspaceId: bob.workspace.id }
+    const aliceDoc = await store.createDocument({ blank: true, title: 'Alice Resume' }, aliceContext)
+    const bobDoc = await store.createDocument({ blank: true, title: 'Bob Resume' }, bobContext)
+
+    const aliceDocuments = await store.listDocuments(aliceContext)
+    const bobDocuments = await store.listDocuments(bobContext)
+    assert.ok(aliceDocuments.documents.some((doc) => doc.id === aliceDoc.id))
+    assert.ok(!aliceDocuments.documents.some((doc) => doc.id === bobDoc.id))
+    assert.ok(bobDocuments.documents.some((doc) => doc.id === bobDoc.id))
+    assert.ok(!bobDocuments.documents.some((doc) => doc.id === aliceDoc.id))
+
+    await assert.rejects(
+      () => store.getDocument(aliceDoc.id, bobContext),
+      /Resume not found/,
+    )
+    store.close()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('stores, reads, and revokes account sessions', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  try {
+    const store = createStore({ dataDir: dir })
+    const account = await store.createUserWorkspace({
+      email: 'session@example.com',
+      displayName: 'Session User',
+      passwordHash: 'hash-session',
+    })
+    const expiresAt = new Date(Date.now() + 60_000).toISOString()
+    await store.createSession({
+      userId: account.user.id,
+      tokenHash: 'token-hash-1',
+      expiresAt,
+    })
+
+    const session = await store.getSessionByTokenHash('token-hash-1')
+    assert.equal(session.user.email, 'session@example.com')
+    assert.equal(session.workspace.id, account.workspace.id)
+    assert.equal(session.user.passwordHash, undefined)
+
+    const revoked = await store.revokeSession('token-hash-1')
+    assert.deepEqual(revoked, { ok: true })
+    assert.equal(await store.getSessionByTokenHash('token-hash-1'), undefined)
+    store.close()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

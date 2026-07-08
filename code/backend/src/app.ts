@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import cors from '@fastify/cors'
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
 import { ZodError, type ZodSchema } from 'zod'
@@ -7,7 +7,9 @@ import {
   createApplicationSchema,
   createResumeSchema,
   growthEntrySchema,
+  loginAccountSchema,
   platformGenerateResumeSchema,
+  registerAccountSchema,
   updateApplicationSchema,
   updateGrowthEntrySchema,
   updateResumeSchema,
@@ -52,6 +54,36 @@ type AuthContext = {
   headers: Record<string, unknown>
   ip: string
   failures: Map<string, number[]>
+}
+type StoreContext = {
+  userId?: string
+  workspaceId?: string
+}
+type UserSession = {
+  user: {
+    id: string
+    email: string
+    displayName: string
+    role: string
+    status: string
+    lastSeenAt?: string
+    createdAt: string
+    updatedAt: string
+  }
+  workspace: {
+    id: string
+    name: string
+    plan: string
+    role: string
+    ownerUserId: string
+    activeResumeId?: string
+    createdAt: string
+    updatedAt: string
+  }
+}
+type IssuedSession = UserSession & {
+  token: string
+  expiresAt: string
 }
 
 export async function buildApp(store: Store): Promise<FastifyInstance> {
@@ -103,65 +135,123 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
 
   app.get('/api/v1/openapi.json', async () => platformOpenApiDocument())
 
-  app.get('/api/state', async () => store.readState())
+  app.post('/api/auth/register', async (request, reply) => {
+    const input = parseBody(registerAccountSchema, request.body)
+    assertAuthAttemptAllowed(authContext(request))
+    const account = await store.createUserWorkspace({
+      email: input.email,
+      displayName: input.displayName,
+      passwordHash: hashPassword(input.password),
+    }) as UserSession
+    const issued = await issueUserSession(store, account.user.id)
+    setSessionCookie(reply, issued.token, issued.expiresAt)
+    return reply.status(201).send(authResponse(issued))
+  })
+
+  app.post('/api/auth/login', async (request, reply) => {
+    const input = parseBody(loginAccountSchema, request.body)
+    const context = authContext(request)
+    assertAuthAttemptAllowed(context)
+    const user = await store.findUserByEmail(input.email) as ({ id: string; passwordHash?: string; status?: string } | undefined)
+    if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
+      recordAuthFailure(context)
+      throw httpError(401, 'Invalid email or password')
+    }
+    if (user.status !== 'enabled') throw httpError(403, 'Account is locked')
+    const issued = await issueUserSession(store, user.id)
+    setSessionCookie(reply, issued.token, issued.expiresAt)
+    return authResponse(issued)
+  })
+
+  app.get('/api/auth/session', async (request) => requireUserSession(store, request))
+
+  app.post('/api/auth/logout', async (request, reply) => {
+    const token = sessionToken(request.headers)
+    if (token) await store.revokeSession(sessionTokenHash(token))
+    clearSessionCookie(reply)
+    return { ok: true }
+  })
+
+  app.get('/api/state', async (request) => store.readState(await storeContextForRequest(store, request)))
   app.get('/api/admin/session', async (request) => assertAdminAccess(authContext(request), 'viewer'))
   app.get('/api/admin/state', async (request) => {
     assertAdminAccess(authContext(request), 'viewer')
     return store.readState()
   })
 
-  app.get('/api/resumes', async () => store.listDocuments())
+  app.get('/api/resumes', async (request) => store.listDocuments(await storeContextForRequest(store, request)))
   app.post('/api/resumes', async (request, reply) => {
-    const doc = await store.createDocument(parseBody(createResumeSchema, request.body))
+    const context = await storeContextForRequest(store, request)
+    const doc = await store.createDocument(parseBody(createResumeSchema, request.body), context)
     return reply.status(201).send(doc)
   })
-  app.get('/api/resumes/:id', async (request) => store.getDocument(getParam(request.params, 'id')))
-  app.patch('/api/resumes/:id', async (request) =>
-    store.updateDocument(getParam(request.params, 'id'), parseBody(updateResumeSchema, request.body)),
+  app.get('/api/resumes/:id', async (request) =>
+    store.getDocument(getParam(request.params, 'id'), await storeContextForRequest(store, request)),
   )
-  app.put('/api/resumes/:id', async (request) =>
-    store.updateDocument(getParam(request.params, 'id'), parseBody(updateResumeSchema, request.body)),
+  app.patch('/api/resumes/:id', async (request) => {
+    const context = await storeContextForRequest(store, request)
+    return store.updateDocument(getParam(request.params, 'id'), parseBody(updateResumeSchema, request.body), context)
+  })
+  app.put('/api/resumes/:id', async (request) => {
+    const context = await storeContextForRequest(store, request)
+    return store.updateDocument(getParam(request.params, 'id'), parseBody(updateResumeSchema, request.body), context)
+  })
+  app.delete('/api/resumes/:id', async (request) =>
+    store.deleteDocument(getParam(request.params, 'id'), await storeContextForRequest(store, request)),
   )
-  app.delete('/api/resumes/:id', async (request) => store.deleteDocument(getParam(request.params, 'id')))
-  app.post('/api/resumes/:id/select', async (request) => store.selectDocument(getParam(request.params, 'id')))
+  app.post('/api/resumes/:id/select', async (request) =>
+    store.selectDocument(getParam(request.params, 'id'), await storeContextForRequest(store, request)),
+  )
   app.post('/api/resumes/:id/duplicate', async (request, reply) => {
+    const context = await storeContextForRequest(store, request)
     const doc = await store.createDocument({
       ...parseBody(createResumeSchema, request.body),
       sourceId: getParam(request.params, 'id'),
       blank: false,
-    })
+    }, context)
     return reply.status(201).send(doc)
   })
-  app.post('/api/resumes/:id/career-update', async (request) => store.markCareerUpdated(getParam(request.params, 'id')))
+  app.post('/api/resumes/:id/career-update', async (request) =>
+    store.markCareerUpdated(getParam(request.params, 'id'), await storeContextForRequest(store, request)),
+  )
 
-  app.get('/api/applications', async () => store.listApplications())
+  app.get('/api/applications', async (request) => store.listApplications(await storeContextForRequest(store, request)))
   app.post('/api/applications', async (request, reply) => {
-    const appRecord = await store.createApplication(parseBody(createApplicationSchema, request.body))
+    const context = await storeContextForRequest(store, request)
+    const appRecord = await store.createApplication(parseBody(createApplicationSchema, request.body), context)
     return reply.status(201).send(appRecord)
   })
-  app.patch('/api/applications/:id', async (request) =>
-    store.updateApplication(getParam(request.params, 'id'), parseBody(updateApplicationSchema, request.body)),
+  app.patch('/api/applications/:id', async (request) => {
+    const context = await storeContextForRequest(store, request)
+    return store.updateApplication(getParam(request.params, 'id'), parseBody(updateApplicationSchema, request.body), context)
+  })
+  app.put('/api/applications/:id', async (request) => {
+    const context = await storeContextForRequest(store, request)
+    return store.updateApplication(getParam(request.params, 'id'), parseBody(updateApplicationSchema, request.body), context)
+  })
+  app.delete('/api/applications/:id', async (request) =>
+    store.deleteApplication(getParam(request.params, 'id'), await storeContextForRequest(store, request)),
   )
-  app.put('/api/applications/:id', async (request) =>
-    store.updateApplication(getParam(request.params, 'id'), parseBody(updateApplicationSchema, request.body)),
-  )
-  app.delete('/api/applications/:id', async (request) => store.deleteApplication(getParam(request.params, 'id')))
 
-  app.get('/api/growth-entries', async () => store.listGrowthEntries())
+  app.get('/api/growth-entries', async (request) => store.listGrowthEntries(await storeContextForRequest(store, request)))
   app.post('/api/growth-entries', async (request, reply) => {
-    const entry = await store.createGrowthEntry(parseBody(growthEntrySchema, request.body))
+    const context = await storeContextForRequest(store, request)
+    const entry = await store.createGrowthEntry(parseBody(growthEntrySchema, request.body), context)
     return reply.status(201).send(entry)
   })
-  app.patch('/api/growth-entries/:id', async (request) =>
-    store.updateGrowthEntry(getParam(request.params, 'id'), parseBody(updateGrowthEntrySchema, request.body)),
-  )
-  app.put('/api/growth-entries/:id', async (request) =>
-    store.updateGrowthEntry(getParam(request.params, 'id'), parseBody(updateGrowthEntrySchema, request.body)),
-  )
+  app.patch('/api/growth-entries/:id', async (request) => {
+    const context = await storeContextForRequest(store, request)
+    return store.updateGrowthEntry(getParam(request.params, 'id'), parseBody(updateGrowthEntrySchema, request.body), context)
+  })
+  app.put('/api/growth-entries/:id', async (request) => {
+    const context = await storeContextForRequest(store, request)
+    return store.updateGrowthEntry(getParam(request.params, 'id'), parseBody(updateGrowthEntrySchema, request.body), context)
+  })
 
-  app.get('/api/activity', async () => store.listActivity())
+  app.get('/api/activity', async (request) => store.listActivity(await storeContextForRequest(store, request)))
   app.post('/api/assistant/suggestions', async (request, reply) => {
-    const suggestion = await store.createAssistantSuggestion(parseBody(assistantSuggestionSchema, request.body))
+    const context = await storeContextForRequest(store, request)
+    const suggestion = await store.createAssistantSuggestion(parseBody(assistantSuggestionSchema, request.body), context)
     return reply.status(201).send(suggestion)
   })
   app.post('/api/assistant/resume-drafts', async (request, reply) =>
@@ -170,6 +260,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
       allowPersist: false,
       requirePlatformAuth: false,
       auth: authContext(request),
+      context: await storeContextForRequest(store, request),
     }),
   )
   app.get('/api/v1/platform/requests', async (request) => {
@@ -236,6 +327,7 @@ async function handleResumeDraftRequest(
     allowPersist: boolean
     requirePlatformAuth: boolean
     auth: AuthContext
+    context?: StoreContext
     rateBuckets?: Map<string, number[]>
   },
 ) {
@@ -262,7 +354,7 @@ async function handleResumeDraftRequest(
         route: options.route,
         generatedAt: draft.generation.generatedAt,
         latencyMs,
-      })
+      }, options.context)
       return reply.send({
         ...draft,
         generation: {
@@ -276,7 +368,7 @@ async function handleResumeDraftRequest(
       route: options.route,
       clientId: client.id,
       latencyMs: Date.now() - startedAt,
-    })
+    }, options.context)
     const persistedMeta = asPersistedDraft(persisted)
     return reply.status(persistedMeta.idempotent ? 200 : 201).send({
       ...draft,
@@ -295,6 +387,7 @@ async function handleResumeDraftRequest(
       route: options.route,
       startedAt,
       userId: requestMeta.userId,
+      context: options.context,
     })
     throw error
   }
@@ -313,9 +406,110 @@ function getParam(params: unknown, key: string): string {
 
 const AUTH_FAILURE_LIMIT = 10
 const AUTH_FAILURE_WINDOW_MS = 60_000
+const SESSION_COOKIE = 'resume_session'
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 function sha256(value: string): Buffer {
   return createHash('sha256').update(value).digest()
+}
+
+function sha256Hex(value: string): string {
+  return sha256(value).toString('hex')
+}
+
+function sessionTokenHash(token: string): string {
+  return sha256Hex(token)
+}
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('base64url')
+  const hash = scryptSync(password, salt, 64).toString('base64url')
+  return `scrypt$${salt}$${hash}`
+}
+
+function verifyPassword(password: string, encodedHash: string): boolean {
+  const [algorithm, salt, expectedHash] = encodedHash.split('$')
+  if (algorithm !== 'scrypt' || !salt || !expectedHash) return false
+  const actual = scryptSync(password, salt, 64)
+  const expected = Buffer.from(expectedHash, 'base64url')
+  return expected.length === actual.length && timingSafeEqual(expected, actual)
+}
+
+function newSessionToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
+async function issueUserSession(store: Store, userId: string): Promise<IssuedSession> {
+  const token = newSessionToken()
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
+  await store.createSession({
+    userId,
+    tokenHash: sessionTokenHash(token),
+    expiresAt,
+  })
+  const session = await store.getSessionByTokenHash(sessionTokenHash(token)) as UserSession | undefined
+  if (!session) throw httpError(500, 'Session could not be created')
+  return { ...session, token, expiresAt }
+}
+
+function authResponse(session: IssuedSession) {
+  return {
+    user: session.user,
+    workspace: session.workspace,
+    token: session.token,
+    expiresAt: session.expiresAt,
+  }
+}
+
+async function storeContextForRequest(
+  store: Store,
+  request: { headers: Record<string, unknown> },
+): Promise<StoreContext> {
+  const session = await optionalUserSession(store, request)
+  return session
+    ? { userId: session.user.id, workspaceId: session.workspace.id }
+    : {}
+}
+
+async function requireUserSession(store: Store, request: { headers: Record<string, unknown> }): Promise<UserSession> {
+  const session = await optionalUserSession(store, request)
+  if (!session) throw httpError(401, 'Account session is required')
+  return session
+}
+
+async function optionalUserSession(store: Store, request: { headers: Record<string, unknown> }): Promise<UserSession | undefined> {
+  const token = sessionToken(request.headers)
+  if (!token) return undefined
+  const session = await store.getSessionByTokenHash(sessionTokenHash(token)) as UserSession | undefined
+  if (!session) throw httpError(401, 'Invalid or expired account session')
+  return session
+}
+
+function sessionToken(headers: Record<string, unknown>): string | undefined {
+  const authorization = headerValue(headers.authorization)
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+  const explicit = headerValue(headers['x-resume-session'])?.trim()
+  const cookieToken = parseCookieHeader(headerValue(headers.cookie))[SESSION_COOKIE]
+  return bearer || explicit || cookieToken
+}
+
+function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
+  if (!cookieHeader) return {}
+  return Object.fromEntries(cookieHeader.split(';').map((part) => {
+    const [rawKey, ...rawValue] = part.trim().split('=')
+    return [rawKey, decodeURIComponent(rawValue.join('='))]
+  }).filter(([key]) => Boolean(key)))
+}
+
+function setSessionCookie(reply: FastifyReply, token: string, expiresAt: string): void {
+  const maxAge = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000))
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+  reply.header('set-cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`)
+}
+
+function clearSessionCookie(reply: FastifyReply): void {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+  reply.header('set-cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`)
 }
 
 function secretMatches(presented: string, secret?: string, secretHash?: string): boolean {
@@ -591,6 +785,7 @@ async function recordPlatformFailure(
     route: string
     startedAt: number
     userId?: string
+    context?: StoreContext
   },
 ) {
   try {
@@ -605,7 +800,7 @@ async function recordPlatformFailure(
       generatedAt: new Date().toISOString(),
       latencyMs: Date.now() - input.startedAt,
       error: platformFailureMessage(input.error),
-    })
+    }, input.context)
   } catch {
     // Keep the original API error. Failure telemetry should not mask it.
   }

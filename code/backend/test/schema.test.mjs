@@ -4,7 +4,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 const schemaPath = join(import.meta.dirname, '..', 'sql', '001_initial_schema.sql')
+const authSchemaPath = join(import.meta.dirname, '..', 'sql', '002_auth.sql')
 const sqliteSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '001_initial_schema.sql')
+const sqliteAuthSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '002_auth.sql')
 
 test('database schema covers roadmap persistence requirements', async () => {
   const sql = await readFile(schemaPath, 'utf8')
@@ -30,6 +32,7 @@ test('database schema covers roadmap persistence requirements', async () => {
   for (const column of [
     'workspace_id',
     'owner_user_id',
+    'password_hash TEXT',
     'revision INTEGER NOT NULL DEFAULT 1',
     'origin TEXT NOT NULL DEFAULT',
     'career_update_checklist JSONB',
@@ -48,6 +51,17 @@ test('database schema covers roadmap persistence requirements', async () => {
 
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS platform_requests_request_id_idx/)
   assert.match(sql, /CREATE INDEX IF NOT EXISTS audit_logs_workspace_idx/)
+})
+
+test('auth schema adds account sessions', async () => {
+  const sql = await readFile(authSchemaPath, 'utf8')
+
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS password_hash TEXT/)
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS sessions/)
+  assert.match(sql, /user_id TEXT NOT NULL REFERENCES users\(id\) ON DELETE CASCADE/)
+  assert.match(sql, /token_hash TEXT NOT NULL UNIQUE/)
+  assert.match(sql, /expires_at TIMESTAMPTZ NOT NULL/)
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS sessions_token_hash_idx/)
 })
 
 test('sqlite schema maps production types to local storage types', async () => {
@@ -81,6 +95,7 @@ test('sqlite schema maps production types to local storage types', async () => {
     "used_by_resume_ids TEXT NOT NULL DEFAULT '\\[\\]'",
     'owner_user_id TEXT NOT NULL',
     'workspace_id TEXT NOT NULL',
+    'password_hash TEXT',
   ]) {
     assert.match(sql, new RegExp(column))
   }
@@ -89,4 +104,17 @@ test('sqlite schema maps production types to local storage types', async () => {
   assert.doesNotMatch(sql, /BOOLEAN/)
   assert.doesNotMatch(sql, /TIMESTAMPTZ/)
   assert.doesNotMatch(sql, /TEXT\[\]/)
+})
+
+test('sqlite auth schema maps sessions to local storage types', async () => {
+  const sql = await readFile(sqliteAuthSchemaPath, 'utf8')
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS sessions/)
+  assert.match(sql, /user_id TEXT NOT NULL REFERENCES users\(id\) ON DELETE CASCADE/)
+  assert.match(sql, /token_hash TEXT NOT NULL UNIQUE/)
+  assert.match(sql, /expires_at TEXT NOT NULL/)
+  assert.match(sql, /revoked_at TEXT/)
+  assert.match(sql, /last_seen_at TEXT/)
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS sessions_user_idx/)
+  assert.doesNotMatch(sql, /TIMESTAMPTZ/)
 })

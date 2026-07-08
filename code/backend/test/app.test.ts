@@ -72,6 +72,126 @@ test('fastify app exposes health and validates applications', async () => {
   }
 })
 
+test('account auth registers, logs in, scopes data, and logs out', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const alice = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'Alice@Example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Alice',
+      },
+    })
+    assert.equal(alice.statusCode, 201)
+    const aliceBody = alice.json()
+    assert.equal(aliceBody.user.email, 'alice@example.com')
+    assert.equal(aliceBody.user.passwordHash, undefined)
+    assert.equal(aliceBody.workspace.role, 'owner')
+    assert.equal(typeof aliceBody.token, 'string')
+    assert.match(String(alice.headers['set-cookie']), /resume_session=/)
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'alice@example.com',
+        password: 'correct-horse-battery',
+      },
+    })
+    assert.equal(duplicate.statusCode, 409)
+
+    const badLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'alice@example.com', password: 'wrong-password' },
+    })
+    assert.equal(badLogin.statusCode, 401)
+
+    const aliceLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'alice@example.com', password: 'correct-horse-battery' },
+    })
+    assert.equal(aliceLogin.statusCode, 200)
+    const aliceToken = aliceLogin.json().token
+
+    const aliceSession = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(aliceSession.statusCode, 200)
+    assert.equal(aliceSession.json().user.email, 'alice@example.com')
+
+    const aliceResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { blank: true, title: 'Alice Resume' },
+    })
+    assert.equal(aliceResume.statusCode, 201)
+
+    const bob = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'bob@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Bob',
+      },
+    })
+    assert.equal(bob.statusCode, 201)
+    const bobToken = bob.json().token
+
+    const bobResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${bobToken}` },
+      payload: { blank: true, title: 'Bob Resume' },
+    })
+    assert.equal(bobResume.statusCode, 201)
+
+    const aliceResumes = await app.inject({
+      method: 'GET',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(aliceResumes.statusCode, 200)
+    assert.ok(aliceResumes.json().documents.some((doc: { title: string }) => doc.title === 'Alice Resume'))
+    assert.ok(!aliceResumes.json().documents.some((doc: { title: string }) => doc.title === 'Bob Resume'))
+
+    const bobCannotReadAlice = await app.inject({
+      method: 'GET',
+      url: `/api/resumes/${aliceResume.json().id}`,
+      headers: { authorization: `Bearer ${bobToken}` },
+    })
+    assert.equal(bobCannotReadAlice.statusCode, 404)
+
+    const logout = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(logout.statusCode, 200)
+    assert.equal(logout.json().ok, true)
+    assert.match(String(logout.headers['set-cookie']), /Max-Age=0/)
+
+    const expired = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(expired.statusCode, 401)
+  } finally {
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('admin API enforces token auth and super admin permissions', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   const app = await buildApp(createStore({ dataDir: dir }))

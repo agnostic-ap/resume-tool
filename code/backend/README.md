@@ -50,6 +50,12 @@ The backend stores local state in `<RESUME_BACKEND_DATA_DIR>/resume.db` and enab
 
 On first open, if `<RESUME_BACKEND_DATA_DIR>/resume-state.json` exists and the SQLite database has no resume rows yet, the store imports the JSON state into SQLite and renames the original file to `resume-state.json.migrated` as a backup. HTTP response shapes are unchanged from the JSON-backed version.
 
+## Accounts
+
+The account API adds user-owned workspaces without breaking the unauthenticated local mode. Requests without an account session continue to read and write the default `local-owner/default` workspace. Requests with a valid account session are scoped to that user's workspace.
+
+Account sessions can be sent as `Authorization: Bearer <token>`, `x-resume-session: <token>`, or the `resume_session` HTTP-only cookie returned by login/register. Session tokens are only stored server-side as sha256 hashes; passwords are stored as salted `scrypt` hashes.
+
 Admin config example:
 
 ```json
@@ -85,6 +91,11 @@ Platform client config example:
 ```text
 GET    /health
 GET    /api/state
+
+POST   /api/auth/register
+POST   /api/auth/login
+GET    /api/auth/session
+POST   /api/auth/logout
 
 GET    /api/resumes
 POST   /api/resumes

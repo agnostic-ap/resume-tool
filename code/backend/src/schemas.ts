@@ -108,6 +108,17 @@ export const assistantSuggestionSchema = z.object({
   prompt: z.string().trim().min(1),
 })
 
+export const registerAccountSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(8),
+  displayName: z.string().trim().max(80).optional(),
+})
+
+export const loginAccountSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(1),
+})
+
 const platformPersonalSchema = z.object({
   name: z.string().optional(),
   title: z.string().optional(),
@@ -194,3 +205,5 @@ export type UpdateApplicationInput = z.infer<typeof updateApplicationSchema>
 export type GrowthEntryInput = z.infer<typeof growthEntrySchema>
 export type UpdateGrowthEntryInput = z.infer<typeof updateGrowthEntrySchema>
 export type PlatformGenerateResumeInput = z.infer<typeof platformGenerateResumeSchema>
+export type RegisterAccountInput = z.infer<typeof registerAccountSchema>
+export type LoginAccountInput = z.infer<typeof loginAccountSchema>

@@ -16,18 +16,65 @@ type StoreOptions = {
   dataDir?: string
   dbPath?: string
 }
+type StoreContext = {
+  workspaceId?: string
+  userId?: string
+}
+type PublicUser = {
+  id: string
+  email: string
+  displayName: string
+  role: string
+  status: string
+  lastSeenAt?: string
+  createdAt: string
+  updatedAt: string
+}
+type PublicWorkspace = {
+  id: string
+  name: string
+  plan: string
+  role: string
+  ownerUserId: string
+  activeResumeId?: string
+  createdAt: string
+  updatedAt: string
+}
+type AuthWorkspaceContext = {
+  user: PublicUser
+  workspace: PublicWorkspace
+}
+type UserWithPassword = PublicUser & {
+  passwordHash?: string
+}
 type SqliteDatabase = Database.Database
 
 const DB_FILE = 'resume.db'
 const LEGACY_JSON_FILE = 'resume-state.json'
-const DEFAULT_USER_ID = 'local-owner'
-const DEFAULT_WORKSPACE_ID = 'default'
+export const DEFAULT_USER_ID = 'local-owner'
+export const DEFAULT_WORKSPACE_ID = 'default'
+
+const AUTH_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  last_seen_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON sessions(token_hash);
+`
 
 const SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL DEFAULT '',
+  password_hash TEXT,
   role TEXT NOT NULL DEFAULT 'user',
   status TEXT NOT NULL DEFAULT 'enabled',
   last_seen_at TEXT,
@@ -275,31 +322,32 @@ export function createStore(options: StoreOptions = {}) {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.exec(SQLITE_SCHEMA)
+  runSqliteMigrations(db)
   seedDefaultWorkspace(db)
   const migrated = migrateLegacyJsonIfNeeded(db, options.dataDir ?? dirname(dbPath))
   if (!migrated && isDatabaseEmpty(db)) {
     db.transaction((state: ResumeState) => replaceStateSync(db, state))(normalizeState(initialState()))
   }
 
-  async function readState(): Promise<ResumeState> {
-    return readStateSync(db)
+  async function readState(context: StoreContext = {}): Promise<ResumeState> {
+    return readStateSync(db, context)
   }
 
-  async function writeState(state: unknown): Promise<ResumeState> {
-    return db.transaction((nextState: unknown) => replaceStateSync(db, nextState))(state)
+  async function writeState(state: unknown, context: StoreContext = {}): Promise<ResumeState> {
+    return db.transaction((nextState: unknown) => replaceStateSync(db, nextState, context))(state)
   }
 
-  async function mutate<T>(mutator: (state: ResumeState) => T): Promise<T | ResumeState> {
+  async function mutate<T>(mutator: (state: ResumeState) => T, context: StoreContext = {}): Promise<T | ResumeState> {
     return db.transaction(() => {
-      const state = readStateSync(db)
+      const state = readStateSync(db, context)
       const result = mutator(state)
-      replaceStateSync(db, state)
+      replaceStateSync(db, state, context)
       return result ?? state
     })()
   }
 
-  async function replaceState(nextState: unknown): Promise<ResumeState> {
-    return writeState(nextState)
+  async function replaceState(nextState: unknown, context: StoreContext = {}): Promise<ResumeState> {
+    return writeState(nextState, context)
   }
 
   function log(state: ResumeState, event: AnyRecord): AnyRecord {
@@ -321,20 +369,20 @@ export function createStore(options: StoreOptions = {}) {
 
     replaceState,
 
-    async listDocuments() {
-      const state = await readState()
+    async listDocuments(context: StoreContext = {}) {
+      const state = await readState(context)
       return {
         activeResumeId: state.activeResumeId,
         documents: state.documents.map(toDocumentSummary),
       }
     },
 
-    async getDocument(id: string) {
-      const state = await readState()
+    async getDocument(id: string, context: StoreContext = {}) {
+      const state = await readState(context)
       return findDocument(state, id)
     },
 
-    async createDocument(input: AnyRecord = {}) {
+    async createDocument(input: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const source = input.sourceId ? findDocument(state, input.sourceId) : getActiveDocument(state)
         const created = new Date()
@@ -371,10 +419,10 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: doc.id,
         })
         return doc
-      })
+      }, context)
     },
 
-    async updateDocument(id: string, patch: AnyRecord = {}) {
+    async updateDocument(id: string, patch: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const doc = findDocument(state, id)
         if (patch.title !== undefined) doc.title = patch.title.trim() || doc.title
@@ -404,10 +452,10 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: doc.id,
         })
         return doc
-      })
+      }, context)
     },
 
-    async deleteDocument(id: string) {
+    async deleteDocument(id: string, context: StoreContext = {}) {
       return mutate((state) => {
         if (state.documents.length <= 1) throw httpError(409, 'At least one resume must remain')
         const index = state.documents.findIndex((doc) => doc.id === id)
@@ -431,18 +479,18 @@ export function createStore(options: StoreOptions = {}) {
           meta: 'document removed',
         })
         return { deletedId: id, activeResumeId: state.activeResumeId }
-      })
+      }, context)
     },
 
-    async selectDocument(id: string) {
+    async selectDocument(id: string, context: StoreContext = {}) {
       return mutate((state) => {
         const doc = findDocument(state, id)
         state.activeResumeId = id
         return doc
-      })
+      }, context)
     },
 
-    async markCareerUpdated(id: string) {
+    async markCareerUpdated(id: string, context: StoreContext = {}) {
       return mutate((state) => {
         const doc = findDocument(state, id)
         const now = new Date()
@@ -460,15 +508,15 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: doc.id,
         })
         return doc
-      })
+      }, context)
     },
 
-    async listApplications() {
-      const state = await readState()
+    async listApplications(context: StoreContext = {}) {
+      const state = await readState(context)
       return state.applications
     },
 
-    async createApplication(input: AnyRecord = {}) {
+    async createApplication(input: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const doc = input.resumeId ? findDocument(state, input.resumeId) : getActiveDocument(state)
         const app = normalizeApplication({
@@ -489,10 +537,10 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: app.resumeId,
         })
         return app
-      })
+      }, context)
     },
 
-    async updateApplication(id: string, patch: AnyRecord = {}) {
+    async updateApplication(id: string, patch: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const app = findApplication(state, id)
         const doc = patch.resumeId ? findDocument(state, patch.resumeId) : findDocument(state, app.resumeId)
@@ -511,10 +559,10 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: app.resumeId,
         })
         return app
-      })
+      }, context)
     },
 
-    async deleteApplication(id: string) {
+    async deleteApplication(id: string, context: StoreContext = {}) {
       return mutate((state) => {
         const app = findApplication(state, id)
         state.applications = state.applications.filter((item) => item.id !== id)
@@ -528,15 +576,15 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: app.resumeId,
         })
         return { deletedId: id }
-      })
+      }, context)
     },
 
-    async listGrowthEntries() {
-      const state = await readState()
+    async listGrowthEntries(context: StoreContext = {}) {
+      const state = await readState(context)
       return state.growthEntries
     },
 
-    async createGrowthEntry(input: AnyRecord = {}) {
+    async createGrowthEntry(input: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const doc = input.sourceResumeId ? findDocument(state, input.sourceResumeId) : getActiveDocument(state)
         const entry = normalizeGrowthEntry({
@@ -557,10 +605,10 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: entry.sourceResumeId,
         })
         return entry
-      })
+      }, context)
     },
 
-    async updateGrowthEntry(id: string, patch: AnyRecord = {}) {
+    async updateGrowthEntry(id: string, patch: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const entry = findGrowthEntry(state, id)
         const doc = patch.sourceResumeId ? findDocument(state, patch.sourceResumeId) : findDocument(state, entry.sourceResumeId)
@@ -577,15 +625,15 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: entry.sourceResumeId,
         })
         return entry
-      })
+      }, context)
     },
 
-    async listPlatformRequests() {
-      const state = await readState()
+    async listPlatformRequests(context: StoreContext = {}) {
+      const state = await readState(context)
       return state.platformRequests
     },
 
-    async recordPlatformRequest(input: AnyRecord = {}) {
+    async recordPlatformRequest(input: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const entry = normalizePlatformRequest(input)
         const failed = entry.status === 'failed'
@@ -606,10 +654,10 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: entry.documentId,
         })
         return entry
-      })
+      }, context)
     },
 
-    async persistPlatformDraft(input: AnyRecord = {}, draft: AnyRecord = {}, meta: AnyRecord = {}) {
+    async persistPlatformDraft(input: AnyRecord = {}, draft: AnyRecord = {}, meta: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const requestId = String(input.requestId ?? '').trim()
         const existing = requestId
@@ -672,15 +720,15 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: doc.id,
         })
         return { documentId: doc.id, idempotent: false, request: entry }
-      })
+      }, context)
     },
 
-    async listActivity() {
-      const state = await readState()
+    async listActivity(context: StoreContext = {}) {
+      const state = await readState(context)
       return state.activityLog
     },
 
-    async createAssistantSuggestion(input: AnyRecord = {}) {
+    async createAssistantSuggestion(input: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
         const prompt = String(input.prompt ?? '').trim()
         if (!prompt) throw httpError(400, 'Prompt is required')
@@ -703,13 +751,53 @@ export function createStore(options: StoreOptions = {}) {
           resumeId: active.id,
         })
         return suggestion
-      })
+      }, context)
+    },
+
+    async getLocalAuthContext() {
+      return readAuthWorkspaceContext(db, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID)
+    },
+
+    async findUserByEmail(email: string) {
+      return findUserByEmailSync(db, email)
+    },
+
+    async createUserWorkspace(input: { email: string; displayName?: string; passwordHash: string }) {
+      return db.transaction(() => createUserWorkspaceSync(db, input))()
+    },
+
+    async createSession(input: { userId: string; tokenHash: string; expiresAt: string }) {
+      return db.transaction(() => createSessionSync(db, input))()
+    },
+
+    async getSessionByTokenHash(tokenHash: string) {
+      return db.transaction(() => readSessionByTokenHashSync(db, tokenHash))()
+    },
+
+    async revokeSession(tokenHash: string) {
+      return db.transaction(() => revokeSessionSync(db, tokenHash))()
     },
 
     close() {
       db.close()
     },
   }
+}
+
+function runSqliteMigrations(db: SqliteDatabase): void {
+  ensureUserPasswordHashColumn(db)
+  db.exec(readAuthMigrationSql())
+}
+
+function ensureUserPasswordHashColumn(db: SqliteDatabase): void {
+  const columns = db.prepare('PRAGMA table_info(users)').all() as Array<{ name?: string }>
+  if (columns.some((column) => column.name === 'password_hash')) return
+  db.prepare('ALTER TABLE users ADD COLUMN password_hash TEXT').run()
+}
+
+function readAuthMigrationSql(): string {
+  const migrationPath = join(process.cwd(), 'sql', 'sqlite', '002_auth.sql')
+  return existsSync(migrationPath) ? readFileSync(migrationPath, 'utf8') : AUTH_MIGRATION_SQL
 }
 
 function seedDefaultWorkspace(db: SqliteDatabase): void {
@@ -749,8 +837,9 @@ function isDatabaseEmpty(db: SqliteDatabase): boolean {
   return Number(row?.count ?? 0) === 0
 }
 
-function readStateSync(db: SqliteDatabase): ResumeState {
-  const workspace = db.prepare('SELECT active_resume_id FROM workspaces WHERE id = ?').get(DEFAULT_WORKSPACE_ID) as
+function readStateSync(db: SqliteDatabase, context: StoreContext = {}): ResumeState {
+  const scoped = normalizeStoreContext(context)
+  const workspace = db.prepare('SELECT active_resume_id FROM workspaces WHERE id = ?').get(scoped.workspaceId) as
     | { active_resume_id?: string }
     | undefined
   const documentRows = db.prepare(`
@@ -758,7 +847,7 @@ function readStateSync(db: SqliteDatabase): ResumeState {
     FROM resume_documents
     WHERE workspace_id = ?
     ORDER BY position ASC, created_at ASC, id ASC
-  `).all(DEFAULT_WORKSPACE_ID) as AnyRecord[]
+  `).all(scoped.workspaceId) as AnyRecord[]
   const documents = documentRows.map((row) => normalizeDocument({
     id: row.id,
     title: row.title,
@@ -786,7 +875,7 @@ function readStateSync(db: SqliteDatabase): ResumeState {
     FROM application_progress_events
     WHERE workspace_id = ?
     ORDER BY application_id ASC, position ASC, created_at ASC, id ASC
-  `).all(DEFAULT_WORKSPACE_ID) as AnyRecord[]
+  `).all(scoped.workspaceId) as AnyRecord[]
   const progressByApplication = new Map<string, AnyRecord[]>()
   for (const row of progressRows) {
     const events = progressByApplication.get(row.application_id) ?? []
@@ -806,7 +895,7 @@ function readStateSync(db: SqliteDatabase): ResumeState {
     FROM job_applications
     WHERE workspace_id = ?
     ORDER BY position ASC, created_at ASC, id ASC
-  `).all(DEFAULT_WORKSPACE_ID) as AnyRecord[]
+  `).all(scoped.workspaceId) as AnyRecord[]
   const applications = applicationRows.map((row) => {
     const fallbackDoc = documents.find((doc) => doc.id === row.resume_id) ?? activeDocument
     return normalizeApplication({
@@ -840,7 +929,7 @@ function readStateSync(db: SqliteDatabase): ResumeState {
     FROM growth_entries
     WHERE workspace_id = ?
     ORDER BY position ASC, entry_date DESC, id ASC
-  `).all(DEFAULT_WORKSPACE_ID) as AnyRecord[]
+  `).all(scoped.workspaceId) as AnyRecord[]
   const growthEntries = growthRows.map((row) => {
     const fallbackDoc = documents.find((doc) => doc.id === row.source_resume_id) ?? activeDocument
     return normalizeGrowthEntry({
@@ -870,7 +959,7 @@ function readStateSync(db: SqliteDatabase): ResumeState {
     FROM platform_requests
     WHERE workspace_id = ?
     ORDER BY position ASC, created_at DESC, id ASC
-  `).all(DEFAULT_WORKSPACE_ID) as AnyRecord[]
+  `).all(scoped.workspaceId) as AnyRecord[]
   const platformRequests = platformRows.map((row) => normalizePlatformRequest({
     id: row.id,
     requestId: row.request_id,
@@ -894,7 +983,7 @@ function readStateSync(db: SqliteDatabase): ResumeState {
     FROM activity_events
     WHERE workspace_id = ?
     ORDER BY position ASC, created_at DESC, id ASC
-  `).all(DEFAULT_WORKSPACE_ID) as AnyRecord[]
+  `).all(scoped.workspaceId) as AnyRecord[]
   const activityLog = activityRows.map((row) => normalizeActivity({
     id: row.id,
     type: row.event_type,
@@ -917,9 +1006,10 @@ function readStateSync(db: SqliteDatabase): ResumeState {
   })
 }
 
-function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
+function replaceStateSync(db: SqliteDatabase, nextState: unknown, context: StoreContext = {}): ResumeState {
+  const scoped = normalizeStoreContext(context)
   const state = normalizeState(nextState as AnyRecord)
-  clearStateRows(db)
+  clearStateRows(db, scoped.workspaceId)
 
   const insertDocument = db.prepare(`
     INSERT INTO resume_documents (
@@ -999,8 +1089,8 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
   state.documents.forEach((doc, position) => {
     insertDocument.run({
       id: doc.id,
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      ownerUserId: DEFAULT_USER_ID,
+      workspaceId: scoped.workspaceId,
+      ownerUserId: scoped.userId,
       title: doc.title,
       data: stringifyJson(doc.data),
       config: stringifyJson(doc.config),
@@ -1025,8 +1115,8 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
   state.applications.forEach((app, position) => {
     insertApplication.run({
       id: app.id,
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      ownerUserId: DEFAULT_USER_ID,
+      workspaceId: scoped.workspaceId,
+      ownerUserId: scoped.userId,
       resumeId: app.resumeId ?? null,
       resumeTitle: app.resumeTitle,
       company: app.company,
@@ -1052,8 +1142,8 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
     app.progressLog.forEach((event: AnyRecord, eventPosition: number) => {
       insertProgressEvent.run({
         id: event.id,
-        workspaceId: DEFAULT_WORKSPACE_ID,
-        ownerUserId: DEFAULT_USER_ID,
+        workspaceId: scoped.workspaceId,
+        ownerUserId: scoped.userId,
         applicationId: app.id,
         stage: event.stage,
         title: event.title,
@@ -1069,8 +1159,8 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
   state.growthEntries.forEach((entry, position) => {
     insertGrowthEntry.run({
       id: entry.id,
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      ownerUserId: DEFAULT_USER_ID,
+      workspaceId: scoped.workspaceId,
+      ownerUserId: scoped.userId,
       sourceResumeId: entry.sourceResumeId || null,
       sourceResumeTitle: entry.sourceResumeTitle || null,
       date: entry.date,
@@ -1095,7 +1185,7 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
   state.platformRequests.forEach((entry, position) => {
     insertPlatformRequest.run({
       id: entry.id,
-      workspaceId: DEFAULT_WORKSPACE_ID,
+      workspaceId: scoped.workspaceId,
       clientId: entry.clientId ?? null,
       requestId: entry.requestId,
       userId: entry.userId,
@@ -1118,8 +1208,8 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
   state.activityLog.slice(0, 200).forEach((event, position) => {
     insertActivity.run({
       id: event.id,
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      actorUserId: DEFAULT_USER_ID,
+      workspaceId: scoped.workspaceId,
+      actorUserId: scoped.userId,
       type: event.type,
       tag: event.tag,
       message: event.message,
@@ -1133,19 +1223,246 @@ function replaceStateSync(db: SqliteDatabase, nextState: unknown): ResumeState {
   })
 
   db.prepare('UPDATE workspaces SET active_resume_id = ?, updated_at = ? WHERE id = ?')
-    .run(state.activeResumeId, new Date().toISOString(), DEFAULT_WORKSPACE_ID)
+    .run(state.activeResumeId, new Date().toISOString(), scoped.workspaceId)
   return state
 }
 
-function clearStateRows(db: SqliteDatabase): void {
-  db.exec(`
-    DELETE FROM activity_events;
-    DELETE FROM application_progress_events;
-    DELETE FROM job_applications;
-    DELETE FROM growth_entries;
-    DELETE FROM platform_requests;
-    DELETE FROM resume_documents;
-  `)
+function clearStateRows(db: SqliteDatabase, workspaceId: string): void {
+  db.prepare('DELETE FROM activity_events WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM application_progress_events WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM job_applications WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM growth_entries WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM platform_requests WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM resume_documents WHERE workspace_id = ?').run(workspaceId)
+}
+
+function normalizeStoreContext(context: StoreContext = {}): Required<StoreContext> {
+  return {
+    workspaceId: context.workspaceId || DEFAULT_WORKSPACE_ID,
+    userId: context.userId || DEFAULT_USER_ID,
+  }
+}
+
+function findUserByEmailSync(db: SqliteDatabase, email: string): UserWithPassword | undefined {
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail) return undefined
+  const row = db.prepare(`
+    SELECT id, email, display_name, role, status, password_hash, last_seen_at, created_at, updated_at
+    FROM users
+    WHERE email = ?
+  `).get(normalizedEmail) as AnyRecord | undefined
+  return row ? toUserWithPassword(row) : undefined
+}
+
+function createUserWorkspaceSync(
+  db: SqliteDatabase,
+  input: { email: string; displayName?: string; passwordHash: string },
+): AuthWorkspaceContext {
+  const email = normalizeEmail(input.email)
+  if (!email) throw httpError(400, 'Email is required')
+  if (findUserByEmailSync(db, email)) throw httpError(409, 'Email is already registered')
+
+  const now = new Date().toISOString()
+  const userId = newId('user')
+  const workspaceId = newId('workspace')
+  const displayName = String(input.displayName ?? '').trim()
+  const workspaceName = displayName ? `${displayName}'s workspace` : `${email}'s workspace`
+
+  try {
+    db.prepare(`
+      INSERT INTO users (id, email, display_name, password_hash, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, email, displayName, input.passwordHash, 'user', 'enabled', now, now)
+  } catch (error) {
+    if (isUniqueConstraintError(error)) throw httpError(409, 'Email is already registered')
+    throw error
+  }
+
+  db.prepare(`
+    INSERT INTO workspaces (id, owner_user_id, name, plan, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(workspaceId, userId, workspaceName, 'personal', now, now)
+  db.prepare(`
+    INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(workspaceId, userId, 'owner', now)
+
+  replaceStateSync(db, initialStateWithFreshIds(), { workspaceId, userId })
+  return readAuthWorkspaceContext(db, userId, workspaceId)
+}
+
+function createSessionSync(
+  db: SqliteDatabase,
+  input: { userId: string; tokenHash: string; expiresAt: string },
+): { id: string; expiresAt: string } {
+  const id = newId('session')
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, input.userId, input.tokenHash, input.expiresAt, now)
+  return { id, expiresAt: input.expiresAt }
+}
+
+function readSessionByTokenHashSync(db: SqliteDatabase, tokenHash: string): AuthWorkspaceContext | undefined {
+  const row = db.prepare(`
+    SELECT
+      sessions.id AS session_id,
+      sessions.expires_at AS session_expires_at,
+      users.id AS user_id,
+      users.email,
+      users.display_name,
+      users.role AS user_role,
+      users.status AS user_status,
+      users.last_seen_at AS user_last_seen_at,
+      users.created_at AS user_created_at,
+      users.updated_at AS user_updated_at,
+      workspaces.id AS workspace_id,
+      workspaces.name AS workspace_name,
+      workspaces.plan AS workspace_plan,
+      workspaces.owner_user_id AS workspace_owner_user_id,
+      workspaces.active_resume_id AS workspace_active_resume_id,
+      workspaces.created_at AS workspace_created_at,
+      workspaces.updated_at AS workspace_updated_at,
+      workspace_memberships.role AS workspace_role
+    FROM sessions
+    JOIN users ON users.id = sessions.user_id
+    JOIN workspace_memberships ON workspace_memberships.user_id = users.id
+    JOIN workspaces ON workspaces.id = workspace_memberships.workspace_id
+    WHERE sessions.token_hash = ?
+      AND sessions.revoked_at IS NULL
+    ORDER BY CASE workspace_memberships.role WHEN 'owner' THEN 0 ELSE 1 END, workspaces.created_at ASC
+    LIMIT 1
+  `).get(tokenHash) as AnyRecord | undefined
+  if (!row) return undefined
+
+  if (new Date(row.session_expires_at).getTime() <= Date.now()) {
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(row.session_id)
+    return undefined
+  }
+  if (row.user_status !== 'enabled') return undefined
+
+  const now = new Date().toISOString()
+  db.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?').run(now, row.session_id)
+  db.prepare('UPDATE users SET last_seen_at = ?, updated_at = ? WHERE id = ?').run(now, now, row.user_id)
+  return authContextFromJoinedRow(row, { lastSeenAt: now, updatedAt: now })
+}
+
+function revokeSessionSync(db: SqliteDatabase, tokenHash: string): { ok: true } {
+  db.prepare(`
+    UPDATE sessions
+    SET revoked_at = ?
+    WHERE token_hash = ? AND revoked_at IS NULL
+  `).run(new Date().toISOString(), tokenHash)
+  return { ok: true }
+}
+
+function readAuthWorkspaceContext(db: SqliteDatabase, userId: string, workspaceId: string): AuthWorkspaceContext {
+  const row = db.prepare(`
+    SELECT
+      users.id AS user_id,
+      users.email,
+      users.display_name,
+      users.role AS user_role,
+      users.status AS user_status,
+      users.last_seen_at AS user_last_seen_at,
+      users.created_at AS user_created_at,
+      users.updated_at AS user_updated_at,
+      workspaces.id AS workspace_id,
+      workspaces.name AS workspace_name,
+      workspaces.plan AS workspace_plan,
+      workspaces.owner_user_id AS workspace_owner_user_id,
+      workspaces.active_resume_id AS workspace_active_resume_id,
+      workspaces.created_at AS workspace_created_at,
+      workspaces.updated_at AS workspace_updated_at,
+      workspace_memberships.role AS workspace_role
+    FROM users
+    JOIN workspace_memberships ON workspace_memberships.user_id = users.id
+    JOIN workspaces ON workspaces.id = workspace_memberships.workspace_id
+    WHERE users.id = ? AND workspaces.id = ?
+    LIMIT 1
+  `).get(userId, workspaceId) as AnyRecord | undefined
+  if (!row) throw httpError(404, 'Workspace not found')
+  return authContextFromJoinedRow(row)
+}
+
+function authContextFromJoinedRow(
+  row: AnyRecord,
+  overrides: { lastSeenAt?: string; updatedAt?: string } = {},
+): AuthWorkspaceContext {
+  return {
+    user: {
+      id: row.user_id,
+      email: row.email,
+      displayName: row.display_name,
+      role: row.user_role,
+      status: row.user_status,
+      lastSeenAt: overrides.lastSeenAt ?? row.user_last_seen_at ?? undefined,
+      createdAt: row.user_created_at,
+      updatedAt: overrides.updatedAt ?? row.user_updated_at,
+    },
+    workspace: {
+      id: row.workspace_id,
+      name: row.workspace_name,
+      plan: row.workspace_plan,
+      role: row.workspace_role,
+      ownerUserId: row.workspace_owner_user_id,
+      activeResumeId: row.workspace_active_resume_id ?? undefined,
+      createdAt: row.workspace_created_at,
+      updatedAt: row.workspace_updated_at,
+    },
+  }
+}
+
+function toUserWithPassword(row: AnyRecord): UserWithPassword {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    role: row.role,
+    status: row.status,
+    passwordHash: row.password_hash ?? undefined,
+    lastSeenAt: row.last_seen_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function initialStateWithFreshIds(): ResumeState {
+  const state = normalizeState(initialState())
+  const documentIds = new Map<string, string>()
+  state.documents = state.documents.map((doc) => {
+    const id = newId('resume')
+    documentIds.set(doc.id, id)
+    return { ...doc, id }
+  })
+  state.activeResumeId = documentIds.get(state.activeResumeId) ?? state.documents[0]?.id
+  state.applications = state.applications.map((app) => ({
+    ...app,
+    id: newId('app'),
+    resumeId: documentIds.get(app.resumeId) ?? app.resumeId,
+  }))
+  state.growthEntries = state.growthEntries.map((entry) => ({
+    ...entry,
+    id: newId('growth'),
+    sourceResumeId: documentIds.get(entry.sourceResumeId) ?? entry.sourceResumeId,
+    usedByResumeIds: entry.usedByResumeIds.map((id: string) => documentIds.get(id) ?? id),
+  }))
+  state.platformRequests = state.platformRequests.map((entry) => ({ ...entry, id: newId('platform') }))
+  state.activityLog = state.activityLog.map((event) => ({
+    ...event,
+    id: newId('activity'),
+    resumeId: event.resumeId ? documentIds.get(event.resumeId) ?? event.resumeId : undefined,
+  }))
+  return state
+}
+
+function normalizeEmail(email: string): string {
+  return String(email ?? '').trim().toLowerCase()
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE')
 }
 
 function stringifyJson(value: unknown): string {
