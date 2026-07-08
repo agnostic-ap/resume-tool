@@ -126,6 +126,11 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     })
   })
 
+  app.addHook('preHandler', async (request) => {
+    if (!authSessionRequired(request.method, request.url)) return
+    await requireUserSession(store, request)
+  })
+
   app.get('/health', async () => ({
     ok: true,
     service: 'resume-tool-backend-api',
@@ -136,6 +141,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
   app.get('/api/v1/openapi.json', async () => platformOpenApiDocument())
 
   app.post('/api/auth/register', async (request, reply) => {
+    if (!registrationAllowed()) throw httpError(403, 'Registration is disabled')
     const input = parseBody(registerAccountSchema, request.body)
     assertAuthAttemptAllowed(authContext(request))
     const account = await store.createUserWorkspace({
@@ -164,6 +170,8 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
   })
 
   app.get('/api/auth/session', async (request) => requireUserSession(store, request))
+
+  app.get('/api/auth/me', async (request) => currentUserSession(store, request))
 
   app.post('/api/auth/logout', async (request, reply) => {
     const token = sessionToken(request.headers)
@@ -407,7 +415,36 @@ function getParam(params: unknown, key: string): string {
 const AUTH_FAILURE_LIMIT = 10
 const AUTH_FAILURE_WINDOW_MS = 60_000
 const SESSION_COOKIE = 'resume_session'
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const DEFAULT_SESSION_TTL_DAYS = 30
+const SCRYPT_N = 16384
+const SCRYPT_R = 8
+const SCRYPT_P = 1
+
+function authMode(): 'local' | 'multi-user' {
+  return process.env.RESUME_AUTH_MODE === 'multi-user' ? 'multi-user' : 'local'
+}
+
+function registrationAllowed(): boolean {
+  return process.env.RESUME_AUTH_ALLOW_REGISTRATION?.trim().toLowerCase() !== 'false'
+}
+
+function authSessionRequired(method: string, url: string): boolean {
+  if (authMode() !== 'multi-user') return false
+  if (method.toUpperCase() === 'OPTIONS') return false
+
+  const path = url.split('?')[0] || '/'
+  if (!path.startsWith('/api/')) return false
+  if (path.startsWith('/api/auth/')) return false
+  if (path.startsWith('/api/admin/')) return false
+  if (path === '/api/v1/openapi.json' || path.startsWith('/api/v1/')) return false
+  return true
+}
+
+function sessionTtlMs(): number {
+  const configured = Number(process.env.RESUME_SESSION_TTL_DAYS ?? DEFAULT_SESSION_TTL_DAYS)
+  const days = Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_SESSION_TTL_DAYS
+  return days * 24 * 60 * 60 * 1000
+}
 
 function sha256(value: string): Buffer {
   return createHash('sha256').update(value).digest()
@@ -423,14 +460,29 @@ function sessionTokenHash(token: string): string {
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('base64url')
-  const hash = scryptSync(password, salt, 64).toString('base64url')
-  return `scrypt$${salt}$${hash}`
+  const hash = scryptSync(password, salt, 64, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P }).toString('base64url')
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${hash}`
 }
 
 function verifyPassword(password: string, encodedHash: string): boolean {
-  const [algorithm, salt, expectedHash] = encodedHash.split('$')
-  if (algorithm !== 'scrypt' || !salt || !expectedHash) return false
-  const actual = scryptSync(password, salt, 64)
+  const parts = encodedHash.split('$')
+  const [algorithm] = parts
+  if (algorithm !== 'scrypt') return false
+
+  const legacyHash = parts.length === 3
+  const salt = legacyHash ? parts[1] : parts[4]
+  const expectedHash = legacyHash ? parts[2] : parts[5]
+  const options = legacyHash
+    ? undefined
+    : {
+      N: Number(parts[1]),
+      r: Number(parts[2]),
+      p: Number(parts[3]),
+    }
+  if (!salt || !expectedHash) return false
+  if (options && (!Number.isFinite(options.N) || !Number.isFinite(options.r) || !Number.isFinite(options.p))) return false
+
+  const actual = options ? scryptSync(password, salt, 64, options) : scryptSync(password, salt, 64)
   const expected = Buffer.from(expectedHash, 'base64url')
   return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
@@ -441,7 +493,7 @@ function newSessionToken(): string {
 
 async function issueUserSession(store: Store, userId: string): Promise<IssuedSession> {
   const token = newSessionToken()
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
+  const expiresAt = new Date(Date.now() + sessionTtlMs()).toISOString()
   await store.createSession({
     userId,
     tokenHash: sessionTokenHash(token),
@@ -466,15 +518,22 @@ async function storeContextForRequest(
   request: { headers: Record<string, unknown> },
 ): Promise<StoreContext> {
   const session = await optionalUserSession(store, request)
-  return session
-    ? { userId: session.user.id, workspaceId: session.workspace.id }
-    : {}
+  if (session) return { userId: session.user.id, workspaceId: session.workspace.id }
+  if (authMode() === 'multi-user') throw httpError(401, 'Account session is required')
+  return {}
 }
 
 async function requireUserSession(store: Store, request: { headers: Record<string, unknown> }): Promise<UserSession> {
   const session = await optionalUserSession(store, request)
   if (!session) throw httpError(401, 'Account session is required')
   return session
+}
+
+async function currentUserSession(store: Store, request: { headers: Record<string, unknown> }): Promise<UserSession> {
+  const session = await optionalUserSession(store, request)
+  if (session) return session
+  if (authMode() === 'multi-user') throw httpError(401, 'Account session is required')
+  return store.getLocalAuthContext() as Promise<UserSession>
 }
 
 async function optionalUserSession(store: Store, request: { headers: Record<string, unknown> }): Promise<UserSession | undefined> {

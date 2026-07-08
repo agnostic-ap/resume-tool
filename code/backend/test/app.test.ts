@@ -192,6 +192,125 @@ test('account auth registers, logs in, scopes data, and logs out', async () => {
   }
 })
 
+test('multi-user auth mode requires sessions for app data routes', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  const previousApiKey = process.env.RESUME_PLATFORM_API_KEY
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  process.env.RESUME_PLATFORM_API_KEY = 'multi-user-platform-key'
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const health = await app.inject({ method: 'GET', url: '/health' })
+    assert.equal(health.statusCode, 200)
+
+    const openapi = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    assert.equal(openapi.statusCode, 200)
+
+    const platformMissingKey = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resume-drafts',
+      payload: platformPayload(),
+    })
+    assert.equal(platformMissingKey.statusCode, 401)
+    assert.equal(platformMissingKey.json().error, 'Platform API key is required')
+
+    const anonymous = await app.inject({ method: 'GET', url: '/api/resumes' })
+    assert.equal(anonymous.statusCode, 401)
+    assert.equal(anonymous.json().error, 'Account session is required')
+
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'mode@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Mode User',
+      },
+    })
+    assert.equal(registered.statusCode, 201)
+    const token = registered.json().token
+
+    const resumes = await app.inject({
+      method: 'GET',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(resumes.statusCode, 200)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { blank: true, title: 'Multi-user Resume' },
+    })
+    assert.equal(created.statusCode, 201)
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    if (previousApiKey === undefined) delete process.env.RESUME_PLATFORM_API_KEY
+    else process.env.RESUME_PLATFORM_API_KEY = previousApiKey
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('registration can be disabled by environment flag', async () => {
+  const previousAllowRegistration = process.env.RESUME_AUTH_ALLOW_REGISTRATION
+  process.env.RESUME_AUTH_ALLOW_REGISTRATION = 'false'
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'disabled@example.com',
+        password: 'correct-horse-battery',
+      },
+    })
+    assert.equal(response.statusCode, 403)
+    assert.equal(response.json().error, 'Registration is disabled')
+  } finally {
+    if (previousAllowRegistration === undefined) delete process.env.RESUME_AUTH_ALLOW_REGISTRATION
+    else process.env.RESUME_AUTH_ALLOW_REGISTRATION = previousAllowRegistration
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('expired account sessions are rejected', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+  const token = 'expired-session-token'
+
+  try {
+    const account = await store.createUserWorkspace({
+      email: 'expired@example.com',
+      displayName: 'Expired User',
+      passwordHash: 'hash-expired',
+    })
+    await store.createSession({
+      userId: account.user.id,
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(response.statusCode, 401)
+    assert.equal(response.json().error, 'Invalid or expired account session')
+  } finally {
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('admin API enforces token auth and super admin permissions', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   const app = await buildApp(createStore({ dataDir: dir }))

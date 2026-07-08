@@ -32,6 +32,9 @@ Environment variables:
 - `PORT`: server port, defaults to `8787`
 - `HOST`: bind host, defaults to `127.0.0.1`
 - `RESUME_BACKEND_DATA_DIR`: SQLite data directory, defaults to `code/backend/.data`
+- `RESUME_AUTH_MODE`: authentication mode. Unset or any value other than `multi-user` keeps local compatibility mode. Set `RESUME_AUTH_MODE=multi-user` to require account sessions on app data routes.
+- `RESUME_AUTH_ALLOW_REGISTRATION`: set to `false` to disable `POST /api/auth/register`. Default is enabled.
+- `RESUME_SESSION_TTL_DAYS`: account session lifetime in days, defaults to `30`.
 - `CORS_ORIGIN`: comma-separated allowed origins. Defaults to local dev origins only; with `NODE_ENV=production` and no `CORS_ORIGIN`, cross-origin requests are disabled.
 - `RESUME_ADMIN_USERS`: optional JSON array for admin console access. Each entry supports `email`, `token` or `tokenHash` (sha256 hex of the token, preferred so plaintext secrets stay out of config), `role` (`super_admin`, `ops_admin`, `viewer`), and optional `status` (`enabled`, `locked`).
 - `RESUME_ADMIN_TOKEN`: optional legacy single super admin token. Ignored when `RESUME_ADMIN_USERS` is set.
@@ -52,9 +55,14 @@ On first open, if `<RESUME_BACKEND_DATA_DIR>/resume-state.json` exists and the S
 
 ## Accounts
 
-The account API adds user-owned workspaces without breaking the unauthenticated local mode. Requests without an account session continue to read and write the default `local-owner/default` workspace. Requests with a valid account session are scoped to that user's workspace.
+The backend supports two account modes:
+
+- Local mode is the default when `RESUME_AUTH_MODE` is unset. Existing unauthenticated clients keep working and read/write the default `local-owner/default` workspace. Requests with a valid account session are still scoped to that user's workspace.
+- Multi-user mode is enabled with `RESUME_AUTH_MODE=multi-user`. In this mode, app data routes under `/api/*` require an account session and are scoped to the logged-in user's workspace. Anonymous requests return `401 Account session is required`. Public or separately authenticated routes remain available: `/health`, `/api/v1/openapi.json`, `/api/auth/*`, platform `/api/v1/*` routes protected by API keys, and `/api/admin/*` routes protected by admin tokens.
 
 Account sessions can be sent as `Authorization: Bearer <token>`, `x-resume-session: <token>`, or the `resume_session` HTTP-only cookie returned by login/register. Session tokens are only stored server-side as sha256 hashes; passwords are stored as salted `scrypt` hashes.
+
+`POST /api/auth/register` creates a user, a personal workspace, and returns a session token. Set `RESUME_AUTH_ALLOW_REGISTRATION=false` to return 403 for registration. `POST /api/auth/login` returns a new session token for an existing user. `GET /api/auth/me` returns the current account context, or the local owner context in local mode when no token is supplied. `POST /api/auth/logout` revokes the supplied session token.
 
 Admin config example:
 
@@ -94,6 +102,7 @@ GET    /api/state
 
 POST   /api/auth/register
 POST   /api/auth/login
+GET    /api/auth/me
 GET    /api/auth/session
 POST   /api/auth/logout
 
