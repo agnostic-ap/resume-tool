@@ -36,6 +36,10 @@ export function createAdminRoutes(store: Store, authContext: AuthContextFactory)
       const admin = assertAdminAccess(authContext(request), 'super_admin')
       return store.revokeUserSessions(adminUserOperationInput(admin, request, getParam(request.params, 'id')))
     })
+    app.delete('/api/admin/users/:id', async (request) => {
+      const admin = assertAdminAccess(authContext(request), 'super_admin')
+      return store.deleteUser(adminUserOperationInput(admin, request, getParam(request.params, 'id')))
+    })
     app.post('/api/admin/users/:id/plan', async (request) => {
       const admin = assertAdminAccess(authContext(request), 'super_admin')
       const input = parseBody(adminUserPlanSchema, request.body)

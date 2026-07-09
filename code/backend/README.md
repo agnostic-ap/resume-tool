@@ -67,6 +67,10 @@ Account sessions can be sent as `Authorization: Bearer <token>`, `x-resume-sessi
 
 `POST /api/auth/register` creates a user, a personal workspace, and returns a session token. Set `RESUME_AUTH_ALLOW_REGISTRATION=false` to return 403 for registration. `POST /api/auth/login` returns a new session token for an existing user. `GET /api/auth/me` returns the current account context, or the local owner context in local mode when no token is supplied. `POST /api/auth/logout` revokes the supplied session token.
 
+`GET /api/account/export` returns a downloadable JSON export for the current account workspace. The response includes `schemaVersion`, `exportedAt`, profile and workspace metadata, resumes, applications with progress logs, growth entries, activity, platform request logs, subscription data, usage counters, and resume shares. It never includes `password_hash`, session token hashes, or platform API key material, and sets `Content-Disposition: attachment; filename="resume-tool-export-YYYY-MM-DD.json"`.
+
+`DELETE /api/account` permanently deletes the current non-local account when the body is exactly `{ "confirm": "DELETE" }`. The deletion runs in one SQLite transaction and removes the account workspace data, shares, sessions, subscription, usage counters, user row, and workspace row; old session tokens immediately return 401. The default local account `local-owner` is protected and returns `400 {"error":"The default local account cannot be deleted."}`.
+
 Admin config example:
 
 ```json
@@ -110,6 +114,8 @@ Admins can manually change plans with `POST /api/admin/users/:id/plan` as `super
 ```
 
 Use `{ "plan": "free" }` to revoke Pro immediately. Plan changes write `audit_logs` with action `admin.user.plan.update`.
+
+Super admins can also delete a registered user with `DELETE /api/admin/users/:id`. This uses the same cascade as self-service deletion, blocks `local-owner`, invalidates sessions, and writes `audit_logs` with action `admin.user.delete`.
 
 ## Resume Shares
 
@@ -171,6 +177,9 @@ GET    /api/auth/me
 GET    /api/auth/session
 POST   /api/auth/logout
 
+GET    /api/account/export
+DELETE /api/account
+
 GET    /api/billing/me
 POST   /api/billing/usage/export
 
@@ -207,6 +216,7 @@ GET    /api/admin/users
 POST   /api/admin/users/:id/lock
 POST   /api/admin/users/:id/unlock
 POST   /api/admin/users/:id/plan
+DELETE /api/admin/users/:id
 DELETE /api/admin/users/:id/sessions
 GET    /api/admin/platform-clients
 GET    /api/admin/platform-usage

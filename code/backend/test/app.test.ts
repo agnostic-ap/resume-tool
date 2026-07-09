@@ -193,6 +193,295 @@ test('account auth registers, logs in, scopes data, and logs out', async () => {
   }
 })
 
+test('account export returns only the current user data without secrets', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const alice = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'export-alice@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Export Alice',
+      },
+    })
+    assert.equal(alice.statusCode, 201)
+    const aliceToken = alice.json().token
+
+    const aliceResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { blank: true, title: 'Alice Export Resume' },
+    })
+    assert.equal(aliceResume.statusCode, 201)
+
+    const aliceApplication = await app.inject({
+      method: 'POST',
+      url: '/api/applications',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: {
+        company: 'Alice Export Co',
+        role: 'Privacy Engineer',
+        resumeId: aliceResume.json().id,
+        stage: 'applied',
+      },
+    })
+    assert.equal(aliceApplication.statusCode, 201)
+
+    const aliceGrowth = await app.inject({
+      method: 'POST',
+      url: '/api/growth-entries',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: {
+        title: 'Exported privacy workflow',
+        type: 'achievement',
+        sourceResumeId: aliceResume.json().id,
+      },
+    })
+    assert.equal(aliceGrowth.statusCode, 201)
+
+    const aliceShare = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { resumeId: aliceResume.json().id },
+    })
+    assert.equal(aliceShare.statusCode, 201)
+
+    const consumedUsage = await app.inject({
+      method: 'POST',
+      url: '/api/billing/usage/export',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(consumedUsage.statusCode, 200)
+
+    const bob = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'export-bob@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Export Bob',
+      },
+    })
+    assert.equal(bob.statusCode, 201)
+    const bobToken = bob.json().token
+
+    const bobResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${bobToken}` },
+      payload: { blank: true, title: 'Bob Private Resume' },
+    })
+    assert.equal(bobResume.statusCode, 201)
+
+    const exported = await app.inject({
+      method: 'GET',
+      url: '/api/account/export',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(exported.statusCode, 200)
+    assert.match(
+      String(exported.headers['content-disposition']),
+      /^attachment; filename="resume-tool-export-\d{4}-\d{2}-\d{2}\.json"$/,
+    )
+
+    const body = exported.json()
+    assert.equal(body.schemaVersion, 1)
+    assert.equal(typeof body.exportedAt, 'string')
+    assert.equal(body.profile.email, 'export-alice@example.com')
+    assert.equal(body.profile.passwordHash, undefined)
+    assert.equal(body.workspace.role, 'owner')
+    assert.ok(body.resumes.some((doc: { title: string }) => doc.title === 'Alice Export Resume'))
+    assert.ok(!body.resumes.some((doc: { title: string }) => doc.title === 'Bob Private Resume'))
+    assert.ok(body.applications.some((appRecord: { company: string; progressLog: unknown[] }) =>
+      appRecord.company === 'Alice Export Co' && Array.isArray(appRecord.progressLog) && appRecord.progressLog.length > 0))
+    assert.ok(body.growthEntries.some((entry: { title: string }) => entry.title === 'Exported privacy workflow'))
+    assert.ok(body.activityLog.length > 0)
+    assert.ok(body.usageCounters.some((counter: { kind: string; count: number }) =>
+      counter.kind === 'export' && counter.count === 1))
+    assert.ok(body.shares.some((share: { id: string; snapshot: { title?: string } }) =>
+      share.id === aliceShare.json().id && share.snapshot.title === 'Alice Export Resume'))
+
+    const serialized = JSON.stringify(body)
+    assert.equal(serialized.includes('password_hash'), false)
+    assert.equal(serialized.includes('passwordHash'), false)
+    assert.equal(serialized.includes('token_hash'), false)
+    assert.equal(serialized.includes('Bob Private Resume'), false)
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('account deletion requires confirmation, removes owned data, and invalidates sessions', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+
+  try {
+    const alice = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'delete-alice@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Delete Alice',
+      },
+    })
+    assert.equal(alice.statusCode, 201)
+    const aliceBody = alice.json()
+    const aliceToken = aliceBody.token
+    const aliceUserId = aliceBody.user.id
+    const aliceWorkspaceId = aliceBody.workspace.id
+
+    const aliceResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { blank: true, title: 'Delete Alice Resume' },
+    })
+    assert.equal(aliceResume.statusCode, 201)
+    const aliceApplication = await app.inject({
+      method: 'POST',
+      url: '/api/applications',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { company: 'Delete Alice Co', role: 'Backend Engineer', resumeId: aliceResume.json().id },
+    })
+    assert.equal(aliceApplication.statusCode, 201)
+    const aliceGrowth = await app.inject({
+      method: 'POST',
+      url: '/api/growth-entries',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { title: 'Deletion test growth', sourceResumeId: aliceResume.json().id },
+    })
+    assert.equal(aliceGrowth.statusCode, 201)
+    const aliceShare = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { resumeId: aliceResume.json().id },
+    })
+    assert.equal(aliceShare.statusCode, 201)
+    await store.setUserPlan({
+      userId: aliceUserId,
+      actorEmail: 'owner@example.com',
+      actorRole: 'super_admin',
+      plan: 'pro',
+    })
+    const consumedUsage = await app.inject({
+      method: 'POST',
+      url: '/api/billing/usage/export',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(consumedUsage.statusCode, 200)
+
+    const bob = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'delete-bob@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Delete Bob',
+      },
+    })
+    assert.equal(bob.statusCode, 201)
+    const bobToken = bob.json().token
+    const bobResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${bobToken}` },
+      payload: { blank: true, title: 'Bob Survives Resume' },
+    })
+    assert.equal(bobResume.statusCode, 201)
+
+    const missingConfirm = await app.inject({
+      method: 'DELETE',
+      url: '/api/account',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: {},
+    })
+    assert.equal(missingConfirm.statusCode, 400)
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: '/api/account',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { confirm: 'DELETE' },
+    })
+    assert.equal(deleted.statusCode, 200)
+    assert.deepEqual(deleted.json(), { deleted: true })
+
+    const oldSession = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    })
+    assert.equal(oldSession.statusCode, 401)
+
+    const db = new Database(store.dbPath)
+    try {
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM users WHERE id = ?', aliceUserId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM workspaces WHERE id = ?', aliceWorkspaceId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?', aliceUserId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM subscriptions WHERE user_id = ?', aliceUserId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM usage_counters WHERE user_id = ?', aliceUserId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM resume_shares WHERE user_id = ?', aliceUserId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM resume_documents WHERE workspace_id = ?', aliceWorkspaceId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM job_applications WHERE workspace_id = ?', aliceWorkspaceId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM application_progress_events WHERE workspace_id = ?', aliceWorkspaceId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM growth_entries WHERE workspace_id = ?', aliceWorkspaceId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM activity_events WHERE workspace_id = ?', aliceWorkspaceId), 0)
+    } finally {
+      db.close()
+    }
+
+    const bobResumes = await app.inject({
+      method: 'GET',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${bobToken}` },
+    })
+    assert.equal(bobResumes.statusCode, 200)
+    assert.ok(bobResumes.json().documents.some((doc: { title: string }) => doc.title === 'Bob Survives Resume'))
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('local owner account cannot be deleted', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  delete process.env.RESUME_AUTH_MODE
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/account',
+      payload: { confirm: 'DELETE' },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.equal(response.json().error, 'The default local account cannot be deleted.')
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('multi-user auth mode requires sessions for app data routes', async () => {
   const previousAuthMode = process.env.RESUME_AUTH_MODE
   const previousApiKey = process.env.RESUME_PLATFORM_API_KEY
@@ -510,6 +799,102 @@ test('admin users API lists users and manages locks, sessions, and audit logs', 
     assert.ok(revokeLog)
     assert.equal(lockLog.actorEmail, 'owner@example.com')
     assert.equal(lockLog.targetEmail, 'managed@example.com')
+  } finally {
+    if (previousAdminUsers === undefined) delete process.env.RESUME_ADMIN_USERS
+    else process.env.RESUME_ADMIN_USERS = previousAdminUsers
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('admin user deletion cascades data, audits the action, and blocks local owner', async () => {
+  const previousAdminUsers = process.env.RESUME_ADMIN_USERS
+  process.env.RESUME_ADMIN_USERS = JSON.stringify([
+    { email: 'owner@example.com', token: 'owner-token', role: 'super_admin' },
+    { email: 'viewer@example.com', token: 'viewer-token', role: 'viewer' },
+  ])
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+
+  try {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'admin-delete@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Admin Delete',
+      },
+    })
+    assert.equal(registered.statusCode, 201)
+    const userId = registered.json().user.id
+    const workspaceId = registered.json().workspace.id
+    const token = registered.json().token
+
+    const resume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { blank: true, title: 'Admin Delete Resume' },
+    })
+    assert.equal(resume.statusCode, 201)
+    const application = await app.inject({
+      method: 'POST',
+      url: '/api/applications',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { company: 'Admin Delete Co', role: 'Data Engineer', resumeId: resume.json().id },
+    })
+    assert.equal(application.statusCode, 201)
+
+    const viewerDelete = await app.inject({
+      method: 'DELETE',
+      url: `/api/admin/users/${userId}`,
+      headers: { 'x-admin-token': 'viewer-token' },
+    })
+    assert.equal(viewerDelete.statusCode, 403)
+
+    const localOwnerDelete = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/users/local-owner',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(localOwnerDelete.statusCode, 400)
+    assert.equal(localOwnerDelete.json().error, 'The default local account cannot be deleted.')
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/api/admin/users/${userId}`,
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(deleted.statusCode, 200)
+    assert.equal(deleted.json().deleted, true)
+    assert.equal(deleted.json().user.email, 'admin-delete@example.com')
+    assert.deepEqual(deleted.json().workspaceIds, [workspaceId])
+
+    const invalidated = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(invalidated.statusCode, 401)
+
+    const db = new Database(store.dbPath)
+    try {
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM users WHERE id = ?', userId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM workspaces WHERE id = ?', workspaceId), 0)
+      assert.equal(sqliteCount(db, 'SELECT COUNT(*) AS count FROM job_applications WHERE workspace_id = ?', workspaceId), 0)
+    } finally {
+      db.close()
+    }
+
+    const auditLogs = await store.listAuditLogs()
+    const deleteLog = auditLogs.find((log: { action: string; objectId: string }) =>
+      log.action === 'admin.user.delete' && log.objectId === userId)
+    assert.ok(deleteLog)
+    assert.equal(deleteLog.actorEmail, 'owner@example.com')
+    assert.equal(deleteLog.targetEmail, 'admin-delete@example.com')
+    assert.deepEqual(deleteLog.metadata.deletedWorkspaceIds, [workspaceId])
   } finally {
     if (previousAdminUsers === undefined) delete process.env.RESUME_ADMIN_USERS
     else process.env.RESUME_ADMIN_USERS = previousAdminUsers
@@ -1448,6 +1833,11 @@ test('public resume share endpoint rate limits bursts by IP', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+function sqliteCount(db: Database.Database, sql: string, ...params: unknown[]): number {
+  const row = db.prepare(sql).get(...params) as { count?: number } | undefined
+  return Number(row?.count ?? 0)
+}
 
 function platformPayload(overrides: Record<string, unknown> = {}) {
   return {

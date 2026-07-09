@@ -1,5 +1,5 @@
 import { initialState } from '../defaults.js'
-import { normalizeState, replaceStateSync } from './db.js'
+import { normalizeState, readStateSync, replaceStateSync } from './db.js'
 import { effectiveBillingPlan } from './billing.js'
 import {
   DEFAULT_USER_ID,
@@ -12,6 +12,7 @@ import {
   type AuthWorkspaceContext,
   type PublicAuditLog,
   type PublicUser,
+  type PublicWorkspace,
   type ResumeState,
   type SqliteDatabase,
   type UserWithPassword,
@@ -26,6 +27,14 @@ export function createAccountStore(db: SqliteDatabase) {
   return {
     async getLocalAuthContext() {
       return readAuthWorkspaceContext(db, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID)
+    },
+
+    async exportAccountData(input: { userId: string; workspaceId: string }) {
+      return db.transaction(() => exportAccountDataSync(db, input))()
+    },
+
+    async deleteAccount(input: { userId: string; workspaceId: string }) {
+      return db.transaction(() => deleteAccountSync(db, input))()
     },
 
     async findUserByEmail(email: string) {
@@ -64,10 +73,103 @@ export function createAccountStore(db: SqliteDatabase) {
       return db.transaction(() => revokeUserSessionsSync(db, input))()
     },
 
+    async deleteUser(input: AdminUserOperationInput) {
+      return db.transaction(() => deleteUserSync(db, input))()
+    },
+
     async listAuditLogs() {
       return listAuditLogsSync(db)
     },
   }
+}
+
+const ACCOUNT_EXPORT_SCHEMA_VERSION = 1
+
+function exportAccountDataSync(
+  db: SqliteDatabase,
+  input: { userId: string; workspaceId: string },
+) {
+  const context = readAuthWorkspaceContext(db, input.userId, input.workspaceId)
+  const state = readStateSync(db, { userId: context.user.id, workspaceId: context.workspace.id })
+  const exportedAt = new Date().toISOString()
+  return {
+    schemaVersion: ACCOUNT_EXPORT_SCHEMA_VERSION,
+    exportedAt,
+    profile: context.user,
+    workspace: context.workspace,
+    resumes: state.documents,
+    applications: state.applications,
+    growthEntries: state.growthEntries,
+    activityLog: state.activityLog,
+    platformRequests: state.platformRequests,
+    subscription: readSubscriptionExportSync(db, context.user.id),
+    usageCounters: listUsageCounterExportsSync(db, context.user.id),
+    shares: listShareExportsSync(db, context.user.id, context.workspace.id),
+  }
+}
+
+function readSubscriptionExportSync(db: SqliteDatabase, userId: string) {
+  const row = db.prepare(`
+    SELECT plan, status, source, current_period_end, created_at, updated_at
+    FROM subscriptions
+    WHERE user_id = ?
+  `).get(userId) as AnyRecord | undefined
+  if (!row) return null
+  return {
+    plan: row.plan,
+    status: row.status,
+    source: row.source,
+    currentPeriodEnd: row.current_period_end ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function listUsageCounterExportsSync(db: SqliteDatabase, userId: string) {
+  const rows = db.prepare(`
+    SELECT kind, period_key, count, created_at, updated_at
+    FROM usage_counters
+    WHERE user_id = ?
+    ORDER BY kind ASC, period_key ASC
+  `).all(userId) as AnyRecord[]
+  return rows.map((row) => ({
+    kind: row.kind,
+    periodKey: row.period_key,
+    count: Number(row.count ?? 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }))
+}
+
+function listShareExportsSync(db: SqliteDatabase, userId: string, workspaceId: string) {
+  const rows = db.prepare(`
+    SELECT id, resume_id, snapshot, status, expires_at, view_count, last_viewed_at, created_at, revoked_at
+    FROM resume_shares
+    WHERE user_id = ? AND workspace_id = ?
+    ORDER BY created_at DESC, id DESC
+  `).all(userId, workspaceId) as AnyRecord[]
+  return rows.map((row) => ({
+    id: row.id,
+    resumeId: row.resume_id,
+    snapshot: parseJson(row.snapshot, {}),
+    status: row.status,
+    expiresAt: row.expires_at ?? null,
+    viewCount: Number(row.view_count ?? 0),
+    lastViewedAt: row.last_viewed_at ?? null,
+    createdAt: row.created_at,
+    revokedAt: row.revoked_at ?? null,
+  }))
+}
+
+function deleteAccountSync(
+  db: SqliteDatabase,
+  input: { userId: string; workspaceId: string },
+): { deleted: true } {
+  const user = readDeletableUserSync(db, input.userId)
+  const workspaceIds = ownedWorkspaceIdsForUserSync(db, user.id, input.workspaceId)
+  if (!workspaceIds.length) throw httpError(404, 'Workspace not found')
+  deleteUserDataSync(db, user.id, workspaceIds)
+  return { deleted: true }
 }
 
 function listAdminUsersSync(db: SqliteDatabase): AdminListedUser[] {
@@ -193,6 +295,108 @@ function revokeUserSessionsSync(db: SqliteDatabase, input: AdminUserOperationInp
     action: 'admin.user.sessions.revoke',
   })
   return { user, revokedSessions }
+}
+
+function deleteUserSync(db: SqliteDatabase, input: AdminUserOperationInput): {
+  deleted: true
+  user: PublicUser
+  workspaceIds: string[]
+} {
+  const user = readDeletableUserSync(db, input.userId)
+  const workspaceIds = ownedWorkspaceIdsForUserSync(db, user.id)
+  const deletedCounts = deleteUserDataSync(db, user.id, workspaceIds)
+  const auditInput = adminAuditInput(input, user, deletedCounts.sessions)
+  recordAuditLogSync(db, {
+    ...auditInput,
+    action: 'admin.user.delete',
+    metadata: {
+      ...auditInput.metadata,
+      deletedWorkspaceIds: workspaceIds,
+      deletedSessions: deletedCounts.sessions,
+    },
+  })
+  return { deleted: true, user, workspaceIds }
+}
+
+function readDeletableUserSync(db: SqliteDatabase, userId: string): PublicUser {
+  const user = readUserByIdSync(db, userId)
+  if (!user) throw httpError(404, 'User not found')
+  if (user.id === DEFAULT_USER_ID) throw httpError(400, 'The default local account cannot be deleted.')
+  return user
+}
+
+function ownedWorkspaceIdsForUserSync(
+  db: SqliteDatabase,
+  userId: string,
+  requiredWorkspaceId?: string,
+): string[] {
+  const rows = db.prepare(`
+    SELECT id
+    FROM workspaces
+    WHERE owner_user_id = ?
+      AND (? IS NULL OR id = ?)
+    ORDER BY created_at ASC, id ASC
+  `).all(userId, requiredWorkspaceId ?? null, requiredWorkspaceId ?? null) as AnyRecord[]
+  return rows.map((row) => String(row.id))
+}
+
+function deleteUserDataSync(
+  db: SqliteDatabase,
+  userId: string,
+  workspaceIds: string[],
+): { sessions: number } {
+  const sessions = Number(db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId).changes ?? 0)
+  db.prepare('DELETE FROM subscriptions WHERE user_id = ?').run(userId)
+  db.prepare('DELETE FROM usage_counters WHERE user_id = ?').run(userId)
+  db.prepare('DELETE FROM resume_shares WHERE user_id = ?').run(userId)
+
+  for (const workspaceId of workspaceIds) {
+    deleteWorkspaceDataSync(db, workspaceId)
+  }
+
+  db.prepare('DELETE FROM activity_events WHERE actor_user_id = ?').run(userId)
+  db.prepare('DELETE FROM application_progress_events WHERE owner_user_id = ?').run(userId)
+  db.prepare('DELETE FROM job_applications WHERE owner_user_id = ?').run(userId)
+  db.prepare('DELETE FROM growth_entries WHERE owner_user_id = ?').run(userId)
+  db.prepare('DELETE FROM platform_requests WHERE user_id = ?').run(userId)
+  db.prepare('DELETE FROM resume_documents WHERE owner_user_id = ?').run(userId)
+  db.prepare('DELETE FROM import_jobs WHERE actor_user_id = ?').run(userId)
+  db.prepare(`
+    DELETE FROM platform_api_keys
+    WHERE client_id IN (
+      SELECT id
+      FROM platform_clients
+      WHERE created_by_user_id = ?
+    )
+  `).run(userId)
+  db.prepare('DELETE FROM platform_clients WHERE created_by_user_id = ?').run(userId)
+  db.prepare('DELETE FROM workspace_memberships WHERE user_id = ?').run(userId)
+  db.prepare('UPDATE audit_logs SET actor_user_id = NULL WHERE actor_user_id = ?').run(userId)
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+  return { sessions }
+}
+
+function deleteWorkspaceDataSync(db: SqliteDatabase, workspaceId: string): void {
+  db.prepare('DELETE FROM resume_shares WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM activity_events WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM application_progress_events WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM job_applications WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM growth_entries WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM platform_requests WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM import_jobs WHERE workspace_id = ?').run(workspaceId)
+  db.prepare(`
+    DELETE FROM platform_api_keys
+    WHERE client_id IN (
+      SELECT id
+      FROM platform_clients
+      WHERE workspace_id = ?
+    )
+  `).run(workspaceId)
+  db.prepare('DELETE FROM platform_clients WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM audit_logs WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM resume_documents WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM workspace_memberships WHERE workspace_id = ?').run(workspaceId)
+  db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId)
 }
 
 function revokeSessionsForUserIdSync(db: SqliteDatabase, userId: string, revokedAt: string): number {
@@ -463,7 +667,7 @@ function readAuthWorkspaceContext(db: SqliteDatabase, userId: string, workspaceI
 function authContextFromJoinedRow(
   row: AnyRecord,
   overrides: { lastSeenAt?: string; updatedAt?: string } = {},
-): AuthWorkspaceContext {
+): AuthWorkspaceContext & { workspace: PublicWorkspace } {
   return {
     user: {
       id: row.user_id,

@@ -7,6 +7,7 @@ import {
   type AuthContextFactory,
   type Store,
 } from './lib/auth.js'
+import { createAccountRoutes } from './routes/account.js'
 import { createAdminRoutes } from './routes/admin.js'
 import { createApplicationRoutes } from './routes/applications.js'
 import { createAssistantRoutes } from './routes/assistant.js'
@@ -66,6 +67,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
 
   await app.register(createHealthRoutes(store))
   await app.register(createAuthRoutes(store, authContext))
+  await app.register(createAccountRoutes(store))
   await app.register(createBillingRoutes(store))
   await app.register(createResumeRoutes(store))
   await app.register(createShareRoutes(store, publicShareRateBuckets))
