@@ -9,10 +9,22 @@ services:
       HOST: 0.0.0.0
       PORT: 8787
       RESUME_BACKEND_DATA_DIR: /data
+      # Local-dev origins. In production, set your real frontend origin(s);
+      # leaving CORS_ORIGIN unset in production rejects all cross-origin requests.
       CORS_ORIGIN: http://127.0.0.1:5173,http://127.0.0.1:5174
-      RESUME_PLATFORM_API_KEY: dev-secret
+      # Placeholder only. Prefer RESUME_PLATFORM_CLIENTS with keyHash entries
+      # (see env.example); never ship this value.
+      RESUME_PLATFORM_API_KEY: replace-me-platform-key
     volumes:
+      # Covers resume.db plus its -wal/-shm companions; without this the
+      # database is lost on container recreation.
       - resume-api-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   resume-api-data:

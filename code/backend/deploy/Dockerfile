@@ -23,5 +23,11 @@ COPY package.json package-lock.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY sql ./sql
+# SQLite data dir must be writable by the non-root user; named volumes
+# inherit this ownership on first use.
+RUN mkdir -p /data && chown node:node /data
+USER node
 EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 8787) + '/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["npm", "start"]
