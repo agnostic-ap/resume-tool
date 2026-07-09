@@ -119,6 +119,11 @@ export const loginAccountSchema = z.object({
   password: z.string().min(1),
 })
 
+export const adminUserPlanSchema = z.object({
+  plan: z.enum(['free', 'pro']),
+  periodEnd: z.string().trim().min(1).nullable().optional(),
+})
+
 const platformPersonalSchema = z.object({
   name: z.string().optional(),
   title: z.string().optional(),
@@ -207,3 +212,4 @@ export type UpdateGrowthEntryInput = z.infer<typeof updateGrowthEntrySchema>
 export type PlatformGenerateResumeInput = z.infer<typeof platformGenerateResumeSchema>
 export type RegisterAccountInput = z.infer<typeof registerAccountSchema>
 export type LoginAccountInput = z.infer<typeof loginAccountSchema>
+export type AdminUserPlanInput = z.infer<typeof adminUserPlanSchema>

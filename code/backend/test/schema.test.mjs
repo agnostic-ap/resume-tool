@@ -5,8 +5,10 @@ import assert from 'node:assert/strict'
 
 const schemaPath = join(import.meta.dirname, '..', 'sql', '001_initial_schema.sql')
 const authSchemaPath = join(import.meta.dirname, '..', 'sql', '002_auth.sql')
+const billingSchemaPath = join(import.meta.dirname, '..', 'sql', '003_billing.sql')
 const sqliteSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '001_initial_schema.sql')
 const sqliteAuthSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '002_auth.sql')
+const sqliteBillingSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '003_billing.sql')
 
 test('database schema covers roadmap persistence requirements', async () => {
   const sql = await readFile(schemaPath, 'utf8')
@@ -116,5 +118,39 @@ test('sqlite auth schema maps sessions to local storage types', async () => {
   assert.match(sql, /revoked_at TEXT/)
   assert.match(sql, /last_seen_at TEXT/)
   assert.match(sql, /CREATE INDEX IF NOT EXISTS sessions_user_idx/)
+  assert.doesNotMatch(sql, /TIMESTAMPTZ/)
+})
+
+test('billing schema stores subscriptions and usage counters', async () => {
+  const sql = await readFile(billingSchemaPath, 'utf8')
+
+  for (const table of ['subscriptions', 'usage_counters']) {
+    assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`))
+  }
+
+  for (const column of [
+    'user_id TEXT PRIMARY KEY REFERENCES users\\(id\\) ON DELETE CASCADE',
+    "plan TEXT NOT NULL DEFAULT 'free'",
+    "status TEXT NOT NULL DEFAULT 'active'",
+    "source TEXT NOT NULL DEFAULT 'manual'",
+    'current_period_end TIMESTAMPTZ',
+    "kind IN \\('ai_draft', 'export'\\)",
+    'PRIMARY KEY \\(user_id, kind, period_key\\)',
+  ]) {
+    assert.match(sql, new RegExp(column))
+  }
+
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS subscriptions_plan_status_idx/)
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS usage_counters_user_kind_idx/)
+})
+
+test('sqlite billing schema maps subscription storage to local types', async () => {
+  const sql = await readFile(sqliteBillingSchemaPath, 'utf8')
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS subscriptions/)
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS usage_counters/)
+  assert.match(sql, /current_period_end TEXT/)
+  assert.match(sql, /count INTEGER NOT NULL DEFAULT 0/)
+  assert.match(sql, /CONSTRAINT subscriptions_source_check CHECK \(source IN \('manual', 'stripe'\)\)/)
   assert.doesNotMatch(sql, /TIMESTAMPTZ/)
 })

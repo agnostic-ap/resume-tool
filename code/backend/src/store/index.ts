@@ -2,6 +2,7 @@ import { initialState } from '../defaults.js'
 import { createAccountStore } from './accounts.js'
 import { createActivityStore, logActivity } from './activity.js'
 import { createApplicationsStore } from './applications.js'
+import { createBillingStore } from './billing.js'
 import {
   isDatabaseEmpty,
   migrateLegacyJsonIfNeeded,
@@ -28,6 +29,7 @@ import {
 
 export { normalizeActivity } from './activity.js'
 export { normalizeApplication } from './applications.js'
+export { effectiveBillingPlan } from './billing.js'
 export { normalizeState } from './db.js'
 export { normalizeConfig, normalizeDocument, normalizeResumeData } from './documents.js'
 export { DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, httpError } from './shared.js'
@@ -102,6 +104,7 @@ export function createStore(options: StoreOptions = {}) {
     },
 
     ...createAccountStore(db),
+    ...createBillingStore(db),
 
     close() {
       db.close()

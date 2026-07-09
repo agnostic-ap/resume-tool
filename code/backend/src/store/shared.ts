@@ -53,6 +53,7 @@ export type UserWithPassword = PublicUser & {
 }
 
 export type AdminListedUser = PublicUser & {
+  plan: 'free' | 'pro'
   workspace?: PublicWorkspace
   resumeCount: number
   applicationCount: number

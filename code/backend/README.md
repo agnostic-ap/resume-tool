@@ -49,7 +49,7 @@ Auth notes: secrets are compared in constant time, and repeated failed attempts 
 
 ## Persistence
 
-The backend stores local state in `<RESUME_BACKEND_DATA_DIR>/resume.db` and enables SQLite WAL mode on startup. The schema keeps the default single-user workspace as user `local-owner` and workspace `default`; all resumes, applications, growth entries, platform request logs, and activity rows are attached to that workspace so multi-account support can be added incrementally.
+The backend stores local state in `<RESUME_BACKEND_DATA_DIR>/resume.db` and enables SQLite WAL mode on startup. The schema keeps the default single-user workspace as user `local-owner` and workspace `default`; all resumes, applications, growth entries, platform request logs, activity rows, subscriptions, and usage counters are attached to account users so multi-account support can be added incrementally.
 
 On first open, if `<RESUME_BACKEND_DATA_DIR>/resume-state.json` exists and the SQLite database has no resume rows yet, the store imports the JSON state into SQLite and renames the original file to `resume-state.json.migrated` as a backup. HTTP response shapes are unchanged from the JSON-backed version.
 
@@ -72,6 +72,41 @@ Admin config example:
   { "email": "audit@example.com", "token": "audit-secret", "role": "viewer" }
 ]
 ```
+
+## Billing and quotas
+
+C-end plan state is authoritative on the server. The billing migration adds:
+
+- `subscriptions`: one row per user, with `plan` (`free`/`pro`), `status` (`active`/`canceled`/`expired`), `source` (`manual`/`stripe`), and optional `current_period_end`. `source='stripe'` is reserved for a future Stripe webhook integration; this backend does not include the Stripe SDK yet.
+- `usage_counters`: per-user counters by `kind` (`ai_draft`/`export`) and `period_key` (`YYYY-MM-DD` for daily AI drafts, `YYYY-MM` for monthly exports).
+
+Free quotas mirror the frontend entitlement constants: 3 AI resume drafts per day and 5 exports per month. Pro has unlimited AI drafts and exports, represented in API responses as `limit: null` and `remaining: null`. A Pro subscription with `current_period_end` in the past automatically reports effective `plan: "free"` and `status: "expired"`.
+
+`GET /api/billing/me` returns the current effective plan plus quota usage:
+
+```json
+{
+  "plan": "free",
+  "status": "active",
+  "currentPeriodEnd": null,
+  "quotas": {
+    "aiDraft": { "limit": 3, "used": 0, "remaining": 3, "resetAt": "2026-07-10T00:00:00.000Z" },
+    "export": { "limit": 5, "used": 0, "remaining": 5, "resetAt": "2026-08-01T00:00:00.000Z" }
+  }
+}
+```
+
+`POST /api/billing/usage/export` consumes one export quota and returns the updated billing shape. Free users receive HTTP 402 with a clear upgrade message after 5 exports in the monthly period. In local auth mode these endpoints operate as `local-owner`; in multi-user mode they require an account session.
+
+`POST /api/assistant/resume-drafts` consumes one `ai_draft` quota after request validation and before generation only in `RESUME_AUTH_MODE=multi-user`. Local mode does not enforce server AI quota for compatibility with the current frontend localStorage behavior. Platform API draft routes keep their existing B2B quota/rate-limit rules and do not consume C-end quota.
+
+Admins can manually change plans with `POST /api/admin/users/:id/plan` as `super_admin`:
+
+```json
+{ "plan": "pro", "periodEnd": "2026-08-01T00:00:00.000Z" }
+```
+
+Use `{ "plan": "free" }` to revoke Pro immediately. Plan changes write `audit_logs` with action `admin.user.plan.update`.
 
 Platform client config example:
 
@@ -106,6 +141,9 @@ GET    /api/auth/me
 GET    /api/auth/session
 POST   /api/auth/logout
 
+GET    /api/billing/me
+POST   /api/billing/usage/export
+
 GET    /api/resumes
 POST   /api/resumes
 GET    /api/resumes/:id
@@ -133,6 +171,7 @@ GET    /api/admin/state
 GET    /api/admin/users
 POST   /api/admin/users/:id/lock
 POST   /api/admin/users/:id/unlock
+POST   /api/admin/users/:id/plan
 DELETE /api/admin/users/:id/sessions
 GET    /api/admin/platform-clients
 GET    /api/admin/platform-usage
@@ -196,9 +235,10 @@ Platform product behavior:
 - `drafts:write` scope is required for draft generation routes.
 - `requests:read` scope is required for `GET /api/v1/platform/requests`.
 - Clients without `requests:all` only see their own request logs.
-- `GET /api/admin/users` (viewer and above) lists account users with id, email, display name, role, status, workspace metadata, resume/application counts, `createdAt`, and `lastSeenAt`. It never returns `passwordHash`.
+- `GET /api/admin/users` (viewer and above) lists account users with id, email, display name, role, status, effective billing `plan`, workspace metadata, resume/application counts, `createdAt`, and `lastSeenAt`. It never returns `passwordHash`.
 - `POST /api/admin/users/:id/lock` (super admin) locks a user, immediately revokes existing sessions, and makes future login return `403 Account is locked`. The built-in `local-owner` user cannot be locked and returns 400.
 - `POST /api/admin/users/:id/unlock` (super admin) re-enables login for a locked user.
+- `POST /api/admin/users/:id/plan` (super admin) manually grants or revokes Pro and writes an audit log entry.
 - `DELETE /api/admin/users/:id/sessions` (super admin) revokes all current sessions for that user.
 - User lock, unlock, and forced session revocation write `audit_logs` entries with the admin email, action, target user, and timestamp.
 - `GET /api/admin/platform-clients` returns redacted client metadata for the admin console, including scopes, quota, rate limit, request counts, and last request time. It never returns API key material.
@@ -222,6 +262,7 @@ Admin permission matrix:
 | `GET /api/admin/users` | Yes | Yes | Yes |
 | `POST /api/admin/users/:id/lock` | No | No | Yes |
 | `POST /api/admin/users/:id/unlock` | No | No | Yes |
+| `POST /api/admin/users/:id/plan` | No | No | Yes |
 | `DELETE /api/admin/users/:id/sessions` | No | No | Yes |
 | `GET /api/admin/platform-clients` | No | No | Yes |
 | `GET /api/admin/platform-usage` | No | No | Yes |

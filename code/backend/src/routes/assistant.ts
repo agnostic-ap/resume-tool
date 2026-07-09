@@ -1,5 +1,6 @@
 import { type FastifyPluginAsync } from 'fastify'
 import {
+  authMode,
   storeContextForRequest,
   type AuthContextFactory,
   type Store,
@@ -16,14 +17,19 @@ export function createAssistantRoutes(store: Store, authContext: AuthContextFact
       const suggestion = await store.createAssistantSuggestion(parseBody(assistantSuggestionSchema, request.body), context)
       return reply.status(201).send(suggestion)
     })
-    app.post('/api/assistant/resume-drafts', async (request, reply) =>
-      handleResumeDraftRequest(store, request.body, reply, {
+    app.post('/api/assistant/resume-drafts', async (request, reply) => {
+      const context = await storeContextForRequest(store, request)
+      const userId = context.userId
+      return handleResumeDraftRequest(store, request.body, reply, {
         route: 'assistant',
         allowPersist: false,
         requirePlatformAuth: false,
         auth: authContext(request),
-        context: await storeContextForRequest(store, request),
-      }),
-    )
+        context,
+        consumeUsage: authMode() === 'multi-user' && userId
+          ? () => store.consumeBillingUsage(userId, 'ai_draft')
+          : undefined,
+      })
+    })
   }
 }

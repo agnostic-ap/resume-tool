@@ -11,6 +11,7 @@ import { createAdminRoutes } from './routes/admin.js'
 import { createApplicationRoutes } from './routes/applications.js'
 import { createAssistantRoutes } from './routes/assistant.js'
 import { createAuthRoutes } from './routes/auth.js'
+import { createBillingRoutes } from './routes/billing.js'
 import { createGrowthRoutes } from './routes/growth.js'
 import { createHealthRoutes } from './routes/health.js'
 import { createPlatformRoutes } from './routes/platform.js'
@@ -63,6 +64,7 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
 
   await app.register(createHealthRoutes(store))
   await app.register(createAuthRoutes(store, authContext))
+  await app.register(createBillingRoutes(store))
   await app.register(createResumeRoutes(store))
   await app.register(createApplicationRoutes(store))
   await app.register(createGrowthRoutes(store))

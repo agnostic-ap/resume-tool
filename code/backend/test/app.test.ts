@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import Database from 'better-sqlite3'
 import { buildApp } from '../src/app.js'
 import { createStore } from '../src/store.js'
 
@@ -960,6 +961,284 @@ test('auth accepts sha256-hashed secrets and rate limits failed attempts', async
     else process.env.RESUME_PLATFORM_CLIENTS = previousClients
     if (previousApiKey === undefined) delete process.env.RESUME_PLATFORM_API_KEY
     else process.env.RESUME_PLATFORM_API_KEY = previousApiKey
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('billing API reports free quotas, consumes exports, and resets on a new period key', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+
+  try {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'quota@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Quota User',
+      },
+    })
+    assert.equal(registered.statusCode, 201)
+    const token = registered.json().token
+    const userId = registered.json().user.id
+
+    const billing = await app.inject({
+      method: 'GET',
+      url: '/api/billing/me',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(billing.statusCode, 200)
+    assert.equal(billing.json().plan, 'free')
+    assert.equal(billing.json().status, 'active')
+    assert.equal(billing.json().currentPeriodEnd, null)
+    assert.equal(billing.json().quotas.aiDraft.limit, 3)
+    assert.equal(billing.json().quotas.aiDraft.used, 0)
+    assert.equal(billing.json().quotas.aiDraft.remaining, 3)
+    assert.equal(typeof billing.json().quotas.aiDraft.resetAt, 'string')
+    assert.equal(billing.json().quotas.export.limit, 5)
+    assert.equal(billing.json().quotas.export.used, 0)
+    assert.equal(billing.json().quotas.export.remaining, 5)
+
+    for (let index = 1; index <= 5; index += 1) {
+      const consumed = await app.inject({
+        method: 'POST',
+        url: '/api/billing/usage/export',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      assert.equal(consumed.statusCode, 200)
+      assert.equal(consumed.json().quotas.export.used, index)
+      assert.equal(consumed.json().quotas.export.remaining, 5 - index)
+    }
+
+    const overLimit = await app.inject({
+      method: 'POST',
+      url: '/api/billing/usage/export',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(overLimit.statusCode, 402)
+    assert.match(overLimit.json().error, /Export quota exceeded/)
+
+    const db = new Database(store.dbPath)
+    db.prepare(`
+      UPDATE usage_counters
+      SET period_key = ?, updated_at = ?
+      WHERE user_id = ? AND kind = ?
+    `).run('2000-01', new Date().toISOString(), userId, 'export')
+    db.close()
+
+    const reset = await app.inject({
+      method: 'POST',
+      url: '/api/billing/usage/export',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(reset.statusCode, 200)
+    assert.equal(reset.json().quotas.export.used, 1)
+    assert.equal(reset.json().quotas.export.remaining, 4)
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('admin plan changes grant unlimited Pro, write audit, and expired Pro falls back to free', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  const previousAdminUsers = process.env.RESUME_ADMIN_USERS
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  process.env.RESUME_ADMIN_USERS = JSON.stringify([
+    { email: 'owner@example.com', token: 'owner-token', role: 'super_admin' },
+  ])
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+
+  try {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'pro-user@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Pro User',
+      },
+    })
+    assert.equal(registered.statusCode, 201)
+    const token = registered.json().token
+    const userId = registered.json().user.id
+    const periodEnd = new Date(Date.now() + 86_400_000).toISOString()
+
+    const changed = await app.inject({
+      method: 'POST',
+      url: `/api/admin/users/${userId}/plan`,
+      headers: { 'x-admin-token': 'owner-token' },
+      payload: { plan: 'pro', periodEnd },
+    })
+    assert.equal(changed.statusCode, 200)
+    assert.equal(changed.json().billing.plan, 'pro')
+    assert.equal(changed.json().billing.status, 'active')
+    assert.equal(changed.json().billing.currentPeriodEnd, periodEnd)
+    assert.equal(changed.json().billing.quotas.export.limit, null)
+    assert.equal(changed.json().billing.quotas.export.remaining, null)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/admin/users',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(listed.statusCode, 200)
+    assert.equal(listed.json().find((user: { id: string }) => user.id === userId).plan, 'pro')
+
+    for (let index = 0; index < 7; index += 1) {
+      const consumed = await app.inject({
+        method: 'POST',
+        url: '/api/billing/usage/export',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      assert.equal(consumed.statusCode, 200)
+      assert.equal(consumed.json().quotas.export.limit, null)
+      assert.equal(consumed.json().quotas.export.remaining, null)
+    }
+
+    const auditLogs = await store.listAuditLogs()
+    const planLog = auditLogs.find((log: { action: string; objectId: string }) =>
+      log.action === 'admin.user.plan.update' && log.objectId === userId)
+    assert.ok(planLog)
+    assert.equal(planLog.actorEmail, 'owner@example.com')
+    assert.equal(planLog.metadata.targetPlan, 'pro')
+    assert.equal(planLog.metadata.targetEmail, 'pro-user@example.com')
+
+    const expiredEnd = new Date(Date.now() - 86_400_000).toISOString()
+    const db = new Database(store.dbPath)
+    db.prepare(`
+      UPDATE subscriptions
+      SET plan = ?, status = ?, current_period_end = ?, updated_at = ?
+      WHERE user_id = ?
+    `).run('pro', 'active', expiredEnd, new Date().toISOString(), userId)
+    db.close()
+
+    const expired = await app.inject({
+      method: 'GET',
+      url: '/api/billing/me',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(expired.statusCode, 200)
+    assert.equal(expired.json().plan, 'free')
+    assert.equal(expired.json().status, 'expired')
+    assert.equal(expired.json().currentPeriodEnd, expiredEnd)
+    assert.equal(expired.json().quotas.export.limit, 5)
+
+    const listedAfterExpiry = await app.inject({
+      method: 'GET',
+      url: '/api/admin/users',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(listedAfterExpiry.statusCode, 200)
+    assert.equal(listedAfterExpiry.json().find((user: { id: string }) => user.id === userId).plan, 'free')
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    if (previousAdminUsers === undefined) delete process.env.RESUME_ADMIN_USERS
+    else process.env.RESUME_ADMIN_USERS = previousAdminUsers
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('multi-user assistant resume drafts consume AI quota and return 402 over limit', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  const previousKey = process.env.RESUME_LLM_API_KEY
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  delete process.env.RESUME_LLM_API_KEY
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'ai-quota@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'AI Quota User',
+      },
+    })
+    assert.equal(registered.statusCode, 201)
+    const token = registered.json().token
+
+    for (let index = 1; index <= 3; index += 1) {
+      const generated = await app.inject({
+        method: 'POST',
+        url: '/api/assistant/resume-drafts',
+        headers: { authorization: `Bearer ${token}` },
+        payload: platformPayload({ requestId: `ai-quota-${index}` }),
+      })
+      assert.equal(generated.statusCode, 200)
+      assert.equal(generated.json().generation.persisted, false)
+    }
+
+    const overLimit = await app.inject({
+      method: 'POST',
+      url: '/api/assistant/resume-drafts',
+      headers: { authorization: `Bearer ${token}` },
+      payload: platformPayload({ requestId: 'ai-quota-4' }),
+    })
+    assert.equal(overLimit.statusCode, 402)
+    assert.match(overLimit.json().error, /AI resume draft quota exceeded/)
+
+    const billing = await app.inject({
+      method: 'GET',
+      url: '/api/billing/me',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(billing.statusCode, 200)
+    assert.equal(billing.json().quotas.aiDraft.used, 3)
+    assert.equal(billing.json().quotas.aiDraft.remaining, 0)
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    if (previousKey === undefined) delete process.env.RESUME_LLM_API_KEY
+    else process.env.RESUME_LLM_API_KEY = previousKey
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('local mode assistant resume drafts do not enforce server AI quota', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  const previousKey = process.env.RESUME_LLM_API_KEY
+  delete process.env.RESUME_AUTH_MODE
+  delete process.env.RESUME_LLM_API_KEY
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    for (let index = 1; index <= 4; index += 1) {
+      const generated = await app.inject({
+        method: 'POST',
+        url: '/api/assistant/resume-drafts',
+        payload: platformPayload({ requestId: `local-ai-${index}` }),
+      })
+      assert.equal(generated.statusCode, 200)
+    }
+
+    const billing = await app.inject({
+      method: 'GET',
+      url: '/api/billing/me',
+    })
+    assert.equal(billing.statusCode, 200)
+    assert.equal(billing.json().quotas.aiDraft.used, 0)
+    assert.equal(billing.json().quotas.aiDraft.remaining, 3)
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    if (previousKey === undefined) delete process.env.RESUME_LLM_API_KEY
+    else process.env.RESUME_LLM_API_KEY = previousKey
     await app.close()
     await rm(dir, { recursive: true, force: true })
   }

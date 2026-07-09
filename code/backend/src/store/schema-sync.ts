@@ -21,6 +21,36 @@ CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id, expires_at DES
 CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON sessions(token_hash);
 `
 
+const BILLING_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  plan TEXT NOT NULL DEFAULT 'free',
+  status TEXT NOT NULL DEFAULT 'active',
+  source TEXT NOT NULL DEFAULT 'manual',
+  current_period_end TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CONSTRAINT subscriptions_plan_check CHECK (plan IN ('free', 'pro')),
+  CONSTRAINT subscriptions_status_check CHECK (status IN ('active', 'canceled', 'expired')),
+  CONSTRAINT subscriptions_source_check CHECK (source IN ('manual', 'stripe'))
+);
+
+CREATE TABLE IF NOT EXISTS usage_counters (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  period_key TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (user_id, kind, period_key),
+  CONSTRAINT usage_counters_kind_check CHECK (kind IN ('ai_draft', 'export')),
+  CONSTRAINT usage_counters_count_check CHECK (count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS subscriptions_plan_status_idx ON subscriptions(plan, status);
+CREATE INDEX IF NOT EXISTS usage_counters_user_kind_idx ON usage_counters(user_id, kind, period_key);
+`
+
 export const SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -267,7 +297,8 @@ CREATE INDEX IF NOT EXISTS audit_logs_workspace_idx ON audit_logs(workspace_id, 
 
 export function runSqliteMigrations(db: SqliteDatabase): void {
   ensureUserPasswordHashColumn(db)
-  db.exec(readAuthMigrationSql())
+  db.exec(readSqliteMigrationSql('002_auth.sql', AUTH_MIGRATION_SQL))
+  db.exec(readSqliteMigrationSql('003_billing.sql', BILLING_MIGRATION_SQL))
 }
 
 function ensureUserPasswordHashColumn(db: SqliteDatabase): void {
@@ -276,9 +307,9 @@ function ensureUserPasswordHashColumn(db: SqliteDatabase): void {
   db.prepare('ALTER TABLE users ADD COLUMN password_hash TEXT').run()
 }
 
-function readAuthMigrationSql(): string {
-  const migrationPath = join(process.cwd(), 'sql', 'sqlite', '002_auth.sql')
-  return existsSync(migrationPath) ? readFileSync(migrationPath, 'utf8') : AUTH_MIGRATION_SQL
+function readSqliteMigrationSql(filename: string, fallback: string): string {
+  const migrationPath = join(process.cwd(), 'sql', 'sqlite', filename)
+  return existsSync(migrationPath) ? readFileSync(migrationPath, 'utf8') : fallback
 }
 
 export function seedDefaultWorkspace(db: SqliteDatabase): void {

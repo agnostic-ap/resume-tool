@@ -83,6 +83,7 @@ export async function handleResumeDraftRequest(
     auth: AuthContext
     context?: StoreContext
     rateBuckets?: Map<string, number[]>
+    consumeUsage?: () => Promise<unknown>
   },
 ) {
   const startedAt = Date.now()
@@ -94,6 +95,7 @@ export async function handleResumeDraftRequest(
   try {
     if (options.requirePlatformAuth) await assertPlatformUsage(store, client, options.rateBuckets)
     const input = parseBody(platformGenerateResumeSchema, body)
+    if (options.consumeUsage) await options.consumeUsage()
     const draft = await generateResumeDraft(input)
     const latencyMs = Date.now() - startedAt
 

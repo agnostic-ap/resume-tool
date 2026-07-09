@@ -5,12 +5,13 @@ import {
   type AuthContextFactory,
   type Store,
 } from '../lib/auth.js'
-import { getParam } from '../lib/http.js'
+import { getParam, parseBody } from '../lib/http.js'
 import {
   buildPlatformBilling,
   platformClientSummaries,
   type PlatformRequestLog,
 } from '../lib/platform-clients.js'
+import { adminUserPlanSchema } from '../schemas.js'
 
 export function createAdminRoutes(store: Store, authContext: AuthContextFactory): FastifyPluginAsync {
   return async (app) => {
@@ -34,6 +35,15 @@ export function createAdminRoutes(store: Store, authContext: AuthContextFactory)
     app.delete('/api/admin/users/:id/sessions', async (request) => {
       const admin = assertAdminAccess(authContext(request), 'super_admin')
       return store.revokeUserSessions(adminUserOperationInput(admin, request, getParam(request.params, 'id')))
+    })
+    app.post('/api/admin/users/:id/plan', async (request) => {
+      const admin = assertAdminAccess(authContext(request), 'super_admin')
+      const input = parseBody(adminUserPlanSchema, request.body)
+      return store.setUserPlan({
+        ...adminUserOperationInput(admin, request, getParam(request.params, 'id')),
+        plan: input.plan,
+        periodEnd: input.periodEnd,
+      })
     })
 
     app.get('/api/admin/platform-clients', async (request) => {

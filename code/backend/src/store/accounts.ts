@@ -1,5 +1,6 @@
 import { initialState } from '../defaults.js'
 import { normalizeState, replaceStateSync } from './db.js'
+import { effectiveBillingPlan } from './billing.js'
 import {
   DEFAULT_USER_ID,
   DEFAULT_WORKSPACE_ID,
@@ -80,6 +81,9 @@ function listAdminUsersSync(db: SqliteDatabase): AdminListedUser[] {
       users.last_seen_at,
       users.created_at,
       users.updated_at,
+      subscriptions.plan AS billing_plan,
+      subscriptions.status AS billing_status,
+      subscriptions.current_period_end AS billing_current_period_end,
       workspaces.id AS workspace_id,
       workspaces.name AS workspace_name,
       workspaces.plan AS workspace_plan,
@@ -91,6 +95,7 @@ function listAdminUsersSync(db: SqliteDatabase): AdminListedUser[] {
       COALESCE(resume_counts.resume_count, 0) AS resume_count,
       COALESCE(application_counts.application_count, 0) AS application_count
     FROM users
+    LEFT JOIN subscriptions ON subscriptions.user_id = users.id
     LEFT JOIN workspace_memberships ON workspace_memberships.user_id = users.id
     LEFT JOIN workspaces ON workspaces.id = workspace_memberships.workspace_id
     LEFT JOIN (
@@ -119,6 +124,7 @@ function listAdminUsersSync(db: SqliteDatabase): AdminListedUser[] {
       displayName: row.display_name,
       role: row.role,
       status: row.status,
+      plan: effectiveBillingPlan(row.billing_plan, row.billing_status, row.billing_current_period_end),
       lastSeenAt: row.last_seen_at ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
