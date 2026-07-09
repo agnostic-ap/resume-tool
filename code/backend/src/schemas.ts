@@ -37,6 +37,11 @@ export const updateResumeSchema = z.object({
   }).optional(),
 })
 
+export const createShareSchema = z.object({
+  resumeId: z.string().trim().min(1),
+  expiresInDays: z.coerce.number().int().positive().max(3650).optional(),
+})
+
 export const createApplicationSchema = z.object({
   company: z.string().trim().min(1),
   role: z.string().trim().min(1),
@@ -205,6 +210,7 @@ export const platformGenerateResumeSchema = z.object({
 
 export type CreateResumeInput = z.infer<typeof createResumeSchema>
 export type UpdateResumeInput = z.infer<typeof updateResumeSchema>
+export type CreateShareInput = z.infer<typeof createShareSchema>
 export type CreateApplicationInput = z.infer<typeof createApplicationSchema>
 export type UpdateApplicationInput = z.infer<typeof updateApplicationSchema>
 export type GrowthEntryInput = z.infer<typeof growthEntrySchema>

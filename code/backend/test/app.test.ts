@@ -1244,6 +1244,211 @@ test('local mode assistant resume drafts do not enforce server AI quota', async 
   }
 })
 
+test('resume shares create public snapshots, count views, and revoke with uniform 404s', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  delete process.env.RESUME_AUTH_MODE
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      payload: { resumeId: 'resume-main', expiresInDays: 7 },
+    })
+    assert.equal(created.statusCode, 201)
+    const share = created.json()
+    assert.match(share.id, /^[0-9A-Za-z]{8,10}$/)
+    assert.equal(share.path, `/api/public/shares/${share.id}`)
+    assert.equal(share.url, share.path)
+    assert.equal(typeof share.expiresAt, 'string')
+
+    const firstView = await app.inject({ method: 'GET', url: share.path })
+    assert.equal(firstView.statusCode, 200)
+    assert.equal(firstView.json().id, share.id)
+    assert.equal(firstView.json().snapshot.title, 'Frontend Engineer')
+    assert.equal(firstView.json().snapshot.data.personal.name, 'Zhang Ming')
+    assert.equal(firstView.json().workspaceId, undefined)
+    assert.equal(firstView.json().userId, undefined)
+    assert.equal(JSON.stringify(firstView.json()).includes('local-owner@example.local'), false)
+
+    const listedAfterFirstView = await app.inject({ method: 'GET', url: '/api/shares' })
+    assert.equal(listedAfterFirstView.statusCode, 200)
+    assert.equal(listedAfterFirstView.json()[0].id, share.id)
+    assert.equal(listedAfterFirstView.json()[0].viewCount, 1)
+    assert.equal(listedAfterFirstView.json()[0].status, 'active')
+    assert.equal(listedAfterFirstView.json()[0].resumeTitle, 'Frontend Engineer')
+
+    const secondView = await app.inject({ method: 'GET', url: share.path })
+    assert.equal(secondView.statusCode, 200)
+    const listedAfterSecondView = await app.inject({ method: 'GET', url: '/api/shares' })
+    assert.equal(listedAfterSecondView.json()[0].viewCount, 2)
+
+    const revoked = await app.inject({ method: 'DELETE', url: `/api/shares/${share.id}` })
+    assert.equal(revoked.statusCode, 200)
+    assert.equal(revoked.json().ok, true)
+
+    const revokedPublic = await app.inject({ method: 'GET', url: share.path })
+    assert.equal(revokedPublic.statusCode, 404)
+    const missingPublic = await app.inject({ method: 'GET', url: '/api/public/shares/notfound1' })
+    assert.equal(missingPublic.statusCode, 404)
+    assert.deepEqual(missingPublic.json(), revokedPublic.json())
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('multi-user shares enforce owner access, expiry, and free versus Pro limits', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  process.env.RESUME_AUTH_MODE = 'multi-user'
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+
+  try {
+    const alice = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'share-owner@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Share Owner',
+      },
+    })
+    assert.equal(alice.statusCode, 201)
+    const aliceToken = alice.json().token
+    const aliceUserId = alice.json().user.id
+
+    const aliceResume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { blank: true, title: 'Alice Public Resume' },
+    })
+    assert.equal(aliceResume.statusCode, 201)
+
+    const bob = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'share-bob@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Share Bob',
+      },
+    })
+    assert.equal(bob.statusCode, 201)
+    const bobToken = bob.json().token
+
+    const shares: Array<{ id: string; path: string }> = []
+    for (let index = 0; index < 3; index += 1) {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/shares',
+        headers: { authorization: `Bearer ${aliceToken}` },
+        payload: { resumeId: aliceResume.json().id },
+      })
+      assert.equal(created.statusCode, 201)
+      shares.push(created.json())
+    }
+
+    const publicRead = await app.inject({ method: 'GET', url: shares[0].path })
+    assert.equal(publicRead.statusCode, 200)
+    assert.equal(publicRead.json().workspaceId, undefined)
+    assert.equal(publicRead.json().userId, undefined)
+    assert.equal(JSON.stringify(publicRead.json()).includes('share-owner@example.com'), false)
+
+    const overLimit = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { resumeId: aliceResume.json().id },
+    })
+    assert.equal(overLimit.statusCode, 402)
+    assert.match(overLimit.json().error, /Share quota exceeded/)
+
+    const bobRevoke = await app.inject({
+      method: 'DELETE',
+      url: `/api/shares/${shares[0].id}`,
+      headers: { authorization: `Bearer ${bobToken}` },
+    })
+    assert.equal(bobRevoke.statusCode, 404)
+    assert.deepEqual(bobRevoke.json(), { error: 'Share not found' })
+
+    await store.setUserPlan({
+      userId: aliceUserId,
+      actorEmail: 'owner@example.com',
+      actorRole: 'super_admin',
+      plan: 'pro',
+    })
+
+    const proShare = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { resumeId: aliceResume.json().id },
+    })
+    assert.equal(proShare.statusCode, 201)
+
+    const anotherProShare = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      headers: { authorization: `Bearer ${aliceToken}` },
+      payload: { resumeId: aliceResume.json().id },
+    })
+    assert.equal(anotherProShare.statusCode, 201)
+
+    const db = new Database(store.dbPath)
+    db.prepare('UPDATE resume_shares SET expires_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 60_000).toISOString(), proShare.json().id)
+    db.close()
+
+    const expiredPublic = await app.inject({ method: 'GET', url: proShare.json().path })
+    assert.equal(expiredPublic.statusCode, 404)
+    const missingPublic = await app.inject({ method: 'GET', url: '/api/public/shares/notfound2' })
+    assert.equal(missingPublic.statusCode, 404)
+    assert.deepEqual(expiredPublic.json(), missingPublic.json())
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('public resume share endpoint rate limits bursts by IP', async () => {
+  const previousAuthMode = process.env.RESUME_AUTH_MODE
+  delete process.env.RESUME_AUTH_MODE
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const app = await buildApp(createStore({ dataDir: dir }))
+
+  try {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/shares',
+      payload: { resumeId: 'resume-main' },
+    })
+    assert.equal(created.statusCode, 201)
+    const path = created.json().path
+
+    for (let index = 0; index < 60; index += 1) {
+      const response = await app.inject({ method: 'GET', url: path })
+      assert.equal(response.statusCode, 200)
+    }
+
+    const rateLimited = await app.inject({ method: 'GET', url: path })
+    assert.equal(rateLimited.statusCode, 429)
+    assert.match(rateLimited.json().error, /rate limit/)
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.RESUME_AUTH_MODE
+    else process.env.RESUME_AUTH_MODE = previousAuthMode
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 function platformPayload(overrides: Record<string, unknown> = {}) {
   return {
     requestId: 'req-platform-1',

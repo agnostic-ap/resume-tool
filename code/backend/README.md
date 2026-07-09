@@ -53,12 +53,15 @@ The backend stores local state in `<RESUME_BACKEND_DATA_DIR>/resume.db` and enab
 
 On first open, if `<RESUME_BACKEND_DATA_DIR>/resume-state.json` exists and the SQLite database has no resume rows yet, the store imports the JSON state into SQLite and renames the original file to `resume-state.json.migrated` as a backup. HTTP response shapes are unchanged from the JSON-backed version.
 
+The share migration `sql/sqlite/004_shares.sql` adds `resume_shares` for server-side public resume links. Each row stores a short random base62 id, owner/workspace ids, the source resume id, an immutable JSON snapshot of the resume title/data/config, status, optional expiry, view counters, and revoke timestamps. The migration runs automatically on startup and is idempotent.
+
 ## Accounts
 
 The backend supports two account modes:
 
 - Local mode is the default when `RESUME_AUTH_MODE` is unset. Existing unauthenticated clients keep working and read/write the default `local-owner/default` workspace. Requests with a valid account session are still scoped to that user's workspace.
 - Multi-user mode is enabled with `RESUME_AUTH_MODE=multi-user`. In this mode, app data routes under `/api/*` require an account session and are scoped to the logged-in user's workspace. Anonymous requests return `401 Account session is required`. Public or separately authenticated routes remain available: `/health`, `/api/v1/openapi.json`, `/api/auth/*`, platform `/api/v1/*` routes protected by API keys, and `/api/admin/*` routes protected by admin tokens.
+- Public resume shares are also available without an account session at `GET /api/public/shares/:id`. Share management routes under `/api/shares` still require the current local owner or a logged-in account.
 
 Account sessions can be sent as `Authorization: Bearer <token>`, `x-resume-session: <token>`, or the `resume_session` HTTP-only cookie returned by login/register. Session tokens are only stored server-side as sha256 hashes; passwords are stored as salted `scrypt` hashes.
 
@@ -108,6 +111,33 @@ Admins can manually change plans with `POST /api/admin/users/:id/plan` as `super
 
 Use `{ "plan": "free" }` to revoke Pro immediately. Plan changes write `audit_logs` with action `admin.user.plan.update`.
 
+## Resume Shares
+
+Server-side share links replace the older hash-only payload model for future frontend integration. Creating a share freezes the current resume `title`, `data`, and `config`; later edits to the resume do not change existing public links. Repeating `POST /api/shares` for the same resume creates separate links so each can be revoked independently.
+
+`POST /api/shares` accepts:
+
+```json
+{ "resumeId": "resume-main", "expiresInDays": 14 }
+```
+
+and returns:
+
+```json
+{
+  "id": "0AbCdEf123",
+  "path": "/api/public/shares/0AbCdEf123",
+  "url": "/api/public/shares/0AbCdEf123",
+  "expiresAt": "2026-07-23T00:00:00.000Z"
+}
+```
+
+`GET /api/shares` lists the current user's shares with `resumeId`, `resumeTitle`, `status`, `expiresAt`, `viewCount`, `lastViewedAt`, `createdAt`, and `revokedAt`. `DELETE /api/shares/:id` revokes only the current user's own share and returns 404 for missing or cross-user ids.
+
+`GET /api/public/shares/:id` is unauthenticated. Active, unexpired links return the stored snapshot plus non-private metadata and atomically increment `view_count`. Revoked, expired, and nonexistent links all return the same `404 {"error":"Share not found"}` response to avoid enumeration. The public response never includes account email, `workspaceId`, or `userId`; it only includes the resume content the owner chose to share.
+
+In multi-user mode, free users can keep up to 3 active unexpired shares; creating another returns HTTP 402. Pro users have unlimited shares. Local auth mode uses `local-owner` and does not enforce share quota. Public share reads are lightly rate limited in memory to 60 requests per IP per minute and return 429 after that burst limit.
+
 Platform client config example:
 
 ```json
@@ -143,6 +173,11 @@ POST   /api/auth/logout
 
 GET    /api/billing/me
 POST   /api/billing/usage/export
+
+GET    /api/shares
+POST   /api/shares
+DELETE /api/shares/:id
+GET    /api/public/shares/:id
 
 GET    /api/resumes
 POST   /api/resumes

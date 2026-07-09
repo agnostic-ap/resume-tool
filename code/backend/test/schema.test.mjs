@@ -9,6 +9,7 @@ const billingSchemaPath = join(import.meta.dirname, '..', 'sql', '003_billing.sq
 const sqliteSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '001_initial_schema.sql')
 const sqliteAuthSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '002_auth.sql')
 const sqliteBillingSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '003_billing.sql')
+const sqliteSharesSchemaPath = join(import.meta.dirname, '..', 'sql', 'sqlite', '004_shares.sql')
 
 test('database schema covers roadmap persistence requirements', async () => {
   const sql = await readFile(schemaPath, 'utf8')
@@ -152,5 +153,28 @@ test('sqlite billing schema maps subscription storage to local types', async () 
   assert.match(sql, /current_period_end TEXT/)
   assert.match(sql, /count INTEGER NOT NULL DEFAULT 0/)
   assert.match(sql, /CONSTRAINT subscriptions_source_check CHECK \(source IN \('manual', 'stripe'\)\)/)
+  assert.doesNotMatch(sql, /TIMESTAMPTZ/)
+})
+
+test('sqlite shares schema stores revocable resume snapshots and view stats', async () => {
+  const sql = await readFile(sqliteSharesSchemaPath, 'utf8')
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS resume_shares/)
+  for (const column of [
+    'id TEXT PRIMARY KEY',
+    'workspace_id TEXT NOT NULL REFERENCES workspaces\\(id\\) ON DELETE CASCADE',
+    'user_id TEXT NOT NULL REFERENCES users\\(id\\) ON DELETE CASCADE',
+    'resume_id TEXT NOT NULL',
+    'snapshot TEXT NOT NULL',
+    "status TEXT NOT NULL DEFAULT 'active'",
+    'expires_at TEXT',
+    'view_count INTEGER NOT NULL DEFAULT 0',
+    'last_viewed_at TEXT',
+    'revoked_at TEXT',
+  ]) {
+    assert.match(sql, new RegExp(column))
+  }
+  assert.match(sql, /status IN \('active', 'revoked'\)/)
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS resume_shares_public_idx/)
   assert.doesNotMatch(sql, /TIMESTAMPTZ/)
 })

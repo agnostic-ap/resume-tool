@@ -86,6 +86,7 @@ export function authSessionRequired(method: string, url: string): boolean {
   const path = url.split('?')[0] || '/'
   if (!path.startsWith('/api/')) return false
   if (path.startsWith('/api/auth/')) return false
+  if (path.startsWith('/api/public/shares/')) return false
   if (path.startsWith('/api/admin/')) return false
   if (path === '/api/v1/openapi.json' || path.startsWith('/api/v1/')) return false
   return true

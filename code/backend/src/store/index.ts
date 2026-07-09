@@ -17,6 +17,7 @@ import {
 } from './documents.js'
 import { createGrowthStore } from './growth.js'
 import { createPlatformStore } from './platform.js'
+import { createSharesStore } from './shares.js'
 import {
   type AnyRecord,
   type ResumeState,
@@ -76,6 +77,7 @@ export function createStore(options: StoreOptions = {}) {
     ...createGrowthStore(moduleDeps),
     ...createPlatformStore(moduleDeps),
     ...createActivityStore(moduleDeps),
+    ...createSharesStore(db),
 
     async createAssistantSuggestion(input: AnyRecord = {}, context: StoreContext = {}) {
       return mutate((state) => {
