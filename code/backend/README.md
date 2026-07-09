@@ -130,6 +130,10 @@ GET    /api/v1/platform/requests
 GET    /api/v1/platform/usage
 GET    /api/admin/session
 GET    /api/admin/state
+GET    /api/admin/users
+POST   /api/admin/users/:id/lock
+POST   /api/admin/users/:id/unlock
+DELETE /api/admin/users/:id/sessions
 GET    /api/admin/platform-clients
 GET    /api/admin/platform-usage
 POST   /api/v1/resume-drafts
@@ -192,6 +196,11 @@ Platform product behavior:
 - `drafts:write` scope is required for draft generation routes.
 - `requests:read` scope is required for `GET /api/v1/platform/requests`.
 - Clients without `requests:all` only see their own request logs.
+- `GET /api/admin/users` (viewer and above) lists account users with id, email, display name, role, status, workspace metadata, resume/application counts, `createdAt`, and `lastSeenAt`. It never returns `passwordHash`.
+- `POST /api/admin/users/:id/lock` (super admin) locks a user, immediately revokes existing sessions, and makes future login return `403 Account is locked`. The built-in `local-owner` user cannot be locked and returns 400.
+- `POST /api/admin/users/:id/unlock` (super admin) re-enables login for a locked user.
+- `DELETE /api/admin/users/:id/sessions` (super admin) revokes all current sessions for that user.
+- User lock, unlock, and forced session revocation write `audit_logs` entries with the admin email, action, target user, and timestamp.
 - `GET /api/admin/platform-clients` returns redacted client metadata for the admin console, including scopes, quota, rate limit, request counts, and last request time. It never returns API key material.
 - `GET /api/admin/platform-usage` (super admin) and `GET /api/v1/platform/usage` (client, `requests:read`) return metered usage and billing per client: billable (non-failed) requests, failures, today's requests, quota utilization, avg/p95 latency, and `estimatedCost = billableRequests × pricePerDraft`. This is the B2B metering/reconciliation surface for the platform second curve.
 - `quotaPerDay` returns `429 Platform API daily quota exceeded` once the client exceeds the daily request count.
@@ -203,6 +212,19 @@ Compatibility aliases:
 
 - `POST /api/v1/platform/resume-drafts`
 - `POST /api/platform/resume-drafts`
+
+Admin permission matrix:
+
+| Endpoint | viewer | ops_admin | super_admin |
+| --- | --- | --- | --- |
+| `GET /api/admin/session` | Yes | Yes | Yes |
+| `GET /api/admin/state` | Yes | Yes | Yes |
+| `GET /api/admin/users` | Yes | Yes | Yes |
+| `POST /api/admin/users/:id/lock` | No | No | Yes |
+| `POST /api/admin/users/:id/unlock` | No | No | Yes |
+| `DELETE /api/admin/users/:id/sessions` | No | No | Yes |
+| `GET /api/admin/platform-clients` | No | No | Yes |
+| `GET /api/admin/platform-usage` | No | No | Yes |
 
 ## Tests
 

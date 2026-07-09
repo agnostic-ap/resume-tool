@@ -186,6 +186,22 @@ export async function buildApp(store: Store): Promise<FastifyInstance> {
     assertAdminAccess(authContext(request), 'viewer')
     return store.readState()
   })
+  app.get('/api/admin/users', async (request) => {
+    assertAdminAccess(authContext(request), 'viewer')
+    return store.listAdminUsers()
+  })
+  app.post('/api/admin/users/:id/lock', async (request) => {
+    const admin = assertAdminAccess(authContext(request), 'super_admin')
+    return store.lockUser(adminUserOperationInput(admin, request, getParam(request.params, 'id')))
+  })
+  app.post('/api/admin/users/:id/unlock', async (request) => {
+    const admin = assertAdminAccess(authContext(request), 'super_admin')
+    return store.unlockUser(adminUserOperationInput(admin, request, getParam(request.params, 'id')))
+  })
+  app.delete('/api/admin/users/:id/sessions', async (request) => {
+    const admin = assertAdminAccess(authContext(request), 'super_admin')
+    return store.revokeUserSessions(adminUserOperationInput(admin, request, getParam(request.params, 'id')))
+  })
 
   app.get('/api/resumes', async (request) => store.listDocuments(await storeContextForRequest(store, request)))
   app.post('/api/resumes', async (request, reply) => {
@@ -513,6 +529,20 @@ function authResponse(session: IssuedSession) {
   }
 }
 
+function adminUserOperationInput(
+  admin: AdminSession,
+  request: { headers: Record<string, unknown>; ip?: string },
+  userId: string,
+) {
+  return {
+    userId,
+    actorEmail: admin.email,
+    actorRole: admin.role,
+    ipAddress: request.ip,
+    userAgent: headerValue(request.headers['user-agent']),
+  }
+}
+
 async function storeContextForRequest(
   store: Store,
   request: { headers: Record<string, unknown> },
@@ -686,9 +716,11 @@ function adminRoleAllows(actual: AdminRole, minimum: AdminRole) {
 }
 
 function adminScopes(role: AdminRole) {
-  if (role === 'super_admin') return ['state:read', 'platform_clients:read', 'dangerous_actions:confirm']
-  if (role === 'ops_admin') return ['state:read']
-  return ['state:read']
+  if (role === 'super_admin') {
+    return ['state:read', 'users:read', 'users:write', 'sessions:revoke', 'platform_clients:read', 'dangerous_actions:confirm']
+  }
+  if (role === 'ops_admin') return ['state:read', 'users:read']
+  return ['state:read', 'users:read']
 }
 
 async function assertPlatformUsage(

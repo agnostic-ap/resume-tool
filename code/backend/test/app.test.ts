@@ -374,6 +374,149 @@ test('admin API enforces token auth and super admin permissions', async () => {
   }
 })
 
+test('admin users API lists users and manages locks, sessions, and audit logs', async () => {
+  const previousAdminUsers = process.env.RESUME_ADMIN_USERS
+  process.env.RESUME_ADMIN_USERS = JSON.stringify([
+    { email: 'owner@example.com', token: 'owner-token', role: 'super_admin' },
+    { email: 'viewer@example.com', token: 'viewer-token', role: 'viewer' },
+  ])
+  const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
+  const store = createStore({ dataDir: dir })
+  const app = await buildApp(store)
+
+  try {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'managed@example.com',
+        password: 'correct-horse-battery',
+        displayName: 'Managed User',
+      },
+    })
+    assert.equal(registered.statusCode, 201)
+    const userId = registered.json().user.id
+    const token = registered.json().token
+
+    const resume = await app.inject({
+      method: 'POST',
+      url: '/api/resumes',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { blank: true, title: 'Managed Resume' },
+    })
+    assert.equal(resume.statusCode, 201)
+
+    const application = await app.inject({
+      method: 'POST',
+      url: '/api/applications',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { company: 'Managed Co', role: 'Operations Engineer' },
+    })
+    assert.equal(application.statusCode, 201)
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/admin/users',
+      headers: { 'x-admin-token': 'viewer-token' },
+    })
+    assert.equal(listed.statusCode, 200)
+    const managed = listed.json().find((user: { id: string }) => user.id === userId)
+    assert.ok(managed)
+    assert.equal(JSON.stringify(managed).includes('passwordHash'), false)
+    assert.equal(managed.email, 'managed@example.com')
+    assert.equal(managed.workspace.role, 'owner')
+    assert.ok(managed.resumeCount >= 1)
+    assert.ok(managed.applicationCount >= 1)
+
+    const viewerLock = await app.inject({
+      method: 'POST',
+      url: `/api/admin/users/${userId}/lock`,
+      headers: { 'x-admin-token': 'viewer-token' },
+    })
+    assert.equal(viewerLock.statusCode, 403)
+
+    const locked = await app.inject({
+      method: 'POST',
+      url: `/api/admin/users/${userId}/lock`,
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(locked.statusCode, 200)
+    assert.equal(locked.json().user.status, 'locked')
+    assert.ok(locked.json().revokedSessions >= 1)
+
+    const invalidated = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(invalidated.statusCode, 401)
+
+    const lockedLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'managed@example.com', password: 'correct-horse-battery' },
+    })
+    assert.equal(lockedLogin.statusCode, 403)
+    assert.equal(lockedLogin.json().error, 'Account is locked')
+
+    const unlocked = await app.inject({
+      method: 'POST',
+      url: `/api/admin/users/${userId}/unlock`,
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(unlocked.statusCode, 200)
+    assert.equal(unlocked.json().user.status, 'enabled')
+
+    const restoredLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'managed@example.com', password: 'correct-horse-battery' },
+    })
+    assert.equal(restoredLogin.statusCode, 200)
+    const restoredToken = restoredLogin.json().token
+
+    const forcedOffline = await app.inject({
+      method: 'DELETE',
+      url: `/api/admin/users/${userId}/sessions`,
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(forcedOffline.statusCode, 200)
+    assert.ok(forcedOffline.json().revokedSessions >= 1)
+
+    const forcedSession = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { authorization: `Bearer ${restoredToken}` },
+    })
+    assert.equal(forcedSession.statusCode, 401)
+
+    const localOwnerLock = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users/local-owner/lock',
+      headers: { 'x-admin-token': 'owner-token' },
+    })
+    assert.equal(localOwnerLock.statusCode, 400)
+
+    const auditLogs = await store.listAuditLogs()
+    const lockLog = auditLogs.find((log: { action: string; objectId: string }) =>
+      log.action === 'admin.user.lock' && log.objectId === userId)
+    const unlockLog = auditLogs.find((log: { action: string; objectId: string }) =>
+      log.action === 'admin.user.unlock' && log.objectId === userId)
+    const revokeLog = auditLogs.find((log: { action: string; objectId: string }) =>
+      log.action === 'admin.user.sessions.revoke' && log.objectId === userId)
+    assert.ok(lockLog)
+    assert.ok(unlockLog)
+    assert.ok(revokeLog)
+    assert.equal(lockLog.actorEmail, 'owner@example.com')
+    assert.equal(lockLog.targetEmail, 'managed@example.com')
+  } finally {
+    if (previousAdminUsers === undefined) delete process.env.RESUME_ADMIN_USERS
+    else process.env.RESUME_ADMIN_USERS = previousAdminUsers
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('platform API generates JD-tailored resume drafts', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'resume-backend-'))
   const app = await buildApp(createStore({ dataDir: dir }))

@@ -47,12 +47,55 @@ type AuthWorkspaceContext = {
 type UserWithPassword = PublicUser & {
   passwordHash?: string
 }
+type AdminListedUser = PublicUser & {
+  workspace?: PublicWorkspace
+  resumeCount: number
+  applicationCount: number
+}
+type AdminUserOperationInput = {
+  userId: string
+  actorEmail: string
+  actorRole: string
+  ipAddress?: string
+  userAgent?: string
+}
+type AuditLogInput = {
+  workspaceId?: string
+  actorUserId?: string
+  actorEmail: string
+  actorRole: string
+  action: string
+  objectType?: string
+  objectId?: string
+  result?: 'success' | 'failed' | 'blocked'
+  ipAddress?: string
+  userAgent?: string
+  metadata?: AnyRecord
+}
+type PublicAuditLog = {
+  id: string
+  workspaceId?: string
+  actorUserId?: string
+  actorEmail?: string
+  actorRole: string
+  action: string
+  objectType: string
+  objectId: string
+  result: string
+  ipAddress?: string
+  userAgent?: string
+  targetUserId?: string
+  targetEmail?: string
+  metadata: AnyRecord
+  createdAt: string
+}
 type SqliteDatabase = Database.Database
 
 const DB_FILE = 'resume.db'
 const LEGACY_JSON_FILE = 'resume-state.json'
 export const DEFAULT_USER_ID = 'local-owner'
 export const DEFAULT_WORKSPACE_ID = 'default'
+const SESSION_LAST_SEEN_UPDATE_INTERVAL_MS = 60 * 60 * 1000
 
 const AUTH_MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -778,6 +821,26 @@ export function createStore(options: StoreOptions = {}) {
       return db.transaction(() => revokeSessionSync(db, tokenHash))()
     },
 
+    async listAdminUsers() {
+      return listAdminUsersSync(db)
+    },
+
+    async lockUser(input: AdminUserOperationInput) {
+      return db.transaction(() => lockUserSync(db, input))()
+    },
+
+    async unlockUser(input: AdminUserOperationInput) {
+      return db.transaction(() => unlockUserSync(db, input))()
+    },
+
+    async revokeUserSessions(input: AdminUserOperationInput) {
+      return db.transaction(() => revokeUserSessionsSync(db, input))()
+    },
+
+    async listAuditLogs() {
+      return listAuditLogsSync(db)
+    },
+
     close() {
       db.close()
     },
@@ -1243,6 +1306,242 @@ function normalizeStoreContext(context: StoreContext = {}): Required<StoreContex
   }
 }
 
+function listAdminUsersSync(db: SqliteDatabase): AdminListedUser[] {
+  const rows = db.prepare(`
+    SELECT
+      users.id,
+      users.email,
+      users.display_name,
+      users.role,
+      users.status,
+      users.last_seen_at,
+      users.created_at,
+      users.updated_at,
+      workspaces.id AS workspace_id,
+      workspaces.name AS workspace_name,
+      workspaces.plan AS workspace_plan,
+      workspaces.owner_user_id AS workspace_owner_user_id,
+      workspaces.active_resume_id AS workspace_active_resume_id,
+      workspaces.created_at AS workspace_created_at,
+      workspaces.updated_at AS workspace_updated_at,
+      workspace_memberships.role AS workspace_role,
+      COALESCE(resume_counts.resume_count, 0) AS resume_count,
+      COALESCE(application_counts.application_count, 0) AS application_count
+    FROM users
+    LEFT JOIN workspace_memberships ON workspace_memberships.user_id = users.id
+    LEFT JOIN workspaces ON workspaces.id = workspace_memberships.workspace_id
+    LEFT JOIN (
+      SELECT owner_user_id, COUNT(*) AS resume_count
+      FROM resume_documents
+      GROUP BY owner_user_id
+    ) AS resume_counts ON resume_counts.owner_user_id = users.id
+    LEFT JOIN (
+      SELECT owner_user_id, COUNT(*) AS application_count
+      FROM job_applications
+      GROUP BY owner_user_id
+    ) AS application_counts ON application_counts.owner_user_id = users.id
+    ORDER BY
+      users.created_at ASC,
+      users.email ASC,
+      CASE workspace_memberships.role WHEN 'owner' THEN 0 ELSE 1 END,
+      workspaces.created_at ASC
+  `).all() as AnyRecord[]
+
+  const users = new Map<string, AdminListedUser>()
+  for (const row of rows) {
+    if (users.has(row.id)) continue
+    users.set(row.id, {
+      id: row.id,
+      email: row.email,
+      displayName: row.display_name,
+      role: row.role,
+      status: row.status,
+      lastSeenAt: row.last_seen_at ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      workspace: row.workspace_id ? {
+        id: row.workspace_id,
+        name: row.workspace_name,
+        plan: row.workspace_plan,
+        role: row.workspace_role,
+        ownerUserId: row.workspace_owner_user_id,
+        activeResumeId: row.workspace_active_resume_id ?? undefined,
+        createdAt: row.workspace_created_at,
+        updatedAt: row.workspace_updated_at,
+      } : undefined,
+      resumeCount: Number(row.resume_count ?? 0),
+      applicationCount: Number(row.application_count ?? 0),
+    })
+  }
+  return [...users.values()]
+}
+
+function lockUserSync(db: SqliteDatabase, input: AdminUserOperationInput): {
+  user: PublicUser
+  revokedSessions: number
+} {
+  const existing = readUserByIdSync(db, input.userId)
+  if (!existing) throw httpError(404, 'User not found')
+  if (existing.id === DEFAULT_USER_ID) throw httpError(400, 'local-owner cannot be locked')
+
+  const now = new Date().toISOString()
+  db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?').run('locked', now, existing.id)
+  const revokedSessions = revokeSessionsForUserIdSync(db, existing.id, now)
+  const user = readUserByIdSync(db, existing.id) ?? existing
+  recordAuditLogSync(db, {
+    ...adminAuditInput(input, user, revokedSessions),
+    action: 'admin.user.lock',
+  })
+  return { user, revokedSessions }
+}
+
+function unlockUserSync(db: SqliteDatabase, input: AdminUserOperationInput): {
+  user: PublicUser
+} {
+  const existing = readUserByIdSync(db, input.userId)
+  if (!existing) throw httpError(404, 'User not found')
+
+  const now = new Date().toISOString()
+  db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?').run('enabled', now, existing.id)
+  const user = readUserByIdSync(db, existing.id) ?? existing
+  recordAuditLogSync(db, {
+    ...adminAuditInput(input, user),
+    action: 'admin.user.unlock',
+  })
+  return { user }
+}
+
+function revokeUserSessionsSync(db: SqliteDatabase, input: AdminUserOperationInput): {
+  user: PublicUser
+  revokedSessions: number
+} {
+  const user = readUserByIdSync(db, input.userId)
+  if (!user) throw httpError(404, 'User not found')
+
+  const revokedSessions = revokeSessionsForUserIdSync(db, user.id, new Date().toISOString())
+  recordAuditLogSync(db, {
+    ...adminAuditInput(input, user, revokedSessions),
+    action: 'admin.user.sessions.revoke',
+  })
+  return { user, revokedSessions }
+}
+
+function revokeSessionsForUserIdSync(db: SqliteDatabase, userId: string, revokedAt: string): number {
+  const result = db.prepare(`
+    UPDATE sessions
+    SET revoked_at = ?
+    WHERE user_id = ? AND revoked_at IS NULL
+  `).run(revokedAt, userId)
+  return Number(result.changes ?? 0)
+}
+
+function adminAuditInput(
+  input: AdminUserOperationInput,
+  target: PublicUser,
+  revokedSessions?: number,
+): Omit<AuditLogInput, 'action'> {
+  return {
+    actorEmail: input.actorEmail,
+    actorRole: input.actorRole,
+    objectType: 'user',
+    objectId: target.id,
+    ipAddress: input.ipAddress,
+    userAgent: input.userAgent,
+    metadata: {
+      actorEmail: input.actorEmail,
+      targetUserId: target.id,
+      targetEmail: target.email,
+      targetStatus: target.status,
+      revokedSessions,
+    },
+  }
+}
+
+function recordAuditLogSync(db: SqliteDatabase, input: AuditLogInput): PublicAuditLog {
+  const now = new Date().toISOString()
+  const id = newId('audit')
+  const metadata = JSON.stringify({
+    actorEmail: input.actorEmail,
+    ...input.metadata,
+  })
+  db.prepare(`
+    INSERT INTO audit_logs (
+      id,
+      workspace_id,
+      actor_user_id,
+      actor_role,
+      action,
+      object_type,
+      object_id,
+      result,
+      ip_address,
+      user_agent,
+      metadata,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    input.workspaceId ?? null,
+    input.actorUserId ?? null,
+    input.actorRole,
+    input.action,
+    input.objectType ?? 'user',
+    input.objectId ?? '',
+    input.result ?? 'success',
+    input.ipAddress ?? null,
+    input.userAgent ?? null,
+    metadata,
+    now,
+  )
+  return listAuditLogByIdSync(db, id)
+}
+
+function listAuditLogsSync(db: SqliteDatabase): PublicAuditLog[] {
+  const rows = db.prepare(`
+    SELECT *
+    FROM audit_logs
+    ORDER BY created_at DESC, id DESC
+  `).all() as AnyRecord[]
+  return rows.map(toAuditLog)
+}
+
+function listAuditLogByIdSync(db: SqliteDatabase, id: string): PublicAuditLog {
+  const row = db.prepare('SELECT * FROM audit_logs WHERE id = ?').get(id) as AnyRecord | undefined
+  if (!row) throw httpError(500, 'Audit log could not be created')
+  return toAuditLog(row)
+}
+
+function toAuditLog(row: AnyRecord): PublicAuditLog {
+  const metadata = parseJson(row.metadata, {})
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id ?? undefined,
+    actorUserId: row.actor_user_id ?? undefined,
+    actorEmail: metadata.actorEmail,
+    actorRole: row.actor_role,
+    action: row.action,
+    objectType: row.object_type,
+    objectId: row.object_id,
+    result: row.result,
+    ipAddress: row.ip_address ?? undefined,
+    userAgent: row.user_agent ?? undefined,
+    targetUserId: metadata.targetUserId,
+    targetEmail: metadata.targetEmail,
+    metadata,
+    createdAt: row.created_at,
+  }
+}
+
+function readUserByIdSync(db: SqliteDatabase, userId: string): PublicUser | undefined {
+  const row = db.prepare(`
+    SELECT id, email, display_name, role, status, last_seen_at, created_at, updated_at
+    FROM users
+    WHERE id = ?
+  `).get(userId) as AnyRecord | undefined
+  return row ? toPublicUser(row) : undefined
+}
+
 function findUserByEmailSync(db: SqliteDatabase, email: string): UserWithPassword | undefined {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail) return undefined
@@ -1309,6 +1608,7 @@ function readSessionByTokenHashSync(db: SqliteDatabase, tokenHash: string): Auth
     SELECT
       sessions.id AS session_id,
       sessions.expires_at AS session_expires_at,
+      sessions.last_seen_at AS session_last_seen_at,
       users.id AS user_id,
       users.email,
       users.display_name,
@@ -1341,6 +1641,11 @@ function readSessionByTokenHashSync(db: SqliteDatabase, tokenHash: string): Auth
     return undefined
   }
   if (row.user_status !== 'enabled') return undefined
+
+  const sessionLastSeenAt = row.session_last_seen_at ? new Date(row.session_last_seen_at).getTime() : 0
+  const shouldRefreshLastSeen = !Number.isFinite(sessionLastSeenAt)
+    || Date.now() - sessionLastSeenAt >= SESSION_LAST_SEEN_UPDATE_INTERVAL_MS
+  if (!shouldRefreshLastSeen) return authContextFromJoinedRow(row)
 
   const now = new Date().toISOString()
   db.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?').run(now, row.session_id)
@@ -1416,12 +1721,18 @@ function authContextFromJoinedRow(
 
 function toUserWithPassword(row: AnyRecord): UserWithPassword {
   return {
+    ...toPublicUser(row),
+    passwordHash: row.password_hash ?? undefined,
+  }
+}
+
+function toPublicUser(row: AnyRecord): PublicUser {
+  return {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
     role: row.role,
     status: row.status,
-    passwordHash: row.password_hash ?? undefined,
     lastSeenAt: row.last_seen_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
