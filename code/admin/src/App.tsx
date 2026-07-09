@@ -3,12 +3,17 @@ import {
   AppstoreOutlined,
   BarChartOutlined,
   CloudSyncOutlined,
+  CrownOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
   KeyOutlined,
+  LockOutlined,
+  LogoutOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
   FileTextOutlined,
   TeamOutlined,
+  UnlockOutlined,
 } from '@ant-design/icons'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -18,16 +23,19 @@ import {
   Col,
   ConfigProvider,
   Descriptions,
+  Empty,
   Flex,
   Input,
   Layout,
   Menu,
   Alert,
+  message,
   Progress,
   Popconfirm,
   Row,
   Select,
   Space,
+  Spin,
   Statistic,
   Table,
   Tag,
@@ -50,13 +58,42 @@ type ResumeRow = {
   status: 'active' | 'archived'
 }
 
-type AdminUserRow = {
+type AdminRole = 'super_admin' | 'ops_admin' | 'viewer'
+
+type ConfigAdminUserRow = {
   key: string
   email: string
-  role: 'super_admin' | 'ops_admin' | 'viewer'
+  role: AdminRole
   status: 'enabled' | 'locked'
   lastSeen: string
 }
+
+type RegisteredUserRow = {
+  key: string
+  id: string
+  email: string
+  displayName?: string
+  role: string
+  status: 'enabled' | 'locked'
+  plan: 'free' | 'pro'
+  lastSeenAt?: string
+  createdAt: string
+  updatedAt: string
+  workspace?: {
+    id: string
+    name: string
+    plan: string
+    role: string
+    ownerUserId: string
+    activeResumeId?: string
+    createdAt: string
+    updatedAt: string
+  }
+  resumeCount: number
+  applicationCount: number
+}
+
+type RegisteredUserAction = 'lock' | 'unlock' | 'sessions' | 'plan-pro' | 'plan-free'
 
 type ApplicationRow = {
   key: string
@@ -113,8 +150,6 @@ type PlatformBillingSummary = {
   totals: { clients: number; billableRequests: number; failedRequests: number; estimatedCost: number }
   clients: Omit<PlatformUsageRow, 'key'>[]
 }
-
-type AdminRole = 'super_admin' | 'ops_admin' | 'viewer'
 
 type AdminSession = {
   email: string
@@ -180,7 +215,7 @@ type BackendState = {
   }>
 }
 
-const adminUsers: AdminUserRow[] = [
+const configuredAdminUsers: ConfigAdminUserRow[] = [
   { key: 'u-root', email: 'owner@example.com', role: 'super_admin', status: 'enabled', lastSeen: 'just now' },
   { key: 'u-ops', email: 'ops@example.com', role: 'ops_admin', status: 'enabled', lastSeen: '2h ago' },
   { key: 'u-viewer', email: 'audit@example.com', role: 'viewer', status: 'locked', lastSeen: '7d ago' },
@@ -194,7 +229,7 @@ const resumeColumns: ColumnsType<ResumeRow> = [
   { title: '状态', dataIndex: 'status', render: (status) => <Badge status={status === 'active' ? 'processing' : 'default'} text={status} /> },
 ]
 
-const adminUserColumns: ColumnsType<AdminUserRow> = [
+const configuredAdminUserColumns: ColumnsType<ConfigAdminUserRow> = [
   { title: '账号', dataIndex: 'email' },
   { title: '角色', dataIndex: 'role', render: (role) => <Tag color={role === 'super_admin' ? 'red' : 'blue'}>{role}</Tag> },
   { title: '状态', dataIndex: 'status', render: (status) => <Badge status={status === 'enabled' ? 'success' : 'error'} text={status} /> },
@@ -262,10 +297,76 @@ function resumeCompleteness(doc: BackendState['documents'][number]) {
   return Math.min(100, score)
 }
 
+class ApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function apiErrorFromResponse(response: Response) {
+  let detail = `${response.status} ${response.statusText}`
+  try {
+    const payload = await response.json() as { error?: unknown; message?: unknown; issues?: Array<{ path?: string; message?: string }> }
+    if (typeof payload.error === 'string') {
+      detail = payload.error
+    } else if (typeof payload.message === 'string') {
+      detail = payload.message
+    } else if (Array.isArray(payload.issues) && payload.issues.length) {
+      detail = payload.issues
+        .map((issue) => `${issue.path ? `${issue.path}: ` : ''}${issue.message ?? 'Invalid value'}`)
+        .join('; ')
+    }
+  } catch {
+    // Keep the HTTP status fallback when the response is not JSON.
+  }
+  return new ApiError(response.status, detail)
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '未记录'
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function formatRelativeTime(value?: string) {
+  if (!value) return '从未访问'
+  const date = new Date(value)
+  const time = date.getTime()
+  if (!Number.isFinite(time)) return value
+
+  const diffSeconds = Math.round((time - Date.now()) / 1000)
+  const absoluteSeconds = Math.abs(diffSeconds)
+  if (absoluteSeconds < 60) return '刚刚'
+
+  const formatter = new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' })
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 60 * 60 * 24 * 365],
+    ['month', 60 * 60 * 24 * 30],
+    ['day', 60 * 60 * 24],
+    ['hour', 60 * 60],
+    ['minute', 60],
+  ]
+  const [unit, secondsPerUnit] = units.find(([, secondsPerUnit]) => absoluteSeconds >= secondsPerUnit) ?? (['minute', 60] as [Intl.RelativeTimeFormatUnit, number])
+  return formatter.format(Math.round(diffSeconds / secondsPerUnit), unit)
+}
+
 export default function App() {
   const [backendState, setBackendState] = useState<BackendState | null>(null)
   const [platformClients, setPlatformClients] = useState<PlatformClientRow[]>([])
   const [platformBilling, setPlatformBilling] = useState<PlatformBillingSummary | null>(null)
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUserRow[]>([])
+  const [registeredUsersLoading, setRegisteredUsersLoading] = useState(false)
+  const [registeredUsersError, setRegisteredUsersError] = useState('')
+  const [userActionLoading, setUserActionLoading] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem('resume-admin-token') ?? '')
@@ -281,32 +382,57 @@ export default function App() {
     return { 'x-admin-token': token }
   }
 
+  async function loadRegisteredUsers(token = adminToken) {
+    if (!token) return
+    setRegisteredUsersLoading(true)
+    setRegisteredUsersError('')
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/admin/users`, { headers: adminHeaders(token) })
+      if (!response.ok) throw await apiErrorFromResponse(response)
+      const users = await response.json() as Omit<RegisteredUserRow, 'key'>[]
+      setRegisteredUsers(users.map((user) => ({ ...user, key: user.id })))
+    } catch (error) {
+      const detail = errorMessage(error)
+      setRegisteredUsersError(detail)
+      if (error instanceof ApiError && [401, 403].includes(error.status)) logout()
+    } finally {
+      setRegisteredUsersLoading(false)
+    }
+  }
+
   async function loadBackendState(token = adminToken, role = adminSession?.role) {
     if (!token) return
     setLoading(true)
     setLoadError('')
     try {
       const stateResponse = await fetch(`${apiBaseUrl}/api/admin/state`, { headers: adminHeaders(token) })
-      if (!stateResponse.ok) throw new Error(`${stateResponse.status} ${stateResponse.statusText}`)
+      if (!stateResponse.ok) throw await apiErrorFromResponse(stateResponse)
       setBackendState(await stateResponse.json() as BackendState)
       if (role === 'super_admin') {
         const clientsResponse = await fetch(`${apiBaseUrl}/api/admin/platform-clients`, { headers: adminHeaders(token) })
-        if (!clientsResponse.ok) throw new Error(`${clientsResponse.status} ${clientsResponse.statusText}`)
+        if (!clientsResponse.ok) throw await apiErrorFromResponse(clientsResponse)
         const clientRows = await clientsResponse.json() as Omit<PlatformClientRow, 'key'>[]
         setPlatformClients(clientRows.map((client) => ({ ...client, key: client.id })))
         const usageResponse = await fetch(`${apiBaseUrl}/api/admin/platform-usage`, { headers: adminHeaders(token) })
-        if (!usageResponse.ok) throw new Error(`${usageResponse.status} ${usageResponse.statusText}`)
+        if (!usageResponse.ok) throw await apiErrorFromResponse(usageResponse)
         setPlatformBilling(await usageResponse.json() as PlatformBillingSummary)
       } else {
         setPlatformClients([])
         setPlatformBilling(null)
       }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error))
-      if (error instanceof Error && /^401|^403/.test(error.message)) logout()
+      setLoadError(errorMessage(error))
+      if (error instanceof ApiError && [401, 403].includes(error.status)) logout()
     } finally {
       setLoading(false)
     }
+  }
+
+  async function refreshAdminData(token = adminToken, role = adminSession?.role) {
+    await Promise.all([
+      loadBackendState(token, role),
+      loadRegisteredUsers(token),
+    ])
   }
 
   async function authenticate(token = loginToken.trim()) {
@@ -318,7 +444,7 @@ export default function App() {
     setLoadError('')
     try {
       const response = await fetch(`${apiBaseUrl}/api/admin/session`, { headers: adminHeaders(token) })
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+      if (!response.ok) throw await apiErrorFromResponse(response)
       const session = await response.json() as AdminSession
       window.sessionStorage.setItem('resume-admin-token', token)
       setAdminToken(token)
@@ -327,9 +453,9 @@ export default function App() {
       if (session.role !== 'super_admin' && ['permissions', 'platform', 'billing', 'deploy', 'data'].includes(selectedMenu)) {
         setSelectedMenu('overview')
       }
-      await loadBackendState(token, session.role)
+      await refreshAdminData(token, session.role)
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error))
+      setLoadError(errorMessage(error))
       setAdminSession(null)
       window.sessionStorage.removeItem('resume-admin-token')
     } finally {
@@ -345,7 +471,45 @@ export default function App() {
     setBackendState(null)
     setPlatformClients([])
     setPlatformBilling(null)
+    setRegisteredUsers([])
+    setRegisteredUsersError('')
+    setUserActionLoading('')
     setSelectedMenu('overview')
+  }
+
+  async function mutateRegisteredUser(user: RegisteredUserRow, action: RegisteredUserAction) {
+    const actionKey = `${action}:${user.id}`
+    setUserActionLoading(actionKey)
+    try {
+      const url = action === 'sessions'
+        ? `${apiBaseUrl}/api/admin/users/${encodeURIComponent(user.id)}/sessions`
+        : action.startsWith('plan-')
+          ? `${apiBaseUrl}/api/admin/users/${encodeURIComponent(user.id)}/plan`
+          : `${apiBaseUrl}/api/admin/users/${encodeURIComponent(user.id)}/${action}`
+      const response = await fetch(url, {
+        method: action === 'sessions' ? 'DELETE' : 'POST',
+        headers: action.startsWith('plan-')
+          ? { ...adminHeaders(), 'content-type': 'application/json' }
+          : adminHeaders(),
+        body: action.startsWith('plan-')
+          ? JSON.stringify({ plan: action === 'plan-pro' ? 'pro' : 'free' })
+          : undefined,
+      })
+      if (!response.ok) throw await apiErrorFromResponse(response)
+      await loadRegisteredUsers()
+      const actionLabel: Record<RegisteredUserAction, string> = {
+        lock: '已锁定用户',
+        unlock: '已解锁用户',
+        sessions: '已强制下线用户',
+        'plan-pro': '已开通 Pro',
+        'plan-free': '已降级为 Free',
+      }
+      message.success(`${actionLabel[action]}：${user.email}`)
+    } catch (error) {
+      message.error(errorMessage(error))
+    } finally {
+      setUserActionLoading('')
+    }
   }
 
   useEffect(() => {
@@ -479,11 +643,177 @@ export default function App() {
   }
 
   function renderUsers() {
+    const registeredUserColumns: ColumnsType<RegisteredUserRow> = [
+      {
+        title: 'email / displayName',
+        dataIndex: 'email',
+        render: (email: string, user) => (
+          <Space direction="vertical" size={0}>
+            <Text strong>{email}</Text>
+            <Text type="secondary">
+              {user.displayName || '未设置 displayName'}
+              {user.workspace ? ` · ${user.workspace.name}` : ''}
+            </Text>
+          </Space>
+        ),
+      },
+      {
+        title: 'plan',
+        dataIndex: 'plan',
+        render: (plan: RegisteredUserRow['plan']) => <Tag color={plan === 'pro' ? 'gold' : 'default'}>{plan}</Tag>,
+      },
+      {
+        title: 'status',
+        dataIndex: 'status',
+        render: (status: RegisteredUserRow['status']) => (
+          <Badge status={status === 'enabled' ? 'success' : 'error'} text={status} />
+        ),
+      },
+      { title: '简历数', dataIndex: 'resumeCount', align: 'right' },
+      { title: '投递数', dataIndex: 'applicationCount', align: 'right' },
+      {
+        title: '最近访问',
+        dataIndex: 'lastSeenAt',
+        render: (value?: string) => <Text title={formatDateTime(value)}>{formatRelativeTime(value)}</Text>,
+      },
+      {
+        title: '创建时间',
+        dataIndex: 'createdAt',
+        render: (value: string) => formatDateTime(value),
+      },
+    ]
+
+    if (isSuperAdmin) {
+      registeredUserColumns.push({
+        title: '操作',
+        key: 'actions',
+        fixed: 'right',
+        render: (_, user) => {
+          const lockAction = user.status === 'locked' ? 'unlock' : 'lock'
+          const planAction = user.plan === 'pro' ? 'plan-free' : 'plan-pro'
+          const isActionLoading = (action: RegisteredUserAction) => userActionLoading === `${action}:${user.id}`
+          return (
+            <Space wrap>
+              {lockAction === 'unlock' ? (
+                <Button
+                  icon={<UnlockOutlined />}
+                  loading={isActionLoading('unlock')}
+                  onClick={() => void mutateRegisteredUser(user, 'unlock')}
+                >
+                  解锁
+                </Button>
+              ) : (
+                <Popconfirm
+                  title="确认锁定该用户？"
+                  description="锁定后会立即吊销该用户全部 session。"
+                  okText="锁定"
+                  cancelText="取消"
+                  onConfirm={() => void mutateRegisteredUser(user, 'lock')}
+                >
+                  <Button danger icon={<LockOutlined />} loading={isActionLoading('lock')}>锁定</Button>
+                </Popconfirm>
+              )}
+
+              <Popconfirm
+                title="确认强制下线该用户？"
+                description="该用户当前全部 session 会被吊销，账号状态不变。"
+                okText="强制下线"
+                cancelText="取消"
+                onConfirm={() => void mutateRegisteredUser(user, 'sessions')}
+              >
+                <Button danger icon={<LogoutOutlined />} loading={isActionLoading('sessions')}>强制下线</Button>
+              </Popconfirm>
+
+              {planAction === 'plan-pro' ? (
+                <Button
+                  icon={<CrownOutlined />}
+                  loading={isActionLoading('plan-pro')}
+                  onClick={() => void mutateRegisteredUser(user, 'plan-pro')}
+                >
+                  开通 Pro
+                </Button>
+              ) : (
+                <Popconfirm
+                  title="确认降级为 Free？"
+                  description="降级会立即撤销该用户的 Pro 权益。"
+                  okText="降级"
+                  cancelText="取消"
+                  onConfirm={() => void mutateRegisteredUser(user, 'plan-free')}
+                >
+                  <Button danger icon={<CrownOutlined />} loading={isActionLoading('plan-free')}>降级 Free</Button>
+                </Popconfirm>
+              )}
+            </Space>
+          )
+        },
+      })
+    }
+
     return (
       <Row gutter={[16, 16]}>
         <Col xs={24}>
-          <Card title="超管账号与权限" extra={<Button icon={<KeyOutlined />} onClick={() => setSelectedMenu('permissions')}>管理密钥</Button>}>
-            <Table columns={adminUserColumns} dataSource={adminUsers} pagination={false} size="middle" />
+          <Card
+            title="注册终端用户"
+            extra={
+              <Button
+                icon={<ReloadOutlined />}
+                loading={registeredUsersLoading}
+                onClick={() => void loadRegisteredUsers()}
+              >
+                刷新用户
+              </Button>
+            }
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {!isSuperAdmin && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="当前管理员角色为只读"
+                  description="viewer / ops_admin 可以查看注册用户，锁定、强制下线和套餐调整仅 super_admin 可操作。"
+                />
+              )}
+              {registeredUsersError && (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="注册用户加载失败"
+                  description={registeredUsersError}
+                />
+              )}
+              <Spin spinning={registeredUsersLoading}>
+                <Table
+                  columns={registeredUserColumns}
+                  dataSource={registeredUsers}
+                  size="middle"
+                  scroll={{ x: 1120 }}
+                  locale={{
+                    emptyText: (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description={registeredUsersError ? '无法展示注册用户' : '暂无注册用户'}
+                      />
+                    ),
+                  }}
+                />
+              </Spin>
+            </Space>
+          </Card>
+        </Col>
+
+        <Col xs={24}>
+          <Card
+            title="配置管理员（环境变量）"
+            extra={<Button icon={<KeyOutlined />} onClick={() => setSelectedMenu('permissions')}>管理密钥</Button>}
+          >
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="这里展示的是管理端访问账号配置，不是注册终端用户。"
+              description="这些账号来自 RESUME_ADMIN_USERS / RESUME_ADMIN_TOKEN，用于登录 admin 控制台。"
+            />
+            <Table columns={configuredAdminUserColumns} dataSource={configuredAdminUsers} pagination={false} size="middle" />
           </Card>
         </Col>
       </Row>
@@ -500,7 +830,7 @@ export default function App() {
         </Col>
         <Col xs={24} xl={12}>
           <Card title="角色权限">
-            <Table columns={adminUserColumns} dataSource={adminUsers} pagination={false} size="middle" />
+            <Table columns={configuredAdminUserColumns} dataSource={configuredAdminUsers} pagination={false} size="middle" />
           </Card>
         </Col>
         <Col xs={24} xl={12}>
@@ -622,7 +952,7 @@ export default function App() {
         <Col xs={24} xl={12}>
           <Card title="危险操作">
             <Space>
-              <Popconfirm title="确认重新拉取后端数据？" okText="确认" cancelText="取消" onConfirm={() => void loadBackendState()}>
+              <Popconfirm title="确认重新拉取后端数据？" okText="确认" cancelText="取消" onConfirm={() => void refreshAdminData()}>
                 <Button danger>重新同步运行态</Button>
               </Popconfirm>
               <Popconfirm title="确认导出当前审计视图？" okText="确认" cancelText="取消">
@@ -745,7 +1075,7 @@ export default function App() {
               <Tag color={isSuperAdmin ? 'red' : 'blue'}>{adminSession.role}</Tag>
               <Tag>{adminSession.email}</Tag>
               <Tag color="blue">API: {apiBaseUrl.replace(/^https?:\/\//, '')}</Tag>
-              <Button icon={<CloudSyncOutlined />} loading={loading} onClick={() => void loadBackendState()}>刷新真实数据</Button>
+              <Button icon={<CloudSyncOutlined />} loading={loading || registeredUsersLoading} onClick={() => void refreshAdminData()}>刷新真实数据</Button>
               <Button onClick={logout}>退出</Button>
             </Space>
           </Header>
