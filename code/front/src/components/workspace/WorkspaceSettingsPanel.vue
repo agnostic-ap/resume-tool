@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useResumeStore } from '../../stores/resume'
 import { useI18n } from '../../i18n'
 import { showToast } from '../../composables/toast'
@@ -11,6 +12,36 @@ const { t, locale } = useI18n()
 
 function label(zh: string, en: string) {
   return locale.value === 'zh-CN' ? zh : en
+}
+
+const exportingAccount = ref(false)
+const deleteConfirmText = ref('')
+const deletingAccount = ref(false)
+
+async function handleAccountExport() {
+  exportingAccount.value = true
+  try {
+    await store.downloadAccountExport()
+    showToast(label('已导出全部账户数据', 'Account data exported'), 'success')
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : String(error), 'error')
+  } finally {
+    exportingAccount.value = false
+  }
+}
+
+async function handleAccountDelete() {
+  if (deleteConfirmText.value !== 'DELETE') {
+    showToast(label('请输入 DELETE 以确认删除', 'Type DELETE to confirm'), 'error')
+    return
+  }
+  deletingAccount.value = true
+  try {
+    await store.deleteAccountPermanently()
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : String(error), 'error')
+    deletingAccount.value = false
+  }
 }
 
 const accents: { id: TweakAccent; hex: string; label: string }[] = [
@@ -153,6 +184,38 @@ function resetStudioTheme() {
           </div>
         </div>
         <button class="btn btn--ghost settings-danger" @click="emit('reset-demo')">{{ t('restoreDemo') }}</button>
+      </section>
+
+      <section v-if="store.isAuthenticated" class="settings-card">
+        <div class="settings-card__head">
+          <div>
+            <span>{{ label('账户', 'Account') }}</span>
+            <strong>{{ store.authSession?.user.email }} · {{ store.isPro ? 'Pro' : label('免费版', 'Free') }}</strong>
+          </div>
+        </div>
+        <div class="settings-rows">
+          <div class="settings-row">
+            <div class="settings-row__copy">
+              <span>{{ label('导出账户数据', 'Export account data') }}</span>
+              <small>{{ label('下载云端保存的全部简历、投递与成长记录（JSON）', 'Download every resume, application, and career memory stored in the cloud (JSON)') }}</small>
+            </div>
+            <button class="btn btn--ghost" :disabled="exportingAccount" @click="handleAccountExport">
+              {{ exportingAccount ? label('导出中…', 'Exporting…') : label('导出', 'Export') }}
+            </button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row__copy">
+              <span>{{ label('永久删除账户', 'Delete account permanently') }}</span>
+              <small>{{ label('删除云端全部数据且不可恢复。输入 DELETE 确认。', 'Erases all cloud data. This cannot be undone. Type DELETE to confirm.') }}</small>
+            </div>
+            <div class="settings-delete-account">
+              <input v-model="deleteConfirmText" type="text" placeholder="DELETE" class="settings-delete-input" />
+              <button class="btn btn--ghost settings-danger" :disabled="deletingAccount" @click="handleAccountDelete">
+                {{ deletingAccount ? label('删除中…', 'Deleting…') : label('删除账户', 'Delete') }}
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   </section>

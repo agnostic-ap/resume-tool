@@ -82,13 +82,79 @@ export interface PlatformResumeDraft {
   }
 }
 
+export interface AuthAccountUser {
+  id: string
+  email: string
+  displayName?: string
+  role?: string
+  status?: string
+}
+
+export interface AuthAccountWorkspace {
+  id: string
+  name?: string
+  plan?: string
+}
+
+export interface AuthSessionInfo {
+  user: AuthAccountUser
+  workspace: AuthAccountWorkspace
+}
+
+export interface AuthLoginResult extends AuthSessionInfo {
+  token: string
+  expiresAt?: string
+}
+
+export interface ServerBillingQuota {
+  limit: number | null
+  used: number
+  remaining: number | null
+  resetAt?: string | null
+}
+
+export interface ServerBillingSummary {
+  plan: 'free' | 'pro'
+  status?: string
+  currentPeriodEnd?: string | null
+  quotas: {
+    aiDraft: ServerBillingQuota
+    export: ServerBillingQuota
+  }
+}
+
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8787'
 const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
 const API_BASE_URL = (viteEnv?.VITE_RESUME_API_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, '')
+const SESSION_TOKEN_KEY = 'resume-session-token'
+
+function storageAvailable() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+}
+
+let sessionToken: string | null = storageAvailable()
+  ? window.localStorage.getItem(SESSION_TOKEN_KEY)
+  : null
+
+export function getSessionToken(): string | null {
+  return sessionToken
+}
+
+export function setSessionToken(token: string | null) {
+  sessionToken = token
+  if (!storageAvailable()) return
+  try {
+    if (token) window.localStorage.setItem(SESSION_TOKEN_KEY, token)
+    else window.localStorage.removeItem(SESSION_TOKEN_KEY)
+  } catch {
+    // quota exceeded / privacy mode: keep the in-memory token
+  }
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json')
+  if (sessionToken && !headers.has('authorization')) headers.set('authorization', `Bearer ${sessionToken}`)
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -103,7 +169,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       // keep HTTP status fallback
     }
-    throw new Error(message)
+    const error = new Error(message) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   if (response.status === 204) return undefined as T
@@ -201,6 +269,58 @@ export const backendApi = {
     return request<PlatformResumeDraft>('/api/assistant/resume-drafts', {
       method: 'POST',
       body: JSON.stringify(input),
+    })
+  },
+
+  register(input: { email: string; password: string; displayName?: string }) {
+    return request<AuthLoginResult>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  login(input: { email: string; password: string }) {
+    return request<AuthLoginResult>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  logout() {
+    return request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' })
+  },
+
+  authMe() {
+    return request<AuthSessionInfo>('/api/auth/me')
+  },
+
+  getBilling() {
+    return request<ServerBillingSummary>('/api/billing/me')
+  },
+
+  consumeExportQuota() {
+    return request<ServerBillingSummary>('/api/billing/usage/export', { method: 'POST' })
+  },
+
+  async exportAccountData(): Promise<Blob> {
+    const headers = new Headers()
+    if (sessionToken) headers.set('authorization', `Bearer ${sessionToken}`)
+    const response = await fetch(`${API_BASE_URL}/api/account/export`, { headers })
+    if (!response.ok) {
+      let message = `${response.status} ${response.statusText}`
+      try {
+        const body = await response.json()
+        if (body?.error) message = body.error
+      } catch { /* keep fallback */ }
+      throw new Error(message)
+    }
+    return response.blob()
+  },
+
+  deleteAccount() {
+    return request<{ deleted: boolean }>('/api/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ confirm: 'DELETE' }),
     })
   },
 }

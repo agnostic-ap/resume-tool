@@ -3,8 +3,9 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import type { ResumeData, ResumeConfig, TemplateId, SectionId, ResumeTweaks, Locale, StudioTheme, ResumeDocument, JobApplication, JobDescriptionSnapshot, ApplicationStage, ActivityEvent, CareerUpdateChecklist, CareerUpdateKey, ApplicationProgressEvent, ProductEventName, SyncOperation, SyncOperationStatus, GrowthEntry, GrowthEntryType, ResumeOrigin, ImportDataPreview } from '../types/resume'
 import { showToast } from '../composables/toast'
-import { backendApi } from '../api/backend'
-import type { BackendState, PlatformResumeDraft } from '../api/backend'
+import { backendApi, getSessionToken, setSessionToken } from '../api/backend'
+import type { AuthSessionInfo, BackendState, PlatformResumeDraft, ServerBillingSummary } from '../api/backend'
+import { canConsumeServerQuota, isServerPro, serverQuotaRemaining, shouldUseServerBilling } from '../utils/serverBilling'
 import { captureProductEvent, getFunnelSummary } from '../utils/analytics'
 import type { FunnelSummary } from '../utils/analytics'
 import { canConsume, createBillingState, getEntitlements, normalizeBillingState, remainingQuota } from '../utils/entitlements'
@@ -576,6 +577,8 @@ export const useResumeStore = defineStore('resume', () => {
   )
   const syncOperations = ref<SyncOperation[]>(loadFromStorage<SyncOperation[]>('resume-sync-operations', []))
   const billing = ref<BillingState>(normalizeBillingState(loadFromStorage<unknown>('resume-billing', null)))
+  const authSession = ref<AuthSessionInfo | null>(loadFromStorage<AuthSessionInfo | null>('resume-auth-session', null))
+  const serverBilling = ref<ServerBillingSummary | null>(null)
   const backendStatus = ref({
     online: false,
     connecting: false,
@@ -927,23 +930,56 @@ export const useResumeStore = defineStore('resume', () => {
     return billing.value
   }
 
-  const isPro = computed(() => billing.value.plan === 'pro')
-  const entitlements = computed(() => getEntitlements(billing.value.plan))
+  // When signed in, the backend billing summary is authoritative; local
+  // billing keeps working for signed-out / offline sessions.
+  const isAuthenticated = computed(() => Boolean(authSession.value))
+  const usingServerBilling = computed(() => shouldUseServerBilling(isAuthenticated.value, serverBilling.value))
+  const isPro = computed(() => usingServerBilling.value ? isServerPro(serverBilling.value) : billing.value.plan === 'pro')
+  const entitlements = computed(() => getEntitlements(isPro.value ? 'pro' : 'free'))
   const activeResumeCount = computed(() => documents.value.filter((doc) => !doc.archived).length)
-  const exportsRemaining = computed(() => remainingQuota(entitlements.value.monthlyExports, billing.value.exports.count))
-  const aiDraftsRemaining = computed(() => remainingQuota(entitlements.value.dailyAiDrafts, billing.value.aiDrafts.count))
-  const canExport = computed(() => canConsume(entitlements.value.monthlyExports, billing.value.exports.count))
-  const canGenerateAiDraft = computed(() => canConsume(entitlements.value.dailyAiDrafts, billing.value.aiDrafts.count))
+  const exportsRemaining = computed(() => usingServerBilling.value
+    ? serverQuotaRemaining(serverBilling.value?.quotas.export)
+    : remainingQuota(entitlements.value.monthlyExports, billing.value.exports.count))
+  const aiDraftsRemaining = computed(() => usingServerBilling.value
+    ? serverQuotaRemaining(serverBilling.value?.quotas.aiDraft)
+    : remainingQuota(entitlements.value.dailyAiDrafts, billing.value.aiDrafts.count))
+  const canExport = computed(() => usingServerBilling.value
+    ? canConsumeServerQuota(serverBilling.value?.quotas.export)
+    : canConsume(entitlements.value.monthlyExports, billing.value.exports.count))
+  const canGenerateAiDraft = computed(() => usingServerBilling.value
+    ? canConsumeServerQuota(serverBilling.value?.quotas.aiDraft)
+    : canConsume(entitlements.value.dailyAiDrafts, billing.value.aiDrafts.count))
   const canCreateResume = computed(() => canConsume(entitlements.value.maxActiveResumes, activeResumeCount.value))
+
+  async function refreshServerBilling() {
+    if (!isAuthenticated.value) {
+      serverBilling.value = null
+      return null
+    }
+    try {
+      serverBilling.value = await backendApi.getBilling()
+    } catch {
+      // Keep the last known summary; entitlement checks fall back gracefully.
+    }
+    return serverBilling.value
+  }
 
   function recordExportUsage() {
     refreshBilling()
     billing.value.exports = { ...billing.value.exports, count: billing.value.exports.count + 1 }
+    if (isAuthenticated.value) {
+      void backendApi.consumeExportQuota()
+        .then((summary) => { serverBilling.value = summary })
+        .catch(() => { void refreshServerBilling() })
+    }
   }
 
   function recordAiDraftUsage() {
     refreshBilling()
     billing.value.aiDrafts = { ...billing.value.aiDrafts, count: billing.value.aiDrafts.count + 1 }
+    // The backend consumes the AI quota inside the draft route for signed-in
+    // sessions; just refresh the summary so the UI counter matches.
+    if (isAuthenticated.value) void refreshServerBilling()
   }
 
   function setPlan(plan: PlanId, meta: { reason?: string; renewsAt?: string } = {}) {
@@ -965,6 +1001,115 @@ export const useResumeStore = defineStore('resume', () => {
 
   function resetBilling() {
     billing.value = createBillingState('free')
+  }
+
+  // Wave 3: account sessions. Signed-out sessions keep the existing local-first
+  // behavior; signing in switches sync and billing authority to the backend.
+  const persistAuthSession = useDebounceFn((v: AuthSessionInfo | null) => {
+    try {
+      if (v) localStorage.setItem('resume-auth-session', JSON.stringify(v))
+      else localStorage.removeItem('resume-auth-session')
+    } catch { /* quota exceeded */ }
+  }, 200)
+  watch(authSession, persistAuthSession, { deep: true })
+
+  async function afterAuthenticated(session: AuthSessionInfo) {
+    authSession.value = { user: session.user, workspace: session.workspace }
+    await connectBackend()
+    await refreshServerBilling()
+  }
+
+  async function loginAccount(email: string, password: string) {
+    const result = await backendApi.login({ email, password })
+    setSessionToken(result.token)
+    await afterAuthenticated(result)
+    trackProductEvent('account_signed_in', { method: 'password' })
+    logActivity({
+      type: 'system',
+      tag: 'account',
+      message: 'Signed in',
+      messageZh: `已登录：${result.user.email}`,
+      messageEn: `Signed in as ${result.user.email}`,
+      meta: result.user.email,
+    })
+    return authSession.value
+  }
+
+  async function registerAccount(email: string, password: string, displayName?: string) {
+    const result = await backendApi.register({ email, password, displayName })
+    setSessionToken(result.token)
+    await afterAuthenticated(result)
+    trackProductEvent('account_registered', { has_display_name: Boolean(displayName) })
+    logActivity({
+      type: 'system',
+      tag: 'account',
+      message: 'Account created',
+      messageZh: `已注册并登录：${result.user.email}`,
+      messageEn: `Registered and signed in as ${result.user.email}`,
+      meta: result.user.email,
+    })
+    return authSession.value
+  }
+
+  async function logoutAccount() {
+    try {
+      await backendApi.logout()
+    } catch {
+      // Revoking server-side is best-effort; always clear the local session.
+    }
+    setSessionToken(null)
+    authSession.value = null
+    serverBilling.value = null
+    trackProductEvent('account_signed_out', {})
+  }
+
+  /**
+   * Boot-time entry: restores the session when a token exists, otherwise falls
+   * back to the plain anonymous backend probe. Always resolves.
+   */
+  async function initAuth() {
+    if (!getSessionToken()) {
+      authSession.value = null
+      return connectBackend()
+    }
+    try {
+      const session = await backendApi.authMe()
+      authSession.value = { user: session.user, workspace: session.workspace }
+    } catch (error) {
+      const status = (error as Error & { status?: number }).status
+      if (status === 401 || status === 403) {
+        setSessionToken(null)
+        authSession.value = null
+      }
+      return connectBackend()
+    }
+    await connectBackend()
+    await refreshServerBilling()
+    return true
+  }
+
+  async function downloadAccountExport() {
+    const blob = await backendApi.exportAccountData()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `resume-tool-export-${new Date().toISOString().slice(0, 10)}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    trackProductEvent('account_data_exported', {})
+  }
+
+  async function deleteAccountPermanently() {
+    await backendApi.deleteAccount()
+    trackProductEvent('account_deleted', {})
+    setSessionToken(null)
+    try {
+      for (const key of [
+        'resume-documents', 'active-resume-id', 'resume-applications', 'resume-growth-entries',
+        'resume-activity-log', 'resume-sync-operations', 'resume-billing', 'resume-auth-session',
+      ]) localStorage.removeItem(key)
+    } catch { /* best effort */ }
+    window.location.reload()
   }
 
   function touchActive() {
@@ -1853,6 +1998,16 @@ export const useResumeStore = defineStore('resume', () => {
     trackProductEvent,
     getProductFunnel,
     billing,
+    authSession,
+    serverBilling,
+    isAuthenticated,
+    loginAccount,
+    registerAccount,
+    logoutAccount,
+    initAuth,
+    refreshServerBilling,
+    downloadAccountExport,
+    deleteAccountPermanently,
     isPro,
     entitlements,
     activeResumeCount,

@@ -24,6 +24,7 @@ const props = defineProps<{ currentView: string }>()
 const emit = defineEmits<{
   navigate: ['workspace' | 'editor' | 'documents' | 'templates' | 'growth' | 'pipeline' | 'history' | 'settings']
   openCommand: []
+  openAuth: []
 }>()
 
 const store = useResumeStore()
@@ -33,6 +34,18 @@ const fileInput = ref<HTMLInputElement>()
 const pendingImportJson = ref('')
 const pendingImportPreview = ref<ImportDataPreview | null>(null)
 const syncOpen = ref(false)
+const accountOpen = ref(false)
+
+const accountLabel = computed(() => {
+  const user = store.authSession?.user
+  return user?.displayName || user?.email?.split('@')[0] || l('账户', 'Account')
+})
+
+async function handleLogout() {
+  accountOpen.value = false
+  await store.logoutAccount()
+  showToast(l('已退出登录，数据仍保留在本设备。', 'Signed out. Your data stays on this device.'), 'info', 4200)
+}
 
 // ── Auto-save indicator ──────────────────────────────────────
 const saved = ref(true)
@@ -338,6 +351,24 @@ function handleFileChange(e: Event) {
     </div>
 
     <div class="topbar-actions">
+      <button v-if="!store.isAuthenticated" class="topbar-button" @click="emit('openAuth')">
+        <span>◉</span>
+        {{ l('登录', 'Sign in') }}
+      </button>
+      <div v-else class="account-wrap">
+        <button class="topbar-button" :aria-expanded="accountOpen" @click="accountOpen = !accountOpen">
+          <span>◉</span>
+          {{ accountLabel }}
+        </button>
+        <div v-if="accountOpen" class="sync-popover account-popover">
+          <div class="sync-popover__head">
+            <span>{{ store.authSession?.user.email }}</span>
+            <button @click="accountOpen = false">{{ l('关闭', 'Close') }}</button>
+          </div>
+          <p>{{ store.isPro ? l('Pro 套餐 · 云端同步中', 'Pro plan · syncing to cloud') : l('免费套餐 · 云端同步中', 'Free plan · syncing to cloud') }}</p>
+          <button class="sync-retry" @click="handleLogout">{{ l('退出登录', 'Sign out') }}</button>
+        </div>
+      </div>
       <button @click="handleImportClick"
         class="topbar-button">
         <span>↥</span>

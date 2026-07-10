@@ -10,6 +10,8 @@ import CommandPalette from './components/CommandPalette.vue'
 import TweaksPanel from './components/TweaksPanel.vue'
 import TemplateThumbnail from './components/TemplateThumbnail.vue'
 import UpgradeDialog from './components/UpgradeDialog.vue'
+import AuthDialog from './components/AuthDialog.vue'
+import PrivacyDialog from './components/PrivacyDialog.vue'
 import PublicResumeView from './components/PublicResumeView.vue'
 import { useResumeStore } from './stores/resume'
 import { showToast } from './composables/toast'
@@ -46,6 +48,9 @@ const publicShare = ref<ResumeSharePayload | null>(readPublicShare())
 const showWelcome = ref(!localStorage.getItem('resume-visited'))
 const currentView = ref<AppView>('workspace')
 const commandOpen = ref(false)
+const authOpen = ref(false)
+const privacyOpen = ref(false)
+const icpNumber = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_ICP_NUMBER || '沪ICP备2026021880号-5'
 const focusedApplicationId = ref('')
 const editorTweaksOpen = ref(false)
 const editorPanelRef = ref<{ focusOnboardingTarget: (target: OnboardingTarget) => void } | null>(null)
@@ -748,7 +753,7 @@ onMounted(() => {
   }
   syncHash()
   captureReferral()
-  void store.connectBackend()
+  void store.initAuth()
   window.addEventListener('hashchange', syncHash)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resume-focus-onboarding-target', onPrecheckFocusEvent)
@@ -788,7 +793,8 @@ onUnmounted(() => {
     <TopBar
       :current-view="tr(viewTitle[currentView])"
       @navigate="navigate"
-      @open-command="commandOpen = true" />
+      @open-command="commandOpen = true"
+      @open-auth="authOpen = true" />
 
     <section v-if="currentView !== 'documents'" class="mobile-support-panel" aria-labelledby="mobile-support-title">
       <div class="mobile-support-card">
@@ -1090,6 +1096,20 @@ onUnmounted(() => {
       @close="editorTweaksOpen = false" />
     <ToastContainer />
     <UpgradeDialog />
+    <AuthDialog :open="authOpen" @close="authOpen = false" @open-privacy="privacyOpen = true" />
+    <PrivacyDialog :open="privacyOpen" @close="privacyOpen = false" />
     <WelcomeDialog v-if="showWelcome" @close="handleWelcomeClose" />
+
+    <footer class="site-footer">
+      <button type="button" class="site-footer__link" @click="privacyOpen = true">
+        {{ l('隐私政策与用户协议', 'Privacy & Terms') }}
+      </button>
+      <a
+        v-if="icpNumber"
+        class="site-footer__link"
+        href="https://beian.miit.gov.cn/"
+        target="_blank"
+        rel="noopener noreferrer">{{ icpNumber }}</a>
+    </footer>
   </div>
 </template>

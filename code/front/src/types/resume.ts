@@ -239,6 +239,11 @@ export type ProductEventName =
   | 'resume_shared'
   | 'referral_captured'
   | 'public_resume_viewed'
+  | 'account_registered'
+  | 'account_signed_in'
+  | 'account_signed_out'
+  | 'account_data_exported'
+  | 'account_deleted'
 
 export type SyncOperationStatus = 'pending' | 'synced' | 'failed' | 'local-only'
 
