@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { buildTailoringDisplayRows, getJobDescriptionSnapshotText, getJobDescriptionSnapshotTitle, getTailoringStrategyLabel } from '../src/utils/tailoringDisplay'
 import type { JobDescriptionSnapshot, TailoringMetadata } from '../src/types/resume'
@@ -9,7 +10,7 @@ function tailoring(overrides: Partial<TailoringMetadata> = {}): TailoringMetadat
     sourceResumeId: 'resume-1',
     draftTitle: 'Frontend Engineer JD Draft',
     matchScore: 91,
-    matchedKeywords: ['TypeScript', 'LLM'],
+    matchedKeywords: ['TypeScript', 'Vue'],
     selectedExperienceIds: ['exp-1'],
     strategy: 'rule-based-jd-tailoring-v1',
     generatedAt: '2026-06-15T10:30:00.000Z',
@@ -29,11 +30,11 @@ function jobSnapshot(overrides: Partial<JobDescriptionSnapshot> = {}): JobDescri
   }
 }
 
-test('tailoring strategy labels translate internal strategy identifiers', () => {
-  assert.equal(getTailoringStrategyLabel('llm-jd-tailoring-v1', 'zh-CN'), '真实 AI 改写')
-  assert.equal(getTailoringStrategyLabel('llm-jd-tailoring-v1', 'en-US'), 'AI-rewritten')
-  assert.equal(getTailoringStrategyLabel('rule-based-jd-tailoring-v1', 'zh-CN'), '规则兜底生成')
-  assert.equal(getTailoringStrategyLabel('rule-based-jd-tailoring-v1', 'en-US'), 'Rule-based fallback')
+test('tailoring strategy labels hide implementation details behind user-facing states', () => {
+  assert.equal(getTailoringStrategyLabel('llm-jd-tailoring-v1', 'zh-CN'), '智能定制')
+  assert.equal(getTailoringStrategyLabel('llm-jd-tailoring-v1', 'en-US'), 'Smart tailoring')
+  assert.equal(getTailoringStrategyLabel('rule-based-jd-tailoring-v1', 'zh-CN'), '基础定制')
+  assert.equal(getTailoringStrategyLabel('rule-based-jd-tailoring-v1', 'en-US'), 'Basic tailoring')
   assert.equal(getTailoringStrategyLabel('test', 'zh-CN'), '标准定制')
 })
 
@@ -46,9 +47,10 @@ test('tailoring display rows avoid request ids and raw strategy strings', () => 
   assert.equal(visibleText.includes('jd-run-debug-1'), false)
   assert.equal(visibleText.includes('rule-based-jd-tailoring-v1'), false)
   assert.equal(visibleText.includes('Frontend Engineer JD Draft'), true)
-  assert.equal(visibleText.includes('规则兜底生成'), true)
+  assert.equal(visibleText.includes('定制方式:基础定制'), true)
   assert.equal(visibleText.includes('2026-06-15'), true)
-  assert.equal(visibleText.includes('TypeScript · LLM'), true)
+  assert.equal(visibleText.includes('TypeScript · Vue'), true)
+  assert.equal(/AI-rewritten|真实 AI|规则兜底|Rule-based|Generation mode|llm|rule-based/i.test(visibleText), false)
 })
 
 test('job description snapshot copy avoids developer metadata wording', () => {
@@ -65,4 +67,11 @@ test('job description snapshot copy avoids developer metadata wording', () => {
   assert.equal(fallbackZh, '已保存岗位信息')
   assert.equal(fallbackEn, 'Saved job details')
   assert.equal(`${fallbackZh} ${fallbackEn}`.toLowerCase().includes('metadata'), false)
+})
+
+test('editor JD result uses shared user-facing tailoring copy', () => {
+  const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(/真实 AI|AI-rewritten|规则兜底|Rule-based fallback|生成方式', 'Mode'/.test(appSource), false)
+  assert.equal(appSource.includes('getTailoringStrategyLabel'), true)
 })

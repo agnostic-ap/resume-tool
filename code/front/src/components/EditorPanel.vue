@@ -14,10 +14,16 @@ import CertificationsEditor from './editor/CertificationsEditor.vue'
 import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
 import { showToast } from '../composables/toast'
+import {
+  getEditorDataCopyFailure,
+  getEditorDataCopySuccess,
+  getEditorModeLabel,
+  type EditorDisplayMode,
+} from '../utils/editorDisplay'
 
 const store = useResumeStore()
 defineProps<{ showTree?: boolean }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { l } = useLocaleText()
 type EditorGuideTarget = 'personal' | 'title' | 'summary' | 'experience' | 'skills' | 'export'
 
@@ -48,7 +54,7 @@ const sectionCount = computed<Record<SectionId, number>>(() => ({
 }))
 
 const expanded = ref<Set<string>>(new Set(['personal', 'summary', 'experience']))
-const editorMode = ref<'form' | 'source' | 'diff'>('form')
+const editorMode = ref<EditorDisplayMode>('form')
 const panelRef = ref<HTMLElement | null>(null)
 const guidePulseTarget = ref<EditorGuideTarget | ''>('')
 
@@ -193,10 +199,14 @@ async function runGuideAction(target: EditorGuideTarget) {
 async function copySource() {
   try {
     await navigator.clipboard?.writeText(sourceText.value)
-    showToast(l('源码已复制', 'Source copied'), 'success')
+    showToast(getEditorDataCopySuccess(locale.value), 'success')
   } catch {
-    showToast(l('复制失败，请手动选择源码', 'Copy failed. Select the source manually.'), 'error')
+    showToast(getEditorDataCopyFailure(locale.value), 'error')
   }
+}
+
+function editorModeLabel(mode: EditorDisplayMode) {
+  return getEditorModeLabel(mode, locale.value)
 }
 
 defineExpose({ focusOnboardingTarget })
@@ -251,9 +261,9 @@ defineExpose({ focusOnboardingTarget })
         <span class="tab">{{ l('外观', 'Style') }}</span>
         <span class="tab">{{ l('导出', 'Export') }}</span>
         <div class="segmented">
-          <button :class="{ on: editorMode === 'form' }" @click="editorMode = 'form'">{{ t('form') }}</button>
-          <button :class="{ on: editorMode === 'source' }" @click="editorMode = 'source'">{{ t('source') }}</button>
-          <button :class="{ on: editorMode === 'diff' }" @click="editorMode = 'diff'">{{ l('对比', 'Diff') }}</button>
+          <button :class="{ on: editorMode === 'form' }" @click="editorMode = 'form'">{{ editorModeLabel('form') }}</button>
+          <button :class="{ on: editorMode === 'source' }" @click="editorMode = 'source'">{{ editorModeLabel('source') }}</button>
+          <button :class="{ on: editorMode === 'diff' }" @click="editorMode = 'diff'">{{ editorModeLabel('diff') }}</button>
         </div>
       </div>
 

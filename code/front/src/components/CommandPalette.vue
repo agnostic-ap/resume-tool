@@ -4,7 +4,7 @@ import { useI18n } from '../i18n'
 import { useLocaleText } from '../composables/useLocaleText'
 import { useResumeStore } from '../stores/resume'
 import { getApplicationStageLabel } from '../utils/applicationStage'
-import { getCommandPaletteFooterLabel } from '../utils/commandPalette'
+import { getCommandPaletteEmptyLabel, getCommandPaletteFooterLabel, getQuickActionPlaceholder } from '../utils/commandPalette'
 import type { TemplateId } from '../types/resume'
 
 const props = defineProps<{ open: boolean }>()
@@ -43,9 +43,7 @@ const groups = computed<CommandGroup[]>(() => [
     items: [
       { icon: '＋', label: t('newResumeFull'), hint: 'N', command: 'new', keywords: 'create blank resume 新建 空白 简历' },
       { icon: '§', label: t('openEditor'), hint: 'E', command: 'editor', keywords: 'edit resume 编辑器' },
-      ...(store.config.tweaks.showAI
-        ? [{ icon: 'AI', label: l('开始 JD 定制', 'Start JD tailoring'), hint: 'JD', command: 'jd', keywords: 'jd ai tailor 定制 岗位' }]
-        : []),
+      { icon: 'JD', label: l('开始 JD 定制', 'Start JD tailoring'), hint: 'JD', command: 'jd', keywords: 'jd tailor 定制 岗位' },
       { icon: '↧', label: t('exportPdf'), hint: '⌘E', command: 'export', keywords: 'pdf export 导出' },
     ],
   },
@@ -176,7 +174,7 @@ function onKeydown(e: KeyboardEvent) {
       <div class="cmdk" @click.stop @keydown="onKeydown">
         <div class="cmdk__head">
           <span class="prompt">›</span>
-          <input ref="inputRef" v-model="query" :placeholder="`${t('command')}…`" />
+          <input ref="inputRef" v-model="query" :placeholder="getQuickActionPlaceholder(store.config.locale)" />
           <span class="esc">ESC</span>
         </div>
 
@@ -193,7 +191,7 @@ function onKeydown(e: KeyboardEvent) {
               <span class="hint">{{ item.hint }}</span>
             </button>
           </div>
-          <div v-if="!flatItems.length" class="cmdk-empty">{{ l('没有匹配的命令', 'No matching commands') }}</div>
+          <div v-if="!flatItems.length" class="cmdk-empty">{{ getCommandPaletteEmptyLabel(store.config.locale) }}</div>
         </div>
 
         <div class="cmdk__foot">

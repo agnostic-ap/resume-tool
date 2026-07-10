@@ -22,6 +22,9 @@ import { useNextBestAction } from './composables/nextBestAction'
 import { getMobileCommandFallback } from './utils/mobileNavigation'
 import { RESUME_COLOR_PRESETS, getResumeColorLabel } from './utils/resumeTheme'
 import { getSyncRetryLaterCopy } from './utils/syncCopy'
+import { getEditorSettingsLauncherLabel } from './utils/editorSettingsDisplay'
+import { getQuickActionLabel } from './utils/commandPalette'
+import { getTailoringStrategyLabel } from './utils/tailoringDisplay'
 import { buildShareUrl, decodeResumeShare, encodeResumeShare, getReferralCode, parseRefParam, parseShareToken, type ResumeSharePayload } from './utils/share'
 import type { ResumeData, TemplateId } from './types/resume'
 
@@ -142,9 +145,7 @@ const editorJdDiffBySection = computed(() => {
 })
 
 const editorJdStrategyLabel = computed(() => {
-  const strategy = editorJdDraft.value?.generation.strategy ?? ''
-  if (strategy.startsWith('llm')) return l('真实 AI 改写', 'AI-rewritten')
-  return l('规则兜底生成', 'Rule-based fallback')
+  return getTailoringStrategyLabel(editorJdDraft.value?.generation.strategy ?? '', store.config.locale)
 })
 
 const editorJdGrowthEntries = computed(() => {
@@ -305,11 +306,6 @@ async function focusEditorJdTailoring() {
 
 function openEditorJdTailoring(options: { silent?: boolean } = {}) {
   navigate('editor')
-  if (!store.config.tweaks.showAI) {
-    editorTweaksOpen.value = true
-    showToast(l('JD 定制栏已关闭，开启后才能使用 JD 定制。', 'JD tailoring panel is off. Enable it to use JD tailoring.'), 'info', 4200)
-    return
-  }
   if (!options.silent) {
     showToast(l('已打开 JD 定制入口，粘贴岗位 JD 后生成结构化草稿。', 'JD tailoring is open. Paste the job description to generate a structured draft.'), 'info', 3600)
   }
@@ -417,8 +413,6 @@ function runCommand(command: string) {
     navigate('workspace')
   } else if (command === 'templates') {
     navigate('templates')
-  } else if (command === 'assistant') {
-    openEditorJdTailoring()
   } else if (command === 'jd') {
     openEditorJdTailoring()
   } else if (command === 'sync:retry') {
@@ -818,7 +812,7 @@ onUnmounted(() => {
         </dl>
         <div class="mobile-support-actions">
           <button class="btn btn--primary" @click="navigate('documents')">{{ l('打开简历库', 'Open library') }}</button>
-          <button class="btn btn--ghost" @click="commandOpen = true">{{ l('打开命令', 'Open command') }}</button>
+          <button class="btn btn--ghost" @click="commandOpen = true">{{ getQuickActionLabel(store.config.locale) }}</button>
         </div>
       </div>
     </section>
@@ -842,55 +836,7 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <div v-if="store.config.tweaks.showAI" class="inspector-card score-card">
-          <span class="inspector-eyebrow">{{ t('matchScore') }}</span>
-          <strong>{{ store.completeness }}<small>/100</small></strong>
-          <div class="score-track">
-            <i :style="{ width: `${store.completeness}%` }" />
-          </div>
-          <p>{{ primaryAdvice }}</p>
-        </div>
-
-        <div class="inspector-card onboarding-card">
-          <div class="inspector-card__head">
-            <span class="inspector-eyebrow">{{ l('空白简历引导', 'Blank resume guide') }}</span>
-            <button @click="runOnboardingAction('export')">{{ onboardingDoneCount }}/{{ onboardingItems.length }}</button>
-          </div>
-          <div class="onboarding-list">
-            <button
-              v-for="item in onboardingItems"
-              :key="item.id"
-              :class="{ done: item.done }"
-              @click="runOnboardingAction(item.id)">
-              <i>{{ item.done ? '✓' : '·' }}</i>
-              <span>{{ item.label }}</span>
-              <b>{{ item.done ? l('完成', 'Done') : item.action }}</b>
-            </button>
-          </div>
-        </div>
-
-        <div class="inspector-card plan-card">
-          <div class="inspector-card__head">
-            <span class="inspector-eyebrow">{{ l('套餐与额度', 'Plan & limits') }}</span>
-            <b class="plan-chip" :class="{ 'is-pro': store.isPro }">{{ store.isPro ? 'Pro' : l('免费版', 'Free') }}</b>
-          </div>
-          <dl class="compact-list">
-            <div>
-              <dt>{{ l('本月导出', 'Exports this month') }}</dt>
-              <dd>{{ store.isPro ? l('无限', 'Unlimited') : `${store.exportsRemaining} ${l('次剩余', 'left')}` }}</dd>
-            </div>
-            <div>
-              <dt>{{ l('今日 AI 定制', 'AI drafts today') }}</dt>
-              <dd>{{ store.isPro ? l('无限', 'Unlimited') : `${store.aiDraftsRemaining} ${l('次剩余', 'left')}` }}</dd>
-            </div>
-          </dl>
-          <button v-if="!store.isPro" class="btn btn--primary plan-card__cta" @click="openUpgrade">
-            {{ l('升级到 Pro', 'Upgrade to Pro') }}
-          </button>
-        </div>
-
         <div
-          v-if="store.config.tweaks.showAI"
           ref="editorJdCardRef"
           class="inspector-card editor-jd-card jd-builder"
           :class="{ 'is-attention': editorJdAttention }">
@@ -937,7 +883,7 @@ onUnmounted(() => {
               <strong>{{ editorJdDraft.title }}</strong>
               <span>{{ l('匹配分', 'Match') }} · {{ editorJdDraft.match.score }}/100</span>
               <span>{{ l('命中关键词', 'Matched keywords') }} · {{ editorJdDraft.match.matchedKeywords.slice(0, 8).join(' · ') || l('暂无', 'none') }}</span>
-              <span>{{ l('生成方式', 'Mode') }} · <b class="jd-strategy-chip" :class="{ 'is-llm': editorJdDraft.generation.strategy.startsWith('llm') }">{{ editorJdStrategyLabel }}</b></span>
+              <span>{{ l('定制方式', 'Tailoring type') }} · <b class="jd-strategy-chip" :class="{ 'is-llm': editorJdDraft.generation.strategy.startsWith('llm') }">{{ editorJdStrategyLabel }}</b></span>
             </div>
             <div class="jd-review">
               <div class="jd-review__head">
@@ -968,8 +914,68 @@ onUnmounted(() => {
             </div>
           </div>
           <p v-else class="jd-helper">
-            {{ l('这是结构化 JD 定制入口。AI 开关关闭时，本卡片会一起隐藏。', 'This is the structured JD tailoring flow. It follows the same AI visibility toggle.') }}
+            {{ l('粘贴岗位 JD 后，可以逐段查看改写差异，再应用到简历或创建投递记录。', 'Paste a JD to review section-level changes, then apply them to the resume or create an application record.') }}
           </p>
+        </div>
+
+        <div class="inspector-card export-status-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('导出状态', 'Export readiness') }}</span>
+            <button @click="runOnboardingAction('export')">{{ l('运行预检', 'Run precheck') }}</button>
+          </div>
+          <strong>{{ store.completeness }}<small>/100</small></strong>
+          <div class="score-track">
+            <i :style="{ width: `${store.completeness}%` }" />
+          </div>
+          <p>{{ primaryAdvice }}</p>
+          <dl class="compact-list">
+            <div>
+              <dt>{{ l('本月导出', 'Exports this month') }}</dt>
+              <dd>{{ store.isPro ? l('无限', 'Unlimited') : `${store.exportsRemaining} ${l('次剩余', 'left')}` }}</dd>
+            </div>
+            <div>
+              <dt>{{ l('检查重点', 'Check focus') }}</dt>
+              <dd>{{ l('联系方式、空章节、分页', 'Contact, empty sections, pages') }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="inspector-card onboarding-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('空白简历引导', 'Blank resume guide') }}</span>
+            <button @click="runOnboardingAction('export')">{{ onboardingDoneCount }}/{{ onboardingItems.length }}</button>
+          </div>
+          <div class="onboarding-list">
+            <button
+              v-for="item in onboardingItems"
+              :key="item.id"
+              :class="{ done: item.done }"
+              @click="runOnboardingAction(item.id)">
+              <i>{{ item.done ? '✓' : '·' }}</i>
+              <span>{{ item.label }}</span>
+              <b>{{ item.done ? l('完成', 'Done') : item.action }}</b>
+            </button>
+          </div>
+        </div>
+
+        <div class="inspector-card plan-card">
+          <div class="inspector-card__head">
+            <span class="inspector-eyebrow">{{ l('套餐与额度', 'Plan & limits') }}</span>
+            <b class="plan-chip" :class="{ 'is-pro': store.isPro }">{{ store.isPro ? 'Pro' : l('免费版', 'Free') }}</b>
+          </div>
+          <dl class="compact-list">
+            <div>
+              <dt>{{ l('今日 JD 定制', 'JD drafts today') }}</dt>
+              <dd>{{ store.isPro ? l('无限', 'Unlimited') : `${store.aiDraftsRemaining} ${l('次剩余', 'left')}` }}</dd>
+            </div>
+            <div>
+              <dt>{{ l('公开分享', 'Public sharing') }}</dt>
+              <dd>{{ store.isPro ? l('无水印', 'No watermark') : l('免费版水印', 'Free watermark') }}</dd>
+            </div>
+          </dl>
+          <button v-if="!store.isPro" class="btn btn--primary plan-card__cta" @click="openUpgrade">
+            {{ l('升级到 Pro', 'Upgrade to Pro') }}
+          </button>
         </div>
 
         <div class="inspector-card resume-template-card">
@@ -1059,17 +1065,9 @@ onUnmounted(() => {
           </dl>
         </div>
 
-        <div v-if="store.config.tweaks.showAI" class="inspector-card note-card">
-          <span class="inspector-eyebrow">{{ t('beforeExport') }}</span>
-          <ul>
-            <li>{{ t('noteVerb') }}</li>
-            <li>{{ t('noteNumbers') }}</li>
-            <li>{{ t('noteOnePage') }}</li>
-          </ul>
-        </div>
       </aside>
-      <button class="tweaks-fab" @click="editorTweaksOpen = true" :aria-label="l('打开编辑台微调', 'Open editor tweaks')">
-        {{ l('微调', 'Tune') }}
+      <button class="tweaks-fab" @click="editorTweaksOpen = true" :aria-label="getEditorSettingsLauncherLabel(store.config.locale)">
+        {{ getEditorSettingsLauncherLabel(store.config.locale) }}
         <span class="ind"></span>
       </button>
     </main>

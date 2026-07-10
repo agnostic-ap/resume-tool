@@ -93,6 +93,24 @@ test('next best action prioritizes failed sync over other user work', () => {
   assert.equal(action.primaryCommand, 'sync:retry')
 })
 
+test('next best action describes queued sync with cloud wording', () => {
+  const action = computeNextBestAction({
+    locale: 'zh-CN',
+    data: resumeData(),
+    completeness: 100,
+    showAI: true,
+    applications: [],
+    syncOperations: [syncOperation({ status: 'local-only' })],
+    today: '2026-07-02',
+  })
+
+  assert.equal(action.kind, 'sync')
+  assert.equal(action.severity, 'warning')
+  assert.equal(action.primaryCommand, 'sync:retry')
+  assert.equal(action.detail.includes('云端'), true)
+  assert.equal(/后端|backend/i.test(action.detail), false)
+})
+
 test('next best action guides blank resumes to the first missing core field', () => {
   const action = computeNextBestAction({
     locale: 'zh-CN',
@@ -146,6 +164,21 @@ test('next best action recommends JD tailoring before export for a ready resume'
     data: resumeData(),
     completeness: 92,
     showAI: true,
+    applications: [],
+    syncOperations: [],
+    today: '2026-07-02',
+  })
+
+  assert.equal(action.kind, 'jd')
+  assert.equal(action.primaryCommand, 'jd')
+})
+
+test('next best action keeps JD tailoring available when legacy AI panel setting is off', () => {
+  const action = computeNextBestAction({
+    locale: 'zh-CN',
+    data: resumeData(),
+    completeness: 92,
+    showAI: false,
     applications: [],
     syncOperations: [],
     today: '2026-07-02',

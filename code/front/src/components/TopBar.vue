@@ -17,6 +17,8 @@ import {
   type LocalizedSyncCopy,
 } from '../utils/syncCopy'
 import { getActiveResumeVersionLabel } from '../utils/resumeDisplay'
+import { getBackupFileTypeError, getBackupFormatError, getLegacyBackupLabel } from '../utils/backupDisplay'
+import { getQuickActionLabel } from '../utils/commandPalette'
 
 const props = defineProps<{ currentView: string }>()
 const emit = defineEmits<{
@@ -46,6 +48,7 @@ const retryableSyncOperations = computed(() =>
 )
 const lc = (copy: LocalizedSyncCopy) => l(copy.zh, copy.en)
 const activeVersionLabel = computed(() => getActiveResumeVersionLabel(store.config.locale))
+const quickActionLabel = computed(() => getQuickActionLabel(store.config.locale))
 
 const saveLabel = computed(() => {
   if (!saved.value) return t('saving')
@@ -148,7 +151,7 @@ const importPreviewSummary = computed(() => {
     l(`${preview.growthEntries} 条职业记忆`, `${preview.growthEntries} career memories`),
     l(`${preview.activityEvents} 条历史记录`, `${preview.activityEvents} history events`),
   ]
-  if (preview.hasLegacyResume) parts.push(l('包含旧版单简历数据', 'includes legacy single-resume data'))
+  if (preview.hasLegacyResume) parts.push(getLegacyBackupLabel(store.config.locale))
   if (preview.hasConfig) parts.push(l('包含外观和语言设置', 'includes appearance and language settings'))
   return parts.join(' · ')
 })
@@ -222,7 +225,7 @@ function handleFileChange(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   if (!file.name.endsWith('.json')) {
-    showToast(l('请选择 .json 格式的备份文件', 'Choose a .json backup file'), 'error')
+    showToast(getBackupFileTypeError(store.config.locale), 'error')
     return
   }
   const reader = new FileReader()
@@ -237,7 +240,7 @@ function handleFileChange(e: Event) {
       showToast(
         unrecognized
           ? l('导入失败：未识别的文件格式', 'Import failed: unrecognized file format')
-          : l('导入失败：请确认 JSON 格式正确', 'Import failed: check that the JSON is valid'),
+          : getBackupFormatError(store.config.locale),
         'error',
       )
     }
@@ -273,7 +276,7 @@ function handleFileChange(e: Event) {
 
     <button class="topbar-button command-trigger" @click="emit('openCommand')">
       <span>⌕</span>
-      {{ t('command') }}
+      {{ quickActionLabel }}
       <kbd>⌘K</kbd>
     </button>
 

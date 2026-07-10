@@ -5,7 +5,7 @@ export interface MobileCommandFallback {
   reason: MobileCommandFallbackReason
 }
 
-const desktopOnlyCommands = new Set(['editor', 'jd', 'assistant', 'export', 'pipeline'])
+const desktopOnlyCommands = new Set(['editor', 'jd', 'export', 'pipeline'])
 const desktopOnlyPrefixes = ['application:', 'growth:']
 
 export function getMobileCommandFallback(command: string, isNarrowViewport: boolean): MobileCommandFallback | null {

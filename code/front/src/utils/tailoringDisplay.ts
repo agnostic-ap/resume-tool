@@ -11,8 +11,8 @@ function text(locale: string, zh: string, en: string) {
 }
 
 export function getTailoringStrategyLabel(strategy: string, locale: string) {
-  if (strategy.startsWith('llm')) return text(locale, '真实 AI 改写', 'AI-rewritten')
-  if (strategy.startsWith('rule-based')) return text(locale, '规则兜底生成', 'Rule-based fallback')
+  if (strategy.startsWith('llm')) return text(locale, '智能定制', 'Smart tailoring')
+  if (strategy.startsWith('rule-based')) return text(locale, '基础定制', 'Basic tailoring')
   return text(locale, '标准定制', 'Standard tailoring')
 }
 
@@ -32,7 +32,7 @@ export function buildTailoringDisplayRows(tailoring: TailoringMetadata, locale: 
     },
     {
       key: 'strategy',
-      label: text(locale, '生成方式', 'Generation mode'),
+      label: text(locale, '定制方式', 'Tailoring type'),
       value: getTailoringStrategyLabel(tailoring.strategy, locale),
     },
     {

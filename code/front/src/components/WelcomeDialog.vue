@@ -4,6 +4,7 @@ import { useResumeStore } from '../stores/resume'
 import { useLocaleText } from '../composables/useLocaleText'
 import { showToast } from '../composables/toast'
 import type { ImportDataPreview } from '../types/resume'
+import { getBackupFileTypeError, getBackupFormatError, getLegacyBackupLabel } from '../utils/backupDisplay'
 const store = useResumeStore()
 const emit = defineEmits<{ close: [action?: 'demo' | 'blank' | 'import'] }>()
 const { l } = useLocaleText()
@@ -18,7 +19,7 @@ const importSummary = computed(() => {
     l(`${importPreview.value.applications} 条投递`, `${importPreview.value.applications} applications`),
     l(`${importPreview.value.growthEntries} 条职业记忆`, `${importPreview.value.growthEntries} career memories`),
   ]
-  if (importPreview.value.hasLegacyResume) parts.push(l('包含旧版单简历数据', 'includes legacy single-resume data'))
+  if (importPreview.value.hasLegacyResume) parts.push(getLegacyBackupLabel(store.config.locale))
   if (importPreview.value.hasConfig) parts.push(l('包含设置', 'includes settings'))
   return parts.join(' · ')
 })
@@ -42,7 +43,7 @@ function handleImportFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   if (!file.name.endsWith('.json')) {
-    showToast(l('请选择 .json 格式的备份文件', 'Choose a .json backup file'), 'error')
+    showToast(getBackupFileTypeError(store.config.locale), 'error')
     return
   }
   const reader = new FileReader()
@@ -58,7 +59,7 @@ function handleImportFile(e: Event) {
       showToast(
         unrecognized
           ? l('导入失败：未识别的文件格式', 'Import failed: unrecognized file format')
-          : l('导入失败：请确认 JSON 格式正确', 'Import failed: check that the JSON is valid'),
+          : getBackupFormatError(store.config.locale),
         'error',
       )
     }

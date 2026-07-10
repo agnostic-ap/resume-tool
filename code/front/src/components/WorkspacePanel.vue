@@ -1087,7 +1087,7 @@ function matchClass(score: number) {
 
             <div class="hero__actions">
               <button class="btn btn--primary" @click="openEditor">{{ t('openEditor') }} <kbd>E</kbd></button>
-              <button v-if="store.config.tweaks.showAI" class="btn" @click="emit('command', 'jd')">{{ t('tailorWithAI') }}</button>
+              <button class="btn" @click="emit('command', 'jd')">{{ t('tailorWithAI') }}</button>
               <button class="btn btn--ghost" @click="emit('navigate', 'documents')">{{ t('documentsPage') }}</button>
               <button class="btn btn--ghost" @click="emit('navigate', 'growth')">{{ t('growth') }}</button>
               <button class="btn btn--ghost" @click="emit('command', 'export')">{{ t('exportPdf') }}</button>
@@ -1102,7 +1102,7 @@ function matchClass(score: number) {
                 <span>{{ label('个人信息', 'Profile') }}</span>
                 <span>{{ label('工作经历', 'Experience') }}</span>
               </div>
-              <span>A4 · {{ label('实时', 'live') }}</span>
+              <span>A4 · {{ label('实时预览', 'Live preview') }}</span>
             </div>
             <div class="preview">
               <div class="preview__paper">
@@ -1155,7 +1155,7 @@ function matchClass(score: number) {
           </div>
           <div class="meta">
             <span>{{ growthEntries.length }} {{ label('条职业记忆', 'career memories') }}</span>
-            <button v-if="store.config.tweaks.showAI" @click="emit('command', 'jd')">{{ t('tailorWithAI') }} →</button>
+            <button @click="emit('command', 'jd')">{{ t('tailorWithAI') }} →</button>
           </div>
         </div>
         <div class="career-reminder" :class="{ due: careerUpdateDays <= 0 }">
@@ -1274,7 +1274,7 @@ function matchClass(score: number) {
                   <small>{{ label('来源', 'From') }} · {{ entry.sourceResumeTitle }}</small>
                   <div>
                     <a v-if="entry.evidenceUrl" :href="entry.evidenceUrl" target="_blank" rel="noreferrer">{{ label('证据', 'Evidence') }}</a>
-                    <button v-if="store.config.tweaks.showAI && !entry.archived" @click="emit('command', `growth:${entry.id}`)">{{ label('用于 JD', 'Use in JD') }}</button>
+                    <button v-if="!entry.archived" @click="emit('command', `growth:${entry.id}`)">{{ label('用于 JD', 'Use in JD') }}</button>
                     <button @click="editGrowthEntry(entry)">{{ label('编辑', 'Edit') }}</button>
                     <button @click="toggleGrowthArchive(entry)">{{ entry.archived ? label('恢复', 'Restore') : label('归档', 'Archive') }}</button>
                   </div>
@@ -1386,16 +1386,16 @@ function matchClass(score: number) {
             <div class="doc__sig">{{ (doc.data.personal.name || doc.title || 'R').slice(0, 1) }}</div>
             <div class="doc__meta">
               <span class="dot" :class="{ live: doc.id === store.activeResumeId }"></span>
-              <span>{{ doc.data.experience.length }} {{ label('经历', 'exp') }}</span>
+              <span>{{ doc.data.experience.length }} {{ label('段经历', 'roles') }}</span>
               <span>·</span>
               <span>{{ doc.data.projects.length }} {{ label('项目', 'projects') }}</span>
-              <span class="push">{{ locale === 'zh-CN' ? '更新' : 'due' }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}{{ locale === 'zh-CN' ? '天' : 'd' }}</span>
+              <span class="push">{{ label('更新提醒', 'Review in') }} {{ Math.max(0, store.daysUntilCareerUpdate(doc.id)) }}{{ locale === 'zh-CN' ? '天' : ' days' }}</span>
             </div>
             <div class="doc-actions" @click.stop>
               <button v-if="doc.archived" @click="restoreAndOpenDocument(doc.id)">{{ label('恢复并编辑', 'Restore & edit') }}</button>
               <button @click="toggleFavoriteDocument(doc.id)">{{ doc.favorite ? label('取消收藏', 'Unstar') : label('收藏', 'Star') }}</button>
               <button @click="startRename(doc.id, doc.title)">{{ locale === 'zh-CN' ? '重命名' : 'Rename' }}</button>
-              <button @click="startMetadataEdit(doc.id)">{{ label('标签', 'Meta') }}</button>
+              <button @click="startMetadataEdit(doc.id)">{{ label('编辑信息', 'Edit info') }}</button>
               <button @click="duplicateDocument(doc.id)">{{ locale === 'zh-CN' ? '复制' : 'Copy' }}</button>
               <button @click="toggleArchiveDocument(doc.id)">{{ doc.archived ? label('恢复', 'Restore') : label('归档', 'Archive') }}</button>
               <button class="danger-link" @click="deleteDocument(doc.id)">{{ locale === 'zh-CN' ? '删除' : 'Delete' }}</button>

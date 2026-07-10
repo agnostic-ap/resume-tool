@@ -10,6 +10,7 @@ import type { FunnelSummary } from '../utils/analytics'
 import { canConsume, createBillingState, getEntitlements, normalizeBillingState, remainingQuota } from '../utils/entitlements'
 import type { BillingState, PlanId } from '../utils/entitlements'
 import { getSyncFailedActivityCopy, getSyncUnavailableCopy } from '../utils/syncCopy'
+import { getBackupFormatError, getBackupImportMetaLabel } from '../utils/backupDisplay'
 
 const DEFAULT_ORDER: SectionId[] = [
   'summary', 'experience', 'education', 'skills', 'projects', 'awards', 'languages', 'certifications',
@@ -919,7 +920,7 @@ export const useResumeStore = defineStore('resume', () => {
   }
 
   // Wave 2: freemium entitlements. `billing` is kept fresh by re-normalizing on read
-  // so usage windows (monthly exports, daily AI drafts) roll over correctly.
+  // so usage windows (monthly exports, daily JD drafts) roll over correctly.
   function refreshBilling() {
     const normalized = normalizeBillingState(billing.value)
     if (JSON.stringify(normalized) !== JSON.stringify(billing.value)) billing.value = normalized
@@ -1626,7 +1627,14 @@ export const useResumeStore = defineStore('resume', () => {
         imported = true
       }
       if (imported) {
-        logActivity({ type: 'system', tag: 'import', message: 'Imported backup data', messageZh: '导入备份数据', messageEn: 'Imported backup data', meta: 'JSON backup' })
+        logActivity({
+          type: 'system',
+          tag: 'import',
+          message: 'Imported backup data',
+          messageZh: '导入备份数据',
+          messageEn: 'Imported backup data',
+          meta: getBackupImportMetaLabel(config.value.locale),
+        })
         showToast(config.value.locale === 'zh-CN' ? '数据导入成功' : 'Data imported', 'success')
         recordSyncOperation({ entityType: 'import', operation: 'json', entityId: activeResumeId.value, status: 'local-only' })
         syncActiveDocumentToBackend()
@@ -1637,7 +1645,7 @@ export const useResumeStore = defineStore('resume', () => {
       showToast(
         unrecognized
           ? config.value.locale === 'zh-CN' ? '导入失败：未识别的文件格式' : 'Import failed: unrecognized file format'
-          : config.value.locale === 'zh-CN' ? '导入失败：请确认 JSON 格式正确' : 'Import failed: check that the JSON is valid',
+          : getBackupFormatError(config.value.locale),
         'error',
       )
     }

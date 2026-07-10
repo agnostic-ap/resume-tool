@@ -3,13 +3,14 @@ import test from 'node:test'
 import { getMobileCommandFallback } from '../src/utils/mobileNavigation'
 
 test('narrow screens route desktop-only commands back to the resume library', () => {
-  for (const command of ['editor', 'jd', 'assistant', 'export', 'pipeline', 'application:app-1', 'growth:entry-1']) {
+  for (const command of ['editor', 'jd', 'export', 'pipeline', 'application:app-1', 'growth:entry-1']) {
     assert.deepEqual(getMobileCommandFallback(command, true), {
       view: 'documents',
       reason: 'desktop-only',
     })
   }
 
+  assert.equal(getMobileCommandFallback('assistant', true), null)
   assert.equal(getMobileCommandFallback('export', false), null)
   assert.equal(getMobileCommandFallback('documents', true), null)
 })

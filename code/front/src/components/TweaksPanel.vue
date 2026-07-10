@@ -10,6 +10,13 @@ import type {
   TweakTone,
 } from '../types/resume'
 import { useI18n } from '../i18n'
+import {
+  getEditorSettingsCloseLabel,
+  getEditorSettingsControlLabel,
+  getEditorSettingsSubtitle,
+  getEditorSettingsTitle,
+  type EditorSettingsControlId,
+} from '../utils/editorSettingsDisplay'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -73,6 +80,10 @@ function reset() {
 function text(zh: string, en: string) {
   return locale.value === 'zh-CN' ? zh : en
 }
+
+function settingsControl(id: EditorSettingsControlId) {
+  return getEditorSettingsControlLabel(id, locale.value)
+}
 </script>
 
 <template>
@@ -80,8 +91,8 @@ function text(zh: string, en: string) {
     <div v-if="open" class="tweaks-backdrop" @click="emit('close')"></div>
     <aside v-if="open" class="tweaks" role="dialog" aria-modal="true" aria-labelledby="tweaks-dialog-title">
       <div class="tweaks__head">
-        <h3 id="tweaks-dialog-title">{{ locale === 'zh-CN' ? '编辑台微调' : 'Editor tweaks' }}<small>{{ locale === 'zh-CN' ? '只影响编辑界面，不影响 PDF 简历' : 'editor UI only, not the PDF resume' }}</small></h3>
-        <button class="tweaks__close" :aria-label="text('关闭编辑台微调', 'Close editor tweaks')" @click="emit('close')">×</button>
+        <h3 id="tweaks-dialog-title">{{ getEditorSettingsTitle(locale) }}<small>{{ getEditorSettingsSubtitle(locale) }}</small></h3>
+        <button class="tweaks__close" :aria-label="getEditorSettingsCloseLabel(locale)" @click="emit('close')">×</button>
       </div>
 
       <div class="tweaks__scroll">
@@ -110,7 +121,7 @@ function text(zh: string, en: string) {
             </div>
           </div>
           <div class="tweak-row">
-            <div class="lbl">{{ locale === 'zh-CN' ? '横线' : 'Rule lines' }}<small>{{ locale === 'zh-CN' ? '纸张式辅助线' : 'paper-style horizontals' }}</small></div>
+            <div class="lbl">{{ settingsControl('ruleLines').label }}<small>{{ settingsControl('ruleLines').detail }}</small></div>
             <button class="tgl" :class="{ on: store.config.tweaks.ruleLines }"
               @click="setTweak('ruleLines', !store.config.tweaks.ruleLines)"></button>
           </div>
@@ -133,7 +144,7 @@ function text(zh: string, en: string) {
         <div class="tweak-section">
           <div class="tweak-section__label">— {{ locale === 'zh-CN' ? '密度' : 'Density' }}</div>
           <div class="tweak-row">
-            <div class="lbl">{{ locale === 'zh-CN' ? '界面密度' : 'UI density' }}</div>
+            <div class="lbl">{{ settingsControl('density').label }}<small>{{ settingsControl('density').detail }}</small></div>
             <div class="seg-radio">
               <button v-for="density in densityOptions" :key="density.id"
                 :class="{ on: store.config.tweaks.density === density.id }"
@@ -154,14 +165,9 @@ function text(zh: string, en: string) {
         <div class="tweak-section">
           <div class="tweak-section__label">— {{ locale === 'zh-CN' ? '布局' : 'Layout' }}</div>
           <div class="tweak-row">
-            <div class="lbl">{{ locale === 'zh-CN' ? '文件树' : 'File tree' }}<small>{{ locale === 'zh-CN' ? '左侧章节面板' : 'left section panel' }}</small></div>
+            <div class="lbl">{{ settingsControl('showTree').label }}<small>{{ settingsControl('showTree').detail }}</small></div>
             <button class="tgl" :class="{ on: store.config.tweaks.showTree }"
               @click="setTweak('showTree', !store.config.tweaks.showTree)"></button>
-          </div>
-          <div class="tweak-row">
-            <div class="lbl">{{ locale === 'zh-CN' ? 'JD 定制栏' : 'JD tailoring panel' }}<small>{{ locale === 'zh-CN' ? '右侧定制与建议' : 'right-side tailoring help' }}</small></div>
-            <button class="tgl" :class="{ on: store.config.tweaks.showAI }"
-              @click="setTweak('showAI', !store.config.tweaks.showAI)"></button>
           </div>
         </div>
 

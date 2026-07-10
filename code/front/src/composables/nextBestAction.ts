@@ -103,7 +103,7 @@ export function computeNextBestAction(input: NextBestActionInput): NextBestActio
     return {
       kind: 'sync',
       title: label(locale, '本地更改待同步', 'Local changes need sync'),
-      detail: label(locale, `${retryableSync.length} 个操作会在后端恢复后同步。`, `${retryableSync.length} operation(s) will sync when the backend recovers.`),
+      detail: label(locale, `${retryableSync.length} 个操作会在云端恢复后同步。`, `${retryableSync.length} operation(s) will sync when cloud sync is available.`),
       primaryCommand: 'sync:retry',
       severity: 'warning',
     }
@@ -125,7 +125,7 @@ export function computeNextBestAction(input: NextBestActionInput): NextBestActio
   const onboarding = onboardingAction(input)
   if (onboarding) return onboarding
 
-  if (input.showAI && input.data.experience.length && input.completeness >= 75) {
+  if (input.data.experience.length && input.completeness >= 75) {
     return {
       kind: 'jd',
       title: label(locale, '根据 JD 定制这一版', 'Tailor this version to a JD'),

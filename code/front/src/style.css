@@ -2784,7 +2784,6 @@ button:disabled {
   gap: 16px;
 }
 
-.workspace-main--assistant .lower,
 .workspace-main--history .lower {
   grid-template-columns: 1fr;
 }
@@ -4765,7 +4764,7 @@ button:disabled {
   margin-top: 2px;
 }
 
-.score-card strong {
+.export-status-card strong {
   display: block;
   margin-bottom: 8px;
   font-size: 44px;
@@ -4774,7 +4773,7 @@ button:disabled {
   color: var(--ink);
 }
 
-.score-card small {
+.export-status-card small {
   color: var(--ink-4);
   font-family: var(--mono);
   font-size: 13px;
@@ -5074,8 +5073,7 @@ button:disabled {
   font-size: 10px;
 }
 
-.score-card p,
-.note-card li {
+.export-status-card p {
   color: var(--ink-3);
   font-size: 12px;
   line-height: 1.65;
@@ -5118,11 +5116,6 @@ button:disabled {
   height: 10px;
   display: inline-block;
   border: 1px solid rgba(31, 30, 26, 0.24);
-}
-
-.note-card ul {
-  margin: 0;
-  padding-left: 16px;
 }
 
 .resume-paper {
