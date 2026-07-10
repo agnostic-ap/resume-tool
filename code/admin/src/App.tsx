@@ -47,7 +47,9 @@ import runtimeConfig from '../config/runtime.json'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
-const apiBaseUrl = runtimeConfig.apiBaseUrl
+// Build-time override; an empty string means same-origin (reverse-proxied /api).
+const apiBaseUrlOverride = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_RESUME_ADMIN_API_BASE_URL
+const apiBaseUrl = (apiBaseUrlOverride ?? runtimeConfig.apiBaseUrl).replace(/\/$/, '')
 
 type ResumeRow = {
   key: string
